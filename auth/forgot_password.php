@@ -1,10 +1,9 @@
 <?php
-session_start();
+require_once "../config/bootstrap.php";
+gsoSecureSessionStart();
 require_once "../config/db.php";
 require_once "../includes/activity_log_helper.php";
 require_once "../includes/mail_helper.php";
-
-date_default_timezone_set("Asia/Manila");
 
 $message = "";
 $messageType = "";
@@ -54,11 +53,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $stmt = $pdo->prepare("
             SELECT user_id, full_name, email, username, role, account_status
             FROM users
-            WHERE email = :login_input OR username = :login_input
+            WHERE email = :login_input_email
+               OR username = :login_input_username
             LIMIT 1
         ");
         $stmt->execute([
-            ":login_input" => $loginInput
+            ":login_input_email" => $loginInput,
+            ":login_input_username" => $loginInput
         ]);
 
         $user = $stmt->fetch(PDO::FETCH_ASSOC);

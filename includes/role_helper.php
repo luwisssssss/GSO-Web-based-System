@@ -1,11 +1,11 @@
 <?php
 
+require_once __DIR__ . "/../config/bootstrap.php";
+
 if (!function_exists("setFlashMessage")) {
     function setFlashMessage(string $message, string $type = "error"): void
     {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        gsoSecureSessionStart();
 
         $_SESSION["flash_message"] = $message;
         $_SESSION["flash_type"] = $type;
@@ -46,9 +46,7 @@ if (!function_exists("ensureAuthenticatedRole")) {
         string $loginPath = "../auth/login.php",
         string $roleHomePrefix = "../"
     ): void {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        gsoSecureSessionStart();
 
         if (!isset($_SESSION["user_id"])) {
             header("Location: " . $loginPath);

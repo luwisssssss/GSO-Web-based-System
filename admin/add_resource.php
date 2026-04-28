@@ -456,3 +456,29 @@ require_once "../includes/admin_sidebar.php";
     </main>
 </div>
 
+<script>
+(function () {
+    const resourceType = document.getElementById("resource_type");
+    const capacityInput = document.getElementById("capacity");
+    const capacityRow = capacityInput ? capacityInput.closest(".form-row") : null;
+
+    if (!resourceType || !capacityInput || !capacityRow) {
+        return;
+    }
+
+    const syncCapacityField = function () {
+        const isFacility = resourceType.value === "Facility";
+
+        capacityRow.hidden = !isFacility;
+        capacityInput.disabled = !isFacility;
+        capacityInput.required = isFacility;
+
+        if (!isFacility) {
+            capacityInput.value = "";
+        }
+    };
+
+    resourceType.addEventListener("change", syncCapacityField);
+    syncCapacityField();
+})();
+</script>

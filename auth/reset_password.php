@@ -1,9 +1,8 @@
 <?php
-session_start();
+require_once "../config/bootstrap.php";
+gsoSecureSessionStart();
 require_once "../config/db.php";
 require_once "../includes/activity_log_helper.php";
-
-date_default_timezone_set("Asia/Manila");
 
 $message = "";
 $messageType = "";

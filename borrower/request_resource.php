@@ -64,6 +64,15 @@ $formDateNeeded = $_POST["date_needed"] ?? "";
 $formStartTime = $_POST["start_time"] ?? "";
 $formEndTime = $_POST["end_time"] ?? "";
 $formNotes = $_POST["notes"] ?? "";
+$resourceBaseStatus = (string) ($resource["status"] ?? "Unavailable");
+$resourceBaseStatusClass = getStatusCssClass($resourceBaseStatus);
+$initialPastFacilitySchedule = $isFacility && isPastFacilitySchedule(
+    $resourceType,
+    $formDateNeeded !== "" ? $formDateNeeded : null,
+    $formStartTime !== "" ? $formStartTime : null
+);
+$resourceDisplayedStatus = $initialPastFacilitySchedule ? "Unavailable" : $resourceBaseStatus;
+$resourceDisplayedStatusClass = getStatusCssClass($resourceDisplayedStatus);
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $csrfToken = $_POST["csrf_token"] ?? "";
@@ -243,6 +252,8 @@ if ($isFacility) {
         "query_params" => [
             "resource_id" => $resourceId
         ],
+        "mark_past_days_unavailable" => true,
+        "disable_past_date_selection" => true,
         "month_param" => "facility_calendar_month",
         "resource_param" => "facility_calendar_resource_id"
     ]);
@@ -274,15 +285,20 @@ require_once "../includes/borrower_sidebar.php";
         <?php endif; ?>
 
         <div class="request-layout">
-        <div class="card request-summary-card">
+        <div class="card request-summary-card <?php echo $initialPastFacilitySchedule ? "schedule-unavailable" : ""; ?>">
             <h3><?php echo htmlspecialchars($resource["resource_name"]); ?></h3>
             <p><strong>Type:</strong> <?php echo htmlspecialchars($resourceType); ?></p>
             <p><strong>Category:</strong> <?php echo htmlspecialchars($resource["category"] ?? "N/A"); ?></p>
             <p><strong>Location:</strong> <?php echo htmlspecialchars($resource["location"] ?? "N/A"); ?></p>
             <p>
                 <strong>Status:</strong>
-                <span class="status-badge <?php echo htmlspecialchars(getStatusCssClass((string) ($resource["status"] ?? "Unavailable"))); ?>">
-                    <?php echo htmlspecialchars((string) ($resource["status"] ?? "Unavailable")); ?>
+                <span
+                    id="resourceStatusBadge"
+                    class="status-badge <?php echo htmlspecialchars($resourceDisplayedStatusClass); ?>"
+                    data-base-status="<?php echo htmlspecialchars($resourceBaseStatus); ?>"
+                    data-base-status-class="<?php echo htmlspecialchars($resourceBaseStatusClass); ?>"
+                >
+                    <?php echo htmlspecialchars($resourceDisplayedStatus); ?>
                 </span>
             </p>
             <p>
@@ -302,7 +318,7 @@ require_once "../includes/borrower_sidebar.php";
             <?php endif; ?>
         </div>
 
-        <div class="card request-form-card">
+        <div class="card request-form-card <?php echo $initialPastFacilitySchedule ? "schedule-unavailable" : ""; ?>">
             <form
                 method="POST"
                 class="request-form"
@@ -401,9 +417,22 @@ require_once "../includes/borrower_sidebar.php";
                 </div>
 
                 <div id="scheduleErrorBox" class="flash-message flash-error" style="display:none;"></div>
+                <?php if ($isFacility): ?>
+                    <div id="pastFacilityScheduleNote" class="facility-schedule-note" <?php echo $initialPastFacilitySchedule ? "" : "hidden"; ?>>
+                        This selected facility schedule is already in the past and is unavailable. Choose a future date and time to continue.
+                    </div>
+                <?php endif; ?>
 
                 <div class="profile-actions">
-                    <button type="submit" class="request-btn">Submit Request</button>
+                    <button
+                        type="submit"
+                        class="request-btn <?php echo $initialPastFacilitySchedule ? "disabled-btn" : ""; ?>"
+                        id="submitRequestButton"
+                        data-default-label="Submit Request"
+                        <?php echo $initialPastFacilitySchedule ? "disabled" : ""; ?>
+                    >
+                        <?php echo $initialPastFacilitySchedule ? "Unavailable" : "Submit Request"; ?>
+                    </button>
                     <a href="browse.php" class="profile-link-btn">Back to Browse</a>
                 </div>
             </form>
@@ -421,6 +450,14 @@ document.addEventListener("DOMContentLoaded", function () {
     const endTime = document.getElementById("end_time");
     const errorBox = document.getElementById("scheduleErrorBox");
     const calendarDays = document.querySelectorAll("[data-calendar-date]");
+    const statusBadge = document.getElementById("resourceStatusBadge");
+    const submitButton = document.getElementById("submitRequestButton");
+    const summaryCard = document.querySelector(".request-summary-card");
+    const formCard = document.querySelector(".request-form-card");
+    const pastFacilityScheduleNote = document.getElementById("pastFacilityScheduleNote");
+    const baseStatus = statusBadge ? (statusBadge.dataset.baseStatus || "Unavailable") : "Unavailable";
+    const baseStatusClass = statusBadge ? (statusBadge.dataset.baseStatusClass || "unavailable") : "unavailable";
+    const defaultSubmitLabel = submitButton ? (submitButton.dataset.defaultLabel || "Submit Request") : "Submit Request";
 
     function pad(value) {
         return String(value).padStart(2, "0");
@@ -471,6 +508,51 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
+    function selectedFacilityScheduleIsPast() {
+        if (resourceType !== "Facility" || !dateNeeded.value || !startTime.value) {
+            return false;
+        }
+
+        const scheduleStart = new Date(`${dateNeeded.value}T${startTime.value}`);
+
+        if (Number.isNaN(scheduleStart.getTime())) {
+            return false;
+        }
+
+        return scheduleStart.getTime() <= Date.now();
+    }
+
+    function syncFacilityAvailabilityState() {
+        if (resourceType !== "Facility") {
+            return;
+        }
+
+        const scheduleIsPast = selectedFacilityScheduleIsPast();
+
+        if (statusBadge) {
+            statusBadge.className = `status-badge ${scheduleIsPast ? "unavailable" : baseStatusClass}`;
+            statusBadge.textContent = scheduleIsPast ? "Unavailable" : baseStatus;
+        }
+
+        [summaryCard, formCard].forEach(function (card) {
+            if (!card) {
+                return;
+            }
+
+            card.classList.toggle("schedule-unavailable", scheduleIsPast);
+        });
+
+        if (pastFacilityScheduleNote) {
+            pastFacilityScheduleNote.hidden = !scheduleIsPast;
+        }
+
+        if (submitButton) {
+            submitButton.disabled = scheduleIsPast;
+            submitButton.classList.toggle("disabled-btn", scheduleIsPast);
+            submitButton.textContent = scheduleIsPast ? "Unavailable" : defaultSubmitLabel;
+        }
+    }
+
     function validateSchedule() {
         const errors = [];
         const today = getTodayDate();
@@ -512,6 +594,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         showErrors(errors);
+        syncFacilityAvailabilityState();
         return errors.length === 0;
     }
 
@@ -543,6 +626,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     form.addEventListener("submit", function (event) {
         syncMinTimes();
+        syncFacilityAvailabilityState();
 
         if (!validateSchedule()) {
             event.preventDefault();
@@ -551,6 +635,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     syncMinTimes();
     validateSchedule();
+    syncFacilityAvailabilityState();
     syncSelectedCalendarDay();
 });
 </script>

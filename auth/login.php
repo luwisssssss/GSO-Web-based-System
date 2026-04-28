@@ -1,10 +1,9 @@
 <?php
-session_start();
+require_once "../config/bootstrap.php";
+gsoSecureSessionStart();
 require_once "../config/db.php";
 require_once "../includes/activity_log_helper.php";
 require_once "../includes/role_helper.php";
-
-date_default_timezone_set("Asia/Manila");
 
 $message = "";
 $messageType = "info";
@@ -165,11 +164,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 account_status,
                 email_verified
             FROM users
-            WHERE email = :login_input OR username = :login_input
+            WHERE email = :login_input_email
+               OR username = :login_input_username
             LIMIT 1
         ");
         $stmt->execute([
-            ":login_input" => $loginInputValue,
+            ":login_input_email" => $loginInputValue,
+            ":login_input_username" => $loginInputValue,
         ]);
 
         $user = $stmt->fetch(PDO::FETCH_ASSOC);

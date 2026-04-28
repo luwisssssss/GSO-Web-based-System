@@ -28,6 +28,12 @@ $baseWhereSql = "
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
     WHERE rr.borrower_id = :borrower_id
       AND rr.status = 'Released'
+      AND NOT (
+            r.resource_type = 'Facility'
+            AND rr.date_needed IS NOT NULL
+            AND rr.start_time IS NOT NULL
+            AND TIMESTAMP(rr.date_needed, rr.start_time) <= NOW()
+      )
 ";
 
 $params = [

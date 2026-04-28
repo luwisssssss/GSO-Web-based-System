@@ -314,6 +314,9 @@ if (!function_exists("renderFacilityAvailabilityCalendar")) {
         $title = (string) ($options["title"] ?? "Facility Availability");
         $subtitle = (string) ($options["subtitle"] ?? "Reserved dates and maintenance blocks are loaded from active facility requests.");
         $emptyMessage = (string) ($options["empty_message"] ?? "Available");
+        $pastDayMessage = (string) ($options["past_day_message"] ?? "Unavailable");
+        $markPastDaysUnavailable = (bool) ($options["mark_past_days_unavailable"] ?? true);
+        $disablePastDateSelection = (bool) ($options["disable_past_date_selection"] ?? false);
         $today = date("Y-m-d");
         $activeReservationCount = 0;
         $blockedDayCount = count($eventsByDate);
@@ -375,6 +378,9 @@ if (!function_exists("renderFacilityAvailabilityCalendar")) {
 
             <div class="facility-calendar-legend" aria-label="Calendar legend">
                 <span><i class="legend-dot available"></i> Available</span>
+                <?php if ($markPastDaysUnavailable): ?>
+                    <span><i class="legend-dot unavailable"></i> Past / unavailable</span>
+                <?php endif; ?>
                 <span><i class="legend-dot pending"></i> Pending review</span>
                 <span><i class="legend-dot approved"></i> Approved or released</span>
                 <span><i class="legend-dot maintenance"></i> Maintenance</span>
@@ -392,6 +398,7 @@ if (!function_exists("renderFacilityAvailabilityCalendar")) {
                         <?php
                         $date = date("Y-m-d", $dayTimestamp);
                         $isOutside = $date < $monthStart || $date > $monthEnd;
+                        $isPastDate = !$isOutside && $date < $today;
                         $dayEvents = $eventsByDate[$date] ?? [];
                         $hasReservation = false;
                         $hasMaintenance = false;
@@ -414,6 +421,10 @@ if (!function_exists("renderFacilityAvailabilityCalendar")) {
                             $dayClasses[] = "is-today";
                         }
 
+                        if ($isPastDate && $markPastDaysUnavailable) {
+                            $dayClasses[] = "is-past";
+                        }
+
                         if ($hasMaintenance) {
                             $dayClasses[] = "has-maintenance";
                         }
@@ -422,17 +433,26 @@ if (!function_exists("renderFacilityAvailabilityCalendar")) {
                             $dayClasses[] = "has-reservation";
                         }
 
-                        if (!$isOutside && !$hasMaintenance && !$hasReservation) {
+                        if (!$isOutside && !$hasMaintenance && !$hasReservation && !$isPastDate) {
                             $dayClasses[] = "is-available";
                         }
                         ?>
                         <div class="<?php echo facilityCalendarEscape(implode(" ", $dayClasses)); ?>" role="gridcell" data-calendar-day="<?php echo facilityCalendarEscape($date); ?>">
-                            <button type="button" class="facility-calendar-day-button" data-calendar-date="<?php echo facilityCalendarEscape($date); ?>">
+                            <button
+                                type="button"
+                                class="facility-calendar-day-button"
+                                data-calendar-date="<?php echo facilityCalendarEscape($date); ?>"
+                                <?php echo $disablePastDateSelection && $isPastDate ? "disabled aria-disabled=\"true\"" : ""; ?>
+                            >
                                 <span class="facility-calendar-day-number"><?php echo facilityCalendarEscape(date("j", $dayTimestamp)); ?></span>
 
                                 <span class="facility-calendar-day-events">
                                     <?php if (!$isOutside && empty($dayEvents)): ?>
-                                        <span class="facility-calendar-available"><?php echo facilityCalendarEscape($emptyMessage); ?></span>
+                                        <?php if ($isPastDate && $markPastDaysUnavailable): ?>
+                                            <span class="facility-calendar-unavailable"><?php echo facilityCalendarEscape($pastDayMessage); ?></span>
+                                        <?php else: ?>
+                                            <span class="facility-calendar-available"><?php echo facilityCalendarEscape($emptyMessage); ?></span>
+                                        <?php endif; ?>
                                     <?php else: ?>
                                         <?php foreach (array_slice($dayEvents, 0, 4) as $event): ?>
                                             <?php

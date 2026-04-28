@@ -69,7 +69,8 @@ if (!$request) {
     redirectWithFlash("requests.php", "Request not found.");
 }
 
-$displayStatus = getRequestLifecycleStatus($request);
+$isPastFacilityUnavailable = isPastFacilityRequest($request);
+$displayStatus = $isPastFacilityUnavailable ? "Unavailable" : getRequestLifecycleStatus($request);
 $statusClass = getStatusCssClass($displayStatus);
 $resourceStatusClass = strtolower($request["resource_status"] ?? "");
 $archiveState = ((int)($request["is_archived"] ?? 0) === 1) ? "Archived" : "Active";
@@ -194,6 +195,12 @@ require_once "../includes/admin_sidebar.php";
                     <?php echo htmlspecialchars($archiveState); ?>
                 </span>
             </div>
+
+            <?php if ($isPastFacilityUnavailable): ?>
+                <p class="mini-muted" style="margin-top: 12px;">
+                    This facility request is shown as unavailable because its scheduled date and time are already in the past.
+                </p>
+            <?php endif; ?>
 
             <div class="page-action-bar">
                 <a href="requests.php" class="admin-btn info-btn">Back to Requests</a>

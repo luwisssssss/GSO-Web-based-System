@@ -135,6 +135,46 @@ if (!function_exists("buildRequestDateRange")) {
     }
 }
 
+if (!function_exists("buildScheduleStartDateTime")) {
+    function buildScheduleStartDateTime(?string $dateNeeded, ?string $startTime): ?string
+    {
+        if (empty($dateNeeded)) {
+            return null;
+        }
+
+        $timePortion = !empty($startTime) ? $startTime : "00:00:00";
+
+        return normalizeDateTimeInput($dateNeeded . " " . $timePortion);
+    }
+}
+
+if (!function_exists("isPastFacilitySchedule")) {
+    function isPastFacilitySchedule(
+        string $resourceType,
+        ?string $dateNeeded,
+        ?string $startTime
+    ): bool {
+        if ($resourceType !== "Facility" || empty($dateNeeded) || empty($startTime)) {
+            return false;
+        }
+
+        $scheduleStart = buildScheduleStartDateTime($dateNeeded, $startTime);
+
+        if ($scheduleStart === null) {
+            return false;
+        }
+
+        return strtotime($scheduleStart) <= time();
+    }
+}
+
+if (!function_exists("buildPastFacilityScheduleMessage")) {
+    function buildPastFacilityScheduleMessage(): string
+    {
+        return "Selected facility date and time are already in the past and unavailable.";
+    }
+}
+
 if (!function_exists("intervalsOverlap")) {
     function intervalsOverlap(string $startA, string $endA, string $startB, string $endB): bool
     {
@@ -193,6 +233,10 @@ if (!function_exists("validateBorrowScheduleInputs")) {
             if ($hasEndTime && strtotime($endTime) <= strtotime($currentTime)) {
                 $errors[] = "Past end times are not allowed for today.";
             }
+        }
+
+        if (empty($errors) && isPastFacilitySchedule($resourceType, $dateNeeded, $startTime)) {
+            $errors[] = buildPastFacilityScheduleMessage();
         }
 
         if (!empty($dueDate) && $normalizedDueDate === null) {
@@ -429,6 +473,13 @@ if (!function_exists("checkResourceAvailability")) {
             return [
                 "ok" => false,
                 "message" => "This resource is currently marked as {$conditionStatus} and cannot be selected."
+            ];
+        }
+
+        if (isPastFacilitySchedule($resourceType, $dateNeeded, $startTime)) {
+            return [
+                "ok" => false,
+                "message" => buildPastFacilityScheduleMessage()
             ];
         }
 
@@ -719,6 +770,27 @@ if (!function_exists("buildFirstComeFirstServedMessage")) {
 
         return "First-come-first-served queue rule: process {$requestCode} from {$borrowerName} first. "
             . "It was submitted on {$submittedAt}.";
+    }
+}
+
+if (!function_exists("isPastFacilityRequest")) {
+    function isPastFacilityRequest(array $row): bool
+    {
+        $status = (string) ($row["status"] ?? "");
+
+        if ((string) ($row["resource_type"] ?? "") !== "Facility") {
+            return false;
+        }
+
+        if (!in_array($status, ["Pending", "Under Review", "Approved", "Released"], true)) {
+            return false;
+        }
+
+        return isPastFacilitySchedule(
+            "Facility",
+            $row["date_needed"] ?? null,
+            $row["start_time"] ?? null
+        );
     }
 }
 

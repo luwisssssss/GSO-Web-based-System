@@ -178,28 +178,25 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 }
             }
 
-            $finalImageName = $resource["resource_image"] ?? null;
+            $existingImageName = $resource["resource_image"] ?? null;
+            $finalImageName = $existingImageName;
+            $newUploadedImageName = null;
             $removeCurrentImage = isset($_POST["remove_resource_image"]) && $_POST["remove_resource_image"] === "1";
 
             if ($message === "") {
-                if (
-                    $removeCurrentImage &&
-                    (
-                        !isset($_FILES["resource_image"]) ||
-                        ($_FILES["resource_image"]["error"] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE
-                    )
-                ) {
-                    deleteResourceImage($finalImageName);
-                    $finalImageName = null;
-                }
-
-                $uploadResult = uploadResourceImage($_FILES["resource_image"] ?? null, $finalImageName);
+                $uploadResult = uploadResourceImage($_FILES["resource_image"] ?? null, null, false);
 
                 if (!$uploadResult["success"]) {
                     $message = $uploadResult["message"];
                     $messageType = "error";
                 } else {
-                    $finalImageName = $uploadResult["filename"];
+                    $newUploadedImageName = $uploadResult["filename"];
+
+                    if (!empty($newUploadedImageName)) {
+                        $finalImageName = $newUploadedImageName;
+                    } elseif ($removeCurrentImage) {
+                        $finalImageName = null;
+                    }
                 }
             }
 
@@ -223,6 +220,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 ]);
 
                 if ($checkStmt->fetch()) {
+                    if (!empty($newUploadedImageName)) {
+                        deleteResourceImage($newUploadedImageName);
+                    }
+
                     $message = "A resource with the same name and type already exists.";
                     $messageType = "error";
                 } else {
@@ -262,6 +263,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     ]);
 
                     if ($success) {
+                        if (
+                            !empty($existingImageName)
+                            && ($removeCurrentImage || !empty($newUploadedImageName))
+                            && $existingImageName !== $finalImageName
+                        ) {
+                            deleteResourceImage($existingImageName);
+                        }
+
                         addActivityLog(
                             $pdo,
                             (int) ($_SESSION["user_id"] ?? 0),
@@ -292,6 +301,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             "condition_notes" => $resource["condition_notes"] ?? ""
                         ];
                     } else {
+                        if (!empty($newUploadedImageName)) {
+                            deleteResourceImage($newUploadedImageName);
+                        }
+
                         $message = "Failed to update resource.";
                         $messageType = "error";
                     }
@@ -507,4 +520,31 @@ require_once "../includes/admin_sidebar.php";
         </div>
     </main>
 </div>
+
+<script>
+(function () {
+    const resourceType = document.getElementById("resource_type");
+    const capacityInput = document.getElementById("capacity");
+    const capacityRow = capacityInput ? capacityInput.closest(".form-row") : null;
+
+    if (!resourceType || !capacityInput || !capacityRow) {
+        return;
+    }
+
+    const syncCapacityField = function () {
+        const isFacility = resourceType.value === "Facility";
+
+        capacityRow.hidden = !isFacility;
+        capacityInput.disabled = !isFacility;
+        capacityInput.required = isFacility;
+
+        if (!isFacility) {
+            capacityInput.value = "";
+        }
+    };
+
+    resourceType.addEventListener("change", syncCapacityField);
+    syncCapacityField();
+})();
+</script>
 

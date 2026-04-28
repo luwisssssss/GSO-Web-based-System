@@ -58,72 +58,40 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     } else {
         $full_name = trim($_POST["full_name"] ?? "");
         $department = trim($_POST["department"] ?? "");
-        $university_id = trim($_POST["university_id"] ?? "");
-        $email = trim($_POST["email"] ?? "");
-        $username = trim($_POST["username"] ?? "");
 
-        if ($full_name === "" || $email === "" || $username === "") {
-            $message = "Full name, email, and username are required.";
-            $messageType = "error";
-        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $message = "Please enter a valid email address.";
+        if ($full_name === "") {
+            $message = "Full name is required.";
             $messageType = "error";
         } else {
-            $checkStmt = $pdo->prepare("
-                SELECT user_id
-                FROM users
-                WHERE (email = :email OR username = :username)
-                  AND user_id <> :user_id
+            $updateStmt = $pdo->prepare("
+                UPDATE users
+                SET
+                    full_name = :full_name,
+                    department = :department
+                WHERE user_id = :user_id
+                  AND role = 'Admin'
                 LIMIT 1
             ");
-            $checkStmt->execute([
-                ":email" => $email,
-                ":username" => $username,
+
+            $success = $updateStmt->execute([
+                ":full_name" => $full_name,
+                ":department" => $department !== "" ? $department : null,
                 ":user_id" => $user_id
             ]);
 
-            if ($checkStmt->fetch()) {
-                $message = "Email or username is already being used by another account.";
-                $messageType = "error";
-            } else {
-                $updateStmt = $pdo->prepare("
-                    UPDATE users
-                    SET
-                        full_name = :full_name,
-                        department = :department,
-                        university_id = :university_id,
-                        email = :email,
-                        username = :username
-                    WHERE user_id = :user_id
-                      AND role = 'Admin'
-                    LIMIT 1
-                ");
+            if ($success) {
+                $_SESSION["full_name"] = $full_name;
 
-                $success = $updateStmt->execute([
-                    ":full_name" => $full_name,
-                    ":department" => $department !== "" ? $department : null,
-                    ":university_id" => $university_id !== "" ? $university_id : null,
-                    ":email" => $email,
-                    ":username" => $username,
+                $message = "Profile updated successfully.";
+                $messageType = "success";
+
+                $stmt->execute([
                     ":user_id" => $user_id
                 ]);
-
-                if ($success) {
-                    $_SESSION["full_name"] = $full_name;
-                    $_SESSION["email"] = $email;
-                    $_SESSION["username"] = $username;
-
-                    $message = "Profile updated successfully.";
-                    $messageType = "success";
-
-                    $stmt->execute([
-                        ":user_id" => $user_id
-                    ]);
-                    $user = $stmt->fetch(PDO::FETCH_ASSOC);
-                } else {
-                    $message = "Failed to update profile.";
-                    $messageType = "error";
-                }
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            } else {
+                $message = "Failed to update profile.";
+                $messageType = "error";
             }
         }
     }
@@ -163,11 +131,11 @@ require_once "../includes/admin_sidebar.php";
                     <i class="fa-solid fa-id-card" aria-hidden="true"></i>
                 </div>
                 <h3>Profile details that matter</h3>
-                <p>Keep your account information current so approvals, audit logs, and account recovery details stay accurate.</p>
+                <p>Keep your display name and department current while the system protects your core account identity fields.</p>
                 <div class="form-intro-points">
-                    <span><i class="fa-solid fa-user-check" aria-hidden="true"></i> Personal identity details</span>
-                    <span><i class="fa-solid fa-building-columns" aria-hidden="true"></i> Department and university record</span>
-                    <span><i class="fa-solid fa-envelope-circle-check" aria-hidden="true"></i> Trusted contact information</span>
+                    <span><i class="fa-solid fa-user-check" aria-hidden="true"></i> Update your full name for current records</span>
+                    <span><i class="fa-solid fa-building-columns" aria-hidden="true"></i> Keep your department assignment accurate</span>
+                    <span><i class="fa-solid fa-lock" aria-hidden="true"></i> Username, email, and university ID stay locked</span>
                 </div>
             </aside>
 
@@ -177,7 +145,7 @@ require_once "../includes/admin_sidebar.php";
 
                     <div class="form-section-heading">
                         <h3>Personal Information</h3>
-                        <p>These details appear across your admin account and activity records.</p>
+                        <p>Only the editable profile details for your admin account are shown here.</p>
                     </div>
 
                     <div class="form-row form-row--full">
@@ -203,15 +171,20 @@ require_once "../includes/admin_sidebar.php";
                         >
                     </div>
 
+                    <div class="form-section-heading">
+                        <h3>Locked Account Details</h3>
+                        <p>These fields stay read-only to protect account identity and audit history.</p>
+                    </div>
+
                     <div class="form-row">
                         <label for="university_id">University ID</label>
                         <input
                             type="text"
                             id="university_id"
-                            name="university_id"
-                            placeholder="Enter your university ID"
                             value="<?php echo htmlspecialchars($user["university_id"] ?? ""); ?>"
+                            disabled
                         >
+                        <small class="form-help">University ID changes are restricted for security and audit consistency.</small>
                     </div>
 
                     <div class="form-row form-row--full">
@@ -219,11 +192,10 @@ require_once "../includes/admin_sidebar.php";
                         <input
                             type="email"
                             id="email"
-                            name="email"
-                            placeholder="Enter your email address"
                             value="<?php echo htmlspecialchars($user["email"] ?? ""); ?>"
-                            required
+                            disabled
                         >
+                        <small class="form-help">Email changes are managed outside this profile form.</small>
                     </div>
 
                     <div class="form-row">
@@ -231,16 +203,10 @@ require_once "../includes/admin_sidebar.php";
                         <input
                             type="text"
                             id="username"
-                            name="username"
-                            placeholder="Choose your username"
                             value="<?php echo htmlspecialchars($user["username"] ?? ""); ?>"
-                            required
+                            disabled
                         >
-                    </div>
-
-                    <div class="form-section-heading">
-                        <h3>Account Overview</h3>
-                        <p>These fields are informational and remain controlled by the system.</p>
+                        <small class="form-help">Username is locked to preserve account identity.</small>
                     </div>
 
                     <div class="form-row">

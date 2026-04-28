@@ -1,11 +1,17 @@
 <?php
-session_start();
+require_once "../config/bootstrap.php";
+gsoSecureSessionStart();
 require_once "../config/db.php";
 require_once "../includes/notification_helper.php";
 
 if (empty($_SESSION["user_id"])) {
     http_response_code(401);
     exit("Unauthorized");
+}
+
+if (($_SERVER["REQUEST_METHOD"] ?? "GET") !== "POST") {
+    http_response_code(405);
+    exit("Method not allowed");
 }
 
 $user_id = (int) $_SESSION['user_id'];

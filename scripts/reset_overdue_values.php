@@ -1,10 +1,7 @@
 <?php
 require_once __DIR__ . "/../config/db.php";
 
-$columnStmt = $pdo->query("SHOW COLUMNS FROM resource_requests LIKE 'overdue'");
-$overdueColumn = $columnStmt->fetch(PDO::FETCH_ASSOC);
-
-if (!$overdueColumn) {
+if (!columnExists($pdo, "resource_requests", "overdue")) {
     echo "No overdue column found in resource_requests. Current overdue status is computed from due dates and request status.\n";
     exit(0);
 }

@@ -25,13 +25,38 @@ function chartWidth(int $value, int $maxValue): string
     return round(($value / $maxValue) * 100, 2) . "%";
 }
 
+$excludePastFacilityWhere = "
+    NOT EXISTS (
+        SELECT 1
+        FROM resources active_facility_filter
+        WHERE active_facility_filter.resource_id = resource_requests.resource_id
+          AND active_facility_filter.resource_type = 'Facility'
+          AND resource_requests.date_needed IS NOT NULL
+          AND resource_requests.start_time IS NOT NULL
+          AND TIMESTAMP(resource_requests.date_needed, resource_requests.start_time) <= NOW()
+    )
+";
+$excludePastFacilityWhereForAlias = "
+    NOT EXISTS (
+        SELECT 1
+        FROM resources active_facility_filter
+        WHERE active_facility_filter.resource_id = rr.resource_id
+          AND active_facility_filter.resource_type = 'Facility'
+          AND rr.date_needed IS NOT NULL
+          AND rr.start_time IS NOT NULL
+          AND TIMESTAMP(rr.date_needed, rr.start_time) <= NOW()
+    )
+";
+
 $activeRequestWhere = "
     status IN ('Pending', 'Under Review', 'Approved', 'Released')
     AND (status <> 'Released' OR return_date IS NULL)
+    AND {$excludePastFacilityWhere}
 ";
 $activeRequestWhereForAlias = "
     rr.status IN ('Pending', 'Under Review', 'Approved', 'Released')
     AND (rr.status <> 'Released' OR rr.return_date IS NULL)
+    AND {$excludePastFacilityWhereForAlias}
 ";
 
 $inventoryState = $pdo->query("
@@ -123,6 +148,12 @@ $mostBorrowed = $pdo->query("
     INNER JOIN resources r ON rr.resource_id = r.resource_id
     WHERE rr.status = 'Released'
       AND rr.return_date IS NULL
+      AND NOT (
+            r.resource_type = 'Facility'
+            AND rr.date_needed IS NOT NULL
+            AND rr.start_time IS NOT NULL
+            AND TIMESTAMP(rr.date_needed, rr.start_time) <= NOW()
+      )
     GROUP BY r.resource_id, r.resource_name, r.resource_type
     ORDER BY borrow_count DESC, r.resource_name ASC
     LIMIT 5

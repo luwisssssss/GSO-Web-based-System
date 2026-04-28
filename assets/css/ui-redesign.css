@@ -1240,6 +1240,30 @@ button:disabled {
     gap: 18px;
 }
 
+.request-summary-card.schedule-unavailable,
+.request-form-card.schedule-unavailable {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+    box-shadow: none;
+}
+
+.request-summary-card.schedule-unavailable {
+    opacity: 0.84;
+    filter: grayscale(0.2);
+    cursor: not-allowed;
+}
+
+.facility-schedule-note {
+    padding: 12px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: var(--radius-md);
+    background: #f8fafc;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.5;
+}
+
 .admin-account-create-form {
     display: grid;
     grid-template-columns: repeat(3, minmax(180px, 1fr));
@@ -1946,6 +1970,10 @@ button:disabled {
     background: #16a34a;
 }
 
+.legend-dot.unavailable {
+    background: #94a3b8;
+}
+
 .legend-dot.pending {
     background: #d97706;
 }
@@ -2004,9 +2032,22 @@ button:disabled {
     background: #f8fbff;
 }
 
+.facility-calendar-day-button:disabled {
+    cursor: not-allowed;
+    background: #f1f5f9;
+}
+
+.facility-calendar-day-button:disabled:hover {
+    background: #f1f5f9;
+}
+
 .facility-calendar-day.is-outside {
     background: #eef3f8;
     color: #8a98aa;
+}
+
+.facility-calendar-day.is-past {
+    background: #f1f5f9;
 }
 
 .facility-calendar-day.is-today .facility-calendar-day-number {
@@ -2051,6 +2092,7 @@ button:disabled {
 }
 
 .facility-calendar-available,
+.facility-calendar-unavailable,
 .facility-calendar-more {
     display: inline-flex;
     width: fit-content;
@@ -2060,6 +2102,11 @@ button:disabled {
     color: #166534;
     font-size: 11px;
     font-weight: 900;
+}
+
+.facility-calendar-unavailable {
+    background: #e2e8f0;
+    color: #475569;
 }
 
 .facility-calendar-more {
@@ -2497,6 +2544,21 @@ button:disabled {
     padding: 9px 10px;
     color: #64748b;
     font-size: 13px;
+    font-weight: 800;
+}
+
+.request-row-unavailable td {
+    background: #f8fafc;
+    color: #475569;
+}
+
+.request-row-unavailable .row-actions-trigger {
+    border-color: #cbd5e1;
+    color: #64748b;
+}
+
+.request-status-note {
+    color: #64748b;
     font-weight: 800;
 }
 

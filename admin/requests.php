@@ -516,9 +516,12 @@ $rows = $listStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 $filteredRows = [];
 
 foreach ($rows as $row) {
-    $displayStatus = getRequestLifecycleStatus($row);
+    $isPastFacilityUnavailable = isPastFacilityRequest($row);
+    $displayStatus = $isPastFacilityUnavailable ? "Unavailable" : getRequestLifecycleStatus($row);
     $row["display_status"] = $displayStatus;
     $row["display_status_class"] = getStatusCssClass($displayStatus);
+    $row["is_past_facility_unavailable"] = $isPastFacilityUnavailable;
+    $row["display_status_note"] = $isPastFacilityUnavailable ? "Past facility schedule" : "";
 
     if ($statusFilter !== "All" && strcasecmp($displayStatus, $statusFilter) !== 0) {
         continue;
@@ -548,11 +551,12 @@ usort($filteredRows, function (array $left, array $right): int {
         "Under Review" => 2,
         "Approved" => 3,
         "Released" => 4,
-        "Overdue" => 5,
-        "Returned" => 6,
-        "Damaged" => 7,
-        "Rejected" => 8,
-        "Cancelled" => 9
+        "Unavailable" => 5,
+        "Overdue" => 6,
+        "Returned" => 7,
+        "Damaged" => 8,
+        "Rejected" => 9,
+        "Cancelled" => 10
     ];
 
     $leftPriority = $priority[$left["display_status"] ?? "Cancelled"] ?? 99;
@@ -582,7 +586,9 @@ $offset = ($page - 1) * $perPage;
 $requests = array_slice($filteredRows, $offset, $perPage);
 
 foreach ($requests as $requestIndex => $requestRowForQueue) {
-    $requests[$requestIndex]["queue_rank"] = getFirstComeFirstServedQueueRank($pdo, $requestRowForQueue);
+    $requests[$requestIndex]["queue_rank"] = !empty($requestRowForQueue["is_past_facility_unavailable"])
+        ? null
+        : getFirstComeFirstServedQueueRank($pdo, $requestRowForQueue);
 }
 
 $flashMessage = $_SESSION["flash_message"] ?? "";
@@ -689,7 +695,7 @@ require_once "../includes/admin_sidebar.php";
         </div>
 
         <div class="status-tabs" aria-label="Request status filters">
-            <?php foreach (["All", "Pending", "Under Review", "Approved", "Released", "Overdue", "Returned", "Rejected", "Cancelled"] as $statusTab): ?>
+            <?php foreach (["All", "Pending", "Under Review", "Approved", "Released", "Unavailable", "Overdue", "Returned", "Rejected", "Cancelled"] as $statusTab): ?>
                 <a
                     href="requests.php?<?php echo htmlspecialchars(http_build_query(array_merge($queryBase, ["status" => $statusTab, "page" => 1]))); ?>"
                     class="<?php echo strcasecmp($statusFilter, $statusTab) === 0 ? "active" : ""; ?>"
@@ -714,6 +720,7 @@ require_once "../includes/admin_sidebar.php";
                     <option value="Under Review" <?php echo $statusFilter === "Under Review" ? "selected" : ""; ?>>Under Review</option>
                     <option value="Approved" <?php echo $statusFilter === "Approved" ? "selected" : ""; ?>>Approved</option>
                     <option value="Released" <?php echo $statusFilter === "Released" ? "selected" : ""; ?>>Released</option>
+                    <option value="Unavailable" <?php echo $statusFilter === "Unavailable" ? "selected" : ""; ?>>Unavailable</option>
                     <option value="Overdue" <?php echo $statusFilter === "Overdue" ? "selected" : ""; ?>>Overdue</option>
                     <option value="Returned" <?php echo $statusFilter === "Returned" ? "selected" : ""; ?>>Returned</option>
                     <option value="Damaged" <?php echo $statusFilter === "Damaged" ? "selected" : ""; ?>>Damaged</option>
@@ -740,8 +747,16 @@ require_once "../includes/admin_sidebar.php";
                     <tbody>
                         <?php if (count($requests) > 0): ?>
                             <?php foreach ($requests as $request): ?>
-                                <?php $borrowerCallHref = buildPhoneCallHref($request["contact_number"] ?? null); ?>
-                                <tr>
+                                <?php
+                                $borrowerCallHref = buildPhoneCallHref($request["contact_number"] ?? null);
+                                $isPastFacilityUnavailable = !empty($request["is_past_facility_unavailable"]);
+                                $canApproveRequest = in_array((string) ($request["status"] ?? ""), ["Pending", "Under Review"], true)
+                                    && !$isPastFacilityUnavailable;
+                                $canRejectRequest = in_array((string) ($request["status"] ?? ""), ["Pending", "Under Review"], true);
+                                $canReleaseRequest = ((string) ($request["status"] ?? "") === "Approved")
+                                    && !$isPastFacilityUnavailable;
+                                ?>
+                                <tr class="<?php echo $isPastFacilityUnavailable ? "request-row-unavailable" : ""; ?>">
                                     <td>REQ-<?php echo str_pad((string) $request["request_id"], 3, "0", STR_PAD_LEFT); ?></td>
 
                                     <td>
@@ -792,6 +807,9 @@ require_once "../includes/admin_sidebar.php";
                                         <span class="status-badge <?php echo htmlspecialchars((string) $request["display_status_class"]); ?>">
                                             <?php echo htmlspecialchars((string) $request["display_status"]); ?>
                                         </span>
+                                        <?php if (!empty($request["display_status_note"])): ?>
+                                            <br><small class="request-status-note"><?php echo htmlspecialchars((string) $request["display_status_note"]); ?></small>
+                                        <?php endif; ?>
                                         <?php if (!empty($request["reviewed_by_name"])): ?>
                                             <br><small>Reviewed by <?php echo htmlspecialchars((string) $request["reviewed_by_name"]); ?></small>
                                         <?php endif; ?>
@@ -830,7 +848,7 @@ require_once "../includes/admin_sidebar.php";
                                                     </a>
                                                 <?php endif; ?>
 
-                                                <?php if (in_array((string) ($request["status"] ?? ""), ["Pending", "Under Review"], true)): ?>
+                                                <?php if ($canApproveRequest): ?>
                                                     <form method="POST" class="inline-form" onsubmit="return confirm('Approve this request?');">
                                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
                                                         <input type="hidden" name="request_id" value="<?php echo htmlspecialchars((string) $request["request_id"]); ?>">
@@ -840,7 +858,11 @@ require_once "../includes/admin_sidebar.php";
                                                             <span>Approve</span>
                                                         </button>
                                                     </form>
+                                                <?php elseif ($isPastFacilityUnavailable): ?>
+                                                    <span class="row-action-note">Past facility schedule</span>
+                                                <?php endif; ?>
 
+                                                <?php if ($canRejectRequest): ?>
                                                     <form method="POST" class="inline-form" onsubmit="return confirm('Reject this request?');">
                                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
                                                         <input type="hidden" name="request_id" value="<?php echo htmlspecialchars((string) $request["request_id"]); ?>">
@@ -850,7 +872,9 @@ require_once "../includes/admin_sidebar.php";
                                                             <span>Reject</span>
                                                         </button>
                                                     </form>
-                                                <?php elseif (($request["status"] ?? "") === "Approved"): ?>
+                                                <?php endif; ?>
+
+                                                <?php if ($canReleaseRequest): ?>
                                                     <form method="POST" class="inline-form" onsubmit="return confirm('Release this approved request now? The return due date will be generated from the release time.');">
                                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
                                                         <input type="hidden" name="request_id" value="<?php echo htmlspecialchars((string) $request["request_id"]); ?>">
@@ -860,6 +884,8 @@ require_once "../includes/admin_sidebar.php";
                                                             <span>Release</span>
                                                         </button>
                                                     </form>
+                                                <?php elseif (($request["status"] ?? "") === "Approved" && $isPastFacilityUnavailable): ?>
+                                                    <span class="row-action-note">Release blocked for past schedule</span>
                                                 <?php elseif (in_array((string) ($request["display_status"] ?? ""), ["Released", "Overdue"], true)): ?>
                                                     <a href="on_loan.php" class="row-action-item" role="menuitem">
                                                         <i class="fa-solid fa-chart-line" aria-hidden="true"></i>

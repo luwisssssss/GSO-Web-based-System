@@ -92,6 +92,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
 
         if ($message === "") {
+            $oldPhotos = [];
+            $newUploadedPhotos = [];
+
             try {
                 $pdo->beginTransaction();
 
@@ -126,12 +129,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     $photoRowsStmt->execute([":return_id" => $returnId]);
                     $oldPhotos = $photoRowsStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-                    foreach ($oldPhotos as $p) {
-                        if (!empty($p["filename"])) {
-                            deleteReturnPhotoFile((string)$p["filename"]);
-                        }
-                    }
-
                     $pdo->prepare("
                         DELETE FROM return_submission_photos
                         WHERE return_id = :return_id
@@ -155,6 +152,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     if (!($up["success"] ?? false)) {
                         throw new Exception((string)($up["message"] ?? "Photo upload failed."));
                     }
+
+                    $newUploadedPhotos[] = (string)$up["filename"];
 
                     $pdo->prepare("
                         INSERT INTO return_submission_photos (return_id, filename, mime_type)
@@ -195,6 +194,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 $pdo->commit();
 
+                foreach ($oldPhotos as $p) {
+                    if (!empty($p["filename"])) {
+                        deleteReturnPhotoFile((string)$p["filename"]);
+                    }
+                }
+
                 $_SESSION["flash_message"] = "Return submitted successfully. Wait for admin confirmation.";
                 $_SESSION["flash_type"] = "success";
                 header("Location: my_borrowed.php");
@@ -203,6 +208,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
+
+                foreach ($newUploadedPhotos as $filename) {
+                    deleteReturnPhotoFile($filename);
+                }
+
                 $message = $e->getMessage();
             }
         }

@@ -1,13 +1,14 @@
 <?php
+require_once __DIR__ . "/bootstrap.php";
 
 $mailConfig = [
-    "host" => getenv("GSO_SMTP_HOST") ?: "smtp.gmail.com",
-    "username" => getenv("GSO_SMTP_USERNAME") ?: "",
-    "password" => getenv("GSO_SMTP_PASSWORD") ?: "",
-    "port" => (int) (getenv("GSO_SMTP_PORT") ?: 587),
-    "secure" => getenv("GSO_SMTP_SECURE") ?: "tls",
-    "from_email" => getenv("GSO_SMTP_FROM") ?: (getenv("GSO_SMTP_USERNAME") ?: "no-reply@gso.local"),
-    "from_name" => getenv("GSO_SMTP_FROM_NAME") ?: "GSO System"
+    "host" => gsoEnv("GSO_SMTP_HOST", "smtp.gmail.com"),
+    "username" => gsoEnv("GSO_SMTP_USERNAME", ""),
+    "password" => gsoEnv("GSO_SMTP_PASSWORD", ""),
+    "port" => (int) gsoEnv("GSO_SMTP_PORT", "587"),
+    "secure" => gsoEnv("GSO_SMTP_SECURE", "tls"),
+    "from_email" => gsoEnv("GSO_SMTP_FROM", gsoEnv("GSO_SMTP_USERNAME", "no-reply@gso.local")),
+    "from_name" => gsoEnv("GSO_SMTP_FROM_NAME", "GSO System")
 ];
 
 $localMailConfig = __DIR__ . "/mail.local.php";

@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . "/../config/bootstrap.php";
+
 require_once __DIR__ . "/../PHPMailer/src/PHPMailer.php";
 require_once __DIR__ . "/../PHPMailer/src/SMTP.php";
 require_once __DIR__ . "/../PHPMailer/src/Exception.php";
@@ -9,6 +11,12 @@ use PHPMailer\PHPMailer\PHPMailer;
 if (!function_exists("gsoBuildAppUrl")) {
     function gsoBuildAppUrl(string $path): string
     {
+        $configuredBaseUrl = trim((string) gsoEnv("GSO_APP_URL", ""));
+
+        if ($configuredBaseUrl !== "") {
+            return rtrim($configuredBaseUrl, "/") . "/" . ltrim($path, "/");
+        }
+
         $scheme = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") ? "https" : "http";
         $hostName = $_SERVER["HTTP_HOST"] ?? "localhost";
         $scriptDir = rtrim(str_replace("\\", "/", dirname($_SERVER["SCRIPT_NAME"] ?? "/GSO_WebSystem/index.php")), "/");
@@ -24,6 +32,40 @@ if (!function_exists("gsoIsSmtpConfigured")) {
         return !empty($mailConfig["host"])
             && !empty($mailConfig["username"])
             && !empty($mailConfig["password"]);
+    }
+}
+
+if (!function_exists("gsoGetMailConfigurationIssue")) {
+    function gsoGetMailConfigurationIssue(array $mailConfig): string
+    {
+        $host = strtolower(trim((string) ($mailConfig["host"] ?? "")));
+        $username = trim((string) ($mailConfig["username"] ?? ""));
+        $password = preg_replace('/\s+/', '', (string) ($mailConfig["password"] ?? ""));
+        $fromEmail = trim((string) ($mailConfig["from_email"] ?? ""));
+
+        if ($host === "" || $username === "" || $password === "") {
+            return "SMTP is not configured. Set the Gmail address and Gmail App Password in the .env file.";
+        }
+
+        if (!filter_var($username, FILTER_VALIDATE_EMAIL)) {
+            return "SMTP username must be a valid Gmail address.";
+        }
+
+        if (str_contains($host, "gmail.com")) {
+            if (!str_ends_with(strtolower($username), "@gmail.com")) {
+                return "Gmail SMTP requires a Gmail address as the SMTP username.";
+            }
+
+            if (strlen($password) !== 16) {
+                return "Gmail SMTP requires a 16-character App Password. Use an App Password, not your normal Gmail password.";
+            }
+        }
+
+        if ($fromEmail !== "" && !filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) {
+            return "SMTP from email is invalid. Check GSO_SMTP_FROM in the .env file.";
+        }
+
+        return "";
     }
 }
 
@@ -108,10 +150,13 @@ if (!function_exists("gsoSendEmail")) {
         string $htmlBody,
         string $altBody
     ): array {
-        if (!gsoIsSmtpConfigured($mailConfig)) {
+        $configurationIssue = gsoGetMailConfigurationIssue($mailConfig);
+
+        if ($configurationIssue !== "") {
             if (gsoAllowLocalMailFallback()) {
                 $outbox = gsoWriteLocalMailOutbox($toEmail, $subject, $htmlBody, $altBody);
                 $outbox["channel"] = "local_outbox";
+                $outbox["message"] = ($outbox["message"] ?? "Local email outbox created.") . " " . $configurationIssue;
 
                 return $outbox;
             }
@@ -119,9 +164,11 @@ if (!function_exists("gsoSendEmail")) {
             return [
                 "success" => false,
                 "channel" => "none",
-                "message" => "SMTP is not configured."
+                "message" => $configurationIssue
             ];
         }
+
+        $mail = null;
 
         try {
             $mail = new PHPMailer(true);
@@ -163,13 +210,19 @@ if (!function_exists("gsoSendEmail")) {
                 "message" => "Email sent."
             ];
         } catch (Throwable $e) {
-            $errorInfo = (string) $mail->ErrorInfo;
+            $errorInfo = $mail instanceof PHPMailer ? (string) $mail->ErrorInfo : "";
             $message = "Email could not be sent.";
 
             if (stripos($errorInfo, "authenticate") !== false) {
-                $message = "SMTP authentication failed. Check the Gmail address and Gmail App Password.";
+                $message = "SMTP authentication failed. Confirm the Gmail address and 16-character Gmail App Password in the .env file.";
             } elseif (stripos($errorInfo, "connect") !== false) {
                 $message = "SMTP connection failed. Check the SMTP host, port, secure setting, or internet access.";
+            } elseif (stripos($errorInfo, "from") !== false) {
+                $message = "SMTP sender details are invalid. Check GSO_SMTP_FROM and GSO_SMTP_FROM_NAME in the .env file.";
+            }
+
+            if (gsoEnvBool("GSO_APP_DEBUG", false) && $errorInfo !== "") {
+                $message .= " Details: " . $errorInfo;
             }
 
             return [

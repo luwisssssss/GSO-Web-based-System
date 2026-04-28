@@ -49,7 +49,7 @@ function deleteResourceImage($filename)
     }
 }
 
-function uploadResourceImage($file, $oldFilename = null)
+function uploadResourceImage($file, $oldFilename = null, bool $deleteOldOnSuccess = true)
 {
     if (
         empty($file) ||
@@ -109,7 +109,7 @@ function uploadResourceImage($file, $oldFilename = null)
         ];
     }
 
-    if (!empty($oldFilename)) {
+    if ($deleteOldOnSuccess && !empty($oldFilename)) {
         deleteResourceImage($oldFilename);
     }
 

@@ -1,6 +1,6 @@
 <?php
-session_start();
 require_once "../includes/role_helper.php";
+gsoSecureSessionStart();
 
 if (isset($_SESSION["user_id"])) {
     redirectToRoleHome($_SESSION["role"] ?? null, "../");

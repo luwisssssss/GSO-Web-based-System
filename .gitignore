@@ -1,0 +1,19 @@
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+config/*.local.php
+
+# Runtime uploads and temp files
+uploads/
+uploads_temp/
+
+# Logs
+*.log
+error_log
+php_error_log
+
+# Editor and OS files
+.vscode/
+.DS_Store
+Thumbs.db
