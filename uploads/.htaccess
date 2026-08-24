@@ -1,0 +1,25 @@
+Options -Indexes -ExecCGI -Includes -MultiViews
+
+# Reject executable/script extensions anywhere in a name, including double-extension
+# variants such as payload.php.jpg.
+<FilesMatch "(?i)\.(?:asp|aspx|bat|cgi|cmd|com|exe|htm|html|jsp|jspx|phar|php[0-9]*|phtml|pl|ps1|py|sh|shtm|shtml)(?:\.|$)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Application upload helpers generate image-only filenames. Fail closed for every
+# other final extension so an accidentally copied file cannot become public content.
+<FilesMatch "(?i)^(?!.*\.(?:gif|jpe?g|png|webp)$).+$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

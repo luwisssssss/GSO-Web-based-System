@@ -1,0 +1,81 @@
+/* Extracted from app\controllers\borrower\my_borrowed.php */
+
+.pagination-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 18px;
+}
+
+.pagination-info {
+    color: #64748b;
+    font-size: 14px;
+}
+
+.pagination-links {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pagination-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #1e293b;
+}
+
+.pagination-link:hover {
+    background: #f8fafc;
+}
+
+.pagination-link.active {
+    background: #2563eb;
+    color: #ffffff;
+    border-color: #2563eb;
+}
+
+.pagination-link.disabled {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+.row-focus {
+    outline: 2px solid #2563eb;
+    outline-offset: -2px;
+}
+
+.return-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 10px;
+    border-radius: 10px;
+    text-decoration: none;
+    font-weight: 700;
+    background: #16a34a;
+    color: #ffffff;
+}
+
+.return-btn:hover {
+    background: #15803d;
+}
+
+.badge-submitted {
+    display: inline-flex;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-weight: 800;
+    font-size: 12px;
+    background: #f59e0b;
+    color: #111827;
+}

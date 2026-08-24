@@ -1,0 +1,75 @@
+:root {
+    --color-bg: #f3f7fb;
+    --color-surface: #ffffff;
+    --color-surface-soft: #f7fafd;
+    --color-border: #d8e3ef;
+    --color-border-strong: #b9c8da;
+    --color-text: #142235;
+    --color-muted: #5d6b7d;
+    --color-heading: #071b2d;
+    --color-primary: #1d4ed8;
+    --color-primary-dark: #0b2545;
+    --color-primary-soft: #eaf1ff;
+    --color-success: #2563eb;
+    --color-success-soft: #eaf1ff;
+    --color-warning: #1d4ed8;
+    --color-warning-soft: #dbeafe;
+    --color-danger: #1e3a8a;
+    --color-danger-soft: #dbeafe;
+    --color-info: #2563eb;
+    --color-info-soft: #eff6ff;
+    --color-neutral: #43546a;
+    --color-neutral-soft: #edf3f8;
+    --theme-navy-950: #071827;
+    --theme-navy-900: #0b2033;
+    --theme-navy-850: #10283e;
+    --theme-navy-800: #17334b;
+    --theme-accent: #1d4ed8;
+    --theme-accent-light: #bfdbfe;
+    --theme-blue: #1d4ed8;
+    --theme-blue-soft: #eaf1ff;
+    --shadow-sm: 0 1px 2px rgba(7, 24, 39, 0.07);
+    --shadow-md: 0 10px 24px rgba(7, 24, 39, 0.09);
+    --shadow-lg: 0 18px 42px rgba(7, 24, 39, 0.14);
+    --radius-sm: 8px;
+    --radius-md: 8px;
+    --radius-lg: 8px;
+    --sidebar-width: 280px;
+    --topbar-height: 76px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body.app-body,
+body {
+    font-family: "Plus Jakarta Sans", Arial, sans-serif;
+    background: var(--color-bg);
+    color: var(--color-text);
+    line-height: 1.5;
+}
+
+a {
+    color: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 3px solid rgba(37, 99, 235, 0.28);
+    outline-offset: 2px;
+}

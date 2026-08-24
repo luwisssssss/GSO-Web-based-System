@@ -47,14 +47,6 @@ if (!function_exists("gsoLoadEnvFile")) {
                 continue;
             }
 
-            if (array_key_exists($name, $_ENV) || getenv($name) !== false) {
-                continue;
-            }
-
-            if (array_key_exists($name, $_ENV) || getenv($name) !== false) {
-                continue;
-            }
-
             putenv($name . "=" . $value);
             $_ENV[$name] = $value;
             $_SERVER[$name] = $value;
@@ -113,7 +105,10 @@ if (!function_exists("gsoIsHttpsRequest")) {
             return true;
         }
 
-        if (strtolower((string) ($_SERVER["HTTP_X_FORWARDED_PROTO"] ?? "")) === "https") {
+        if (
+            gsoEnvBool("GSO_TRUST_PROXY_HEADERS", false)
+            && strtolower((string) ($_SERVER["HTTP_X_FORWARDED_PROTO"] ?? "")) === "https"
+        ) {
             return true;
         }
 
@@ -143,11 +138,20 @@ if (!function_exists("gsoSecureSessionStart")) {
             $sameSite = "Lax";
         }
 
+        if (!in_array($sameSite, ["Lax", "Strict", "None"], true)) {
+            $sameSite = "Lax";
+        }
+
+        $secureCookie = gsoEnvBool("GSO_SESSION_SECURE", gsoIsHttpsRequest());
+        if ($sameSite === "None" && !$secureCookie) {
+            $sameSite = "Lax";
+        }
+
         session_set_cookie_params([
             "lifetime" => $cookieLifetime,
             "path" => $cookiePath,
             "domain" => $cookieDomain,
-            "secure" => gsoEnvBool("GSO_SESSION_SECURE", gsoIsHttpsRequest()),
+            "secure" => $secureCookie,
             "httponly" => true,
             "samesite" => $sameSite,
         ]);
@@ -159,6 +163,24 @@ if (!function_exists("gsoSecureSessionStart")) {
         }
 
         session_start();
+
+        if (!empty($_SESSION["user_id"])) {
+            $now = time();
+            $idleTimeout = max(0, (int) gsoEnv("GSO_SESSION_IDLE_TIMEOUT", "1800"));
+            $absoluteTimeout = max(0, (int) gsoEnv("GSO_SESSION_ABSOLUTE_TIMEOUT", "28800"));
+            $startedAt = (int) ($_SESSION["auth_started_at"] ?? $now);
+            $lastActivityAt = (int) ($_SESSION["last_activity_at"] ?? $now);
+            $idleExpired = $idleTimeout > 0 && ($now - $lastActivityAt) > $idleTimeout;
+            $absoluteExpired = $absoluteTimeout > 0 && ($now - $startedAt) > $absoluteTimeout;
+
+            if ($idleExpired || $absoluteExpired) {
+                gsoDestroySession();
+                return;
+            }
+
+            $_SESSION["auth_started_at"] = $startedAt;
+            $_SESSION["last_activity_at"] = $now;
+        }
     }
 }
 
@@ -194,3 +216,11 @@ if (!function_exists("gsoDestroySession")) {
 $rootPath = dirname(__DIR__);
 gsoLoadEnvFile($rootPath . DIRECTORY_SEPARATOR . ".env");
 date_default_timezone_set((string) gsoEnv("GSO_APP_TIMEZONE", "Asia/Manila"));
+
+$appEnvironment = strtolower(trim((string) gsoEnv("GSO_APP_ENV", "development")));
+$appDebug = gsoEnvBool("GSO_APP_DEBUG", false);
+if ($appEnvironment === "production" && !$appDebug) {
+    ini_set("display_errors", "0");
+    ini_set("display_startup_errors", "0");
+    ini_set("log_errors", "1");
+}

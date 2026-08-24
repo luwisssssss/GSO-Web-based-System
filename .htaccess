@@ -1,0 +1,40 @@
+# Keep internal application files and private evidence out of the public HTTP surface.
+# mod_rewrite is a deployment requirement. Keeping these directives fail-closed makes
+# Apache reject the configuration instead of silently exposing internal directories.
+Options -Indexes -ExecCGI -Includes -MultiViews
+RewriteEngine On
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "same-origin"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Header always unset X-Powered-By
+</IfModule>
+
+# Dotfiles/directories include .env, .git, editor metadata, and this file.
+RewriteRule "(^|/)\." - [F,L,NC]
+
+# These paths are used only through server-side includes or deployment tools.
+RewriteRule "^(?:app|backups?|config|database|docs|logs?|node_modules|private|routes|scripts|storage|tests?|uploads_temp|vendor|PHPMailer)(?:/|$)" - [F,L,NC]
+
+# Return evidence is served only by the authorized Admin endpoint.
+RewriteRule "^uploads/returns(?:/|$)" - [F,L,NC]
+
+# mark_read.php is the only intentional public endpoint under includes/.
+RewriteRule "^includes/(?!mark_read\.php$)" - [F,L,NC]
+
+# Repository/deployment metadata is not part of the public application.
+RewriteRule "^(?:README(?:\.md)?|composer\.(?:json|lock)|package(?:-lock)?\.json|phpunit\.xml(?:\.dist)?|web\.config|yarn\.lock)(?:$|/)" - [F,L,NC]
+
+# Deny secrets, database material, editor remnants, and backup/archive variants even
+# when they are accidentally placed outside one of the internal directories above.
+<FilesMatch "(?i)(^\.|\.(?:7z|bak|backup|conf|dist|dump|env|gz|ini|key|log|md|old|orig|p12|pem|pfx|rar|save|sql|sqlite|swp|tar|tgz|tmp|yml|yaml|zip)$)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>

@@ -1,0 +1,148 @@
+/* Dashboard-only motion and page polish extracted from the previous shared redesign file. */
+.legend-color-available,
+.legend-color-returned {
+    background: #16a34a;
+}
+
+.legend-color-maintenance {
+    background: #f97316;
+}
+
+.legend-color-danger {
+    background: #dc2626;
+}
+
+.legend-color-muted {
+    background: #64748b;
+}
+
+.legend-color-pending,
+.legend-color-due-soon {
+    background: #f59e0b;
+}
+
+.legend-color-review {
+    background: #0ea5e9;
+}
+
+.legend-color-approved {
+    background: #2563eb;
+}
+
+.legend-color-released,
+.legend-color-active {
+    background: #1d4ed8;
+}
+
+.legend-color-return-pending {
+    background: #38bdf8;
+}
+
+body.page-dashboard .dashboard-page > .card:first-child,
+body.page-dashboard .dashboard-chart-panel,
+body.page-dashboard .dashboard-table-grid > .card,
+body.page-dashboard .urgent-grid a,
+body.page-dashboard .rank-item,
+body.page-dashboard .activity-feed-item,
+body.page-dashboard .request-table tbody tr {
+    animation: dashboardFadeUp 0.62s ease both;
+}
+
+body.page-dashboard .dashboard-chart-grid > .dashboard-chart-panel:nth-child(1) { animation-delay: 60ms; }
+body.page-dashboard .dashboard-chart-grid > .dashboard-chart-panel:nth-child(2) { animation-delay: 130ms; }
+body.page-dashboard .dashboard-chart-grid > .dashboard-chart-panel:nth-child(3) { animation-delay: 200ms; }
+body.page-dashboard .dashboard-chart-grid.secondary > .dashboard-chart-panel:nth-child(1) { animation-delay: 260ms; }
+body.page-dashboard .dashboard-chart-grid.secondary > .dashboard-chart-panel:nth-child(2) { animation-delay: 330ms; }
+body.page-dashboard .dashboard-chart-grid.secondary > .dashboard-chart-panel:nth-child(3) { animation-delay: 400ms; }
+
+body.page-dashboard .urgent-grid a:nth-child(1),
+body.page-dashboard .rank-item:nth-child(1),
+body.page-dashboard .activity-feed-item:nth-child(1),
+body.page-dashboard .request-table tbody tr:nth-child(1) { animation-delay: 90ms; }
+body.page-dashboard .urgent-grid a:nth-child(2),
+body.page-dashboard .rank-item:nth-child(2),
+body.page-dashboard .activity-feed-item:nth-child(2),
+body.page-dashboard .request-table tbody tr:nth-child(2) { animation-delay: 140ms; }
+body.page-dashboard .urgent-grid a:nth-child(3),
+body.page-dashboard .rank-item:nth-child(3),
+body.page-dashboard .activity-feed-item:nth-child(3),
+body.page-dashboard .request-table tbody tr:nth-child(3) { animation-delay: 190ms; }
+body.page-dashboard .urgent-grid a:nth-child(4),
+body.page-dashboard .rank-item:nth-child(4),
+body.page-dashboard .activity-feed-item:nth-child(4),
+body.page-dashboard .request-table tbody tr:nth-child(4) { animation-delay: 240ms; }
+body.page-dashboard .urgent-grid a:nth-child(5),
+body.page-dashboard .rank-item:nth-child(5),
+body.page-dashboard .activity-feed-item:nth-child(5),
+body.page-dashboard .request-table tbody tr:nth-child(5) { animation-delay: 290ms; }
+
+body.page-dashboard .donut-chart {
+    animation: dashboardScaleIn 0.72s ease both;
+}
+
+body.page-dashboard .vertical-bar span {
+    transform-origin: bottom;
+    animation: dashboardBarRise 0.78s ease both;
+}
+
+body.page-dashboard .chart-fill {
+    transform-origin: left center;
+    animation: dashboardBarSweep 0.72s ease both;
+}
+
+@keyframes dashboardFadeUp {
+    from {
+        opacity: 0;
+        transform: translateY(18px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes dashboardScaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.92);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes dashboardBarRise {
+    from {
+        transform: scaleY(0);
+    }
+    to {
+        transform: scaleY(1);
+    }
+}
+
+@keyframes dashboardBarSweep {
+    from {
+        transform: scaleX(0);
+    }
+    to {
+        transform: scaleX(1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body.page-dashboard .dashboard-page > .card:first-child,
+    body.page-dashboard .dashboard-chart-panel,
+    body.page-dashboard .dashboard-table-grid > .card,
+    body.page-dashboard .urgent-grid a,
+    body.page-dashboard .rank-item,
+    body.page-dashboard .activity-feed-item,
+    body.page-dashboard .request-table tbody tr,
+    body.page-dashboard .donut-chart,
+    body.page-dashboard .vertical-bar span,
+    body.page-dashboard .chart-fill {
+        animation: none !important;
+        transform: none !important;
+        opacity: 1 !important;
+    }
+}

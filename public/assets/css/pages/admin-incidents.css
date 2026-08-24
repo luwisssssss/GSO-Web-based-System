@@ -1,0 +1,319 @@
+.admin-incident-page {
+    --incident-admin-blue: #1d4ed8;
+    --incident-admin-navy: #0f172a;
+}
+
+.admin-incident-summary {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.incident-summary-link {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    color: inherit;
+    text-decoration: none;
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.incident-summary-link:hover {
+    transform: translateY(-2px);
+    border-color: #bfdbfe;
+    box-shadow: var(--shadow-md);
+}
+
+.incident-summary-link > i {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border-radius: 13px;
+    background: var(--color-primary-soft);
+    color: var(--incident-admin-blue);
+}
+
+.incident-summary-link h3,
+.incident-summary-link p {
+    margin: 0;
+}
+
+.incident-admin-filter-bar {
+    display: grid;
+    grid-template-columns: minmax(190px, 1.35fr) minmax(155px, 1fr) repeat(3, minmax(135px, 0.8fr));
+    gap: 10px;
+    align-items: end;
+}
+
+.incident-admin-filter-bar > input,
+.incident-admin-filter-bar > select,
+.incident-admin-filter-bar > label {
+    min-width: 0;
+}
+
+.incident-date-filter {
+    display: grid;
+    gap: 5px;
+    color: var(--color-muted);
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.incident-date-filter input {
+    width: 100%;
+    min-height: 42px;
+    padding: 9px 11px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+}
+
+.incident-row-urgent td:first-child {
+    box-shadow: inset 4px 0 0 #dc2626;
+}
+
+.admin-incident-detail-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(310px, 0.75fr);
+    gap: 20px;
+    align-items: start;
+}
+
+.admin-incident-evidence,
+.admin-incident-actions {
+    display: grid;
+    gap: 20px;
+    min-width: 0;
+}
+
+.admin-incident-actions {
+    position: static;
+}
+
+.incident-hero-actions {
+    display: grid;
+    justify-items: end;
+    gap: 12px;
+}
+
+.incident-action-card h3 {
+    margin: 0 0 14px;
+    color: var(--color-heading);
+    font-size: 18px;
+}
+
+.incident-admin-form {
+    display: grid;
+    gap: 14px;
+}
+
+.incident-admin-form label {
+    display: grid;
+    gap: 7px;
+    color: var(--color-heading);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.incident-admin-form label > span {
+    color: var(--color-muted);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.incident-admin-form input,
+.incident-admin-form select,
+.incident-admin-form textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+}
+
+.incident-admin-form textarea {
+    resize: vertical;
+}
+
+.incident-admin-form input:focus,
+.incident-admin-form select:focus,
+.incident-admin-form textarea:focus {
+    border-color: var(--incident-admin-blue);
+    outline: 3px solid rgba(29, 78, 216, 0.12);
+}
+
+.incident-admin-form .admin-btn {
+    justify-content: center;
+}
+
+.warning-btn {
+    background: #b45309;
+    color: #fff;
+}
+
+.warning-btn:hover {
+    background: #92400e;
+    color: #fff;
+}
+
+.incident-review-summary {
+    display: grid;
+    gap: 14px;
+}
+
+.incident-review-summary > div {
+    padding: 13px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface-soft);
+}
+
+.incident-review-summary span {
+    color: var(--color-muted);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.incident-review-summary p {
+    margin: 7px 0 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+.incident-review-summary small {
+    display: block;
+    margin-top: 7px;
+    color: var(--color-muted);
+}
+
+.incident-resource-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    margin-top: 16px;
+}
+
+.incident-maintenance-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.incident-maintenance-list > div {
+    display: grid;
+    gap: 4px;
+    padding: 11px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-soft);
+}
+
+.incident-maintenance-list strong {
+    color: var(--color-heading);
+    font-size: 13px;
+}
+
+.incident-maintenance-list span {
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+.incident-action-note,
+.incident-no-resource {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 13px;
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius-lg);
+    background: #eff6ff;
+    color: #1e3a8a;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.incident-action-note.warning {
+    border-color: #fcd34d;
+    background: #fffbeb;
+    color: #92400e;
+}
+
+.incident-no-resource {
+    display: grid;
+    justify-items: start;
+}
+
+.incident-no-resource > i {
+    font-size: 22px;
+}
+
+.incident-no-resource p {
+    margin: 0;
+    font-weight: 500;
+}
+
+.incident-maintenance-form {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-border);
+}
+
+.admin-incident-photo {
+    max-width: 720px;
+}
+
+@media (max-width: 1280px) {
+    .admin-incident-summary {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .incident-admin-filter-bar {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 1000px) {
+    .admin-incident-detail-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-incident-actions {
+        position: static;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .admin-incident-summary,
+    .incident-admin-filter-bar,
+    .admin-incident-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .incident-hero-actions {
+        width: 100%;
+        justify-items: stretch;
+    }
+
+    .incident-hero-actions .admin-btn {
+        justify-content: center;
+    }
+
+    .incident-table td.empty-note {
+        display: block;
+        text-align: center;
+    }
+
+    .incident-table td.empty-note::before {
+        display: none;
+    }
+}

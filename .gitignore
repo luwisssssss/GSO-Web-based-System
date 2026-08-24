@@ -5,15 +5,55 @@
 config/*.local.php
 
 # Runtime uploads and temp files
-uploads/
+uploads/*
+!uploads/.htaccess
 uploads_temp/
+private_uploads/
+uploads_private/
+storage/private/
 
-# Logs
+# Personal development-only assets (not referenced by the application)
+public/assets/images/Gian.jpg
+assets/css/img/Gian.jpg
+
+# Runtime state
+logs/
+sessions/
+cache/
+tmp/
+temp/
 *.log
 error_log
 php_error_log
 
+# Local databases, exports, dumps, and backups. Only reviewed schema/migrations are public.
+*.sql
+!database/schema.sql
+!database/migrations/*.sql
+docs/*.pdf
+*.sqlite
+*.sqlite3
+*.db
+*.csv
+*.bak
+*.dump
+database/backups/
+backups/
+exports/
+
+# Private keys and certificates
+*.key
+*.pem
+*.p12
+*.pfx
+
 # Editor and OS files
 .vscode/
+.idea/
 .DS_Store
 Thumbs.db
+
+# Optional dependency/test caches
+node_modules/
+.phpunit.cache/
+.cache/

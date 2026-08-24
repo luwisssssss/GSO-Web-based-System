@@ -1,0 +1,24 @@
+/* Extracted from app\controllers\admin\on_loan.php */
+
+.overdue-call-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    color: #1d4ed8;
+    font-size: 12px;
+    font-weight: 800;
+    text-decoration: none;
+}
+
+.overdue-call-link:hover {
+    text-decoration: underline;
+}
+
+.overdue-call-missing {
+    display: inline-block;
+    margin-top: 8px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+}

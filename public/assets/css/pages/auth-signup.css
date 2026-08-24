@@ -1,0 +1,6 @@
+/* Extracted from app\controllers\auth\signup.php */
+
+.password-msg {
+            font-size: 12px;
+            margin-top: 5px;
+        }
