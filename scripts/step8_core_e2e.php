@@ -450,7 +450,7 @@ try {
         "date_needed" => $tomorrow, "start_time" => "", "end_time" => "", "notes" => "Core flow {$marker}",
     ]);
     step8Assert($submit["status"] === 200 && str_contains($submit["body"], "Request submitted successfully"), "Item request submission failed.");
-    $itemRequestId = (int) step8Value($pdo, "SELECT request_id FROM resource_requests WHERE borrower_id=:borrower AND resource_id=:resource ORDER BY request_id DESC LIMIT 1", [":borrower" => $borrowerA, ":resource" => $itemId]);
+    $itemRequestId = (int) step8Value($pdo, "SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE rr.borrower_id=:borrower AND ri.resource_id=:resource ORDER BY rr.request_id DESC LIMIT 1", [":borrower" => $borrowerA, ":resource" => $itemId]);
     step8Assert($itemRequestId > 0 && step8Status($pdo, $itemRequestId) === "Pending", "Submitted item request was not Pending.");
     $requestIds[] = $itemRequestId;
     step8Assert(step8NotificationCount($pdo, $adminId, "New Resource Request") >= 1, "Admin request notification was not created.");
@@ -544,7 +544,7 @@ try {
         "csrf_token" => $bSession["csrf_token"], "quantity" => "1", "contact_number" => "+63 900 000 0003",
         "date_needed" => date("Y-m-d", strtotime("+2 days")), "start_time" => "", "end_time" => "", "notes" => "Return rejection {$marker}",
     ]);
-    $rejectedReturnRequestId = (int) step8Value($pdo, "SELECT request_id FROM resource_requests WHERE borrower_id=:borrower AND resource_id=:resource AND status='Pending' ORDER BY request_id DESC LIMIT 1", [":borrower" => $borrowerB, ":resource" => $itemId]);
+    $rejectedReturnRequestId = (int) step8Value($pdo, "SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE rr.borrower_id=:borrower AND ri.resource_id=:resource AND rr.status='Pending' ORDER BY rr.request_id DESC LIMIT 1", [":borrower" => $borrowerB, ":resource" => $itemId]);
     step8Assert($rejectedReturnRequestId > 0, "Could not create the return-rejection fixture.");
     $requestIds[] = $rejectedReturnRequestId;
     step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $rejectedReturnRequestId, "action" => "approve"]);
@@ -579,7 +579,7 @@ try {
             "csrf_token" => $session["csrf_token"], "quantity" => "1", "contact_number" => "+63 900 000 0001",
             "date_needed" => date("Y-m-d", strtotime("+4 days")), "start_time" => "", "end_time" => "", "notes" => ucfirst($path) . " {$marker}",
         ]);
-        $requestId = (int) step8Value($pdo, "SELECT request_id FROM resource_requests WHERE borrower_id=:borrower AND resource_id=:resource AND status='Pending' ORDER BY request_id DESC LIMIT 1", [":borrower" => $borrowerId, ":resource" => $itemId]);
+        $requestId = (int) step8Value($pdo, "SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE rr.borrower_id=:borrower AND ri.resource_id=:resource AND rr.status='Pending' ORDER BY rr.request_id DESC LIMIT 1", [":borrower" => $borrowerId, ":resource" => $itemId]);
         step8Assert($requestId > 0, "Could not create {$path} fixture.");
         $requestIds[] = $requestId;
         if ($path === "reject") {
@@ -599,7 +599,7 @@ try {
         "csrf_token" => $bSession["csrf_token"], "quantity" => "1", "contact_number" => "+63 900 000 0005",
         "date_needed" => date("Y-m-d", strtotime("+5 days")), "start_time" => "", "end_time" => "", "notes" => "Victim request {$marker}",
     ]);
-    $victimRequestId = (int) step8Value($pdo, "SELECT request_id FROM resource_requests WHERE borrower_id=:b AND resource_id=:r AND status='Pending' ORDER BY request_id DESC LIMIT 1", [":b" => $borrowerB, ":r" => $itemId]);
+    $victimRequestId = (int) step8Value($pdo, "SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE rr.borrower_id=:b AND ri.resource_id=:r AND rr.status='Pending' ORDER BY rr.request_id DESC LIMIT 1", [":b" => $borrowerB, ":r" => $itemId]);
     step8Assert($victimRequestId > 0, "Could not create the cross-borrower fixture.");
     $requestIds[] = $victimRequestId;
 
@@ -661,7 +661,7 @@ try {
         ]);
     };
     $facilitySubmit($cookies["a"], $aSession, "09:00", "10:00");
-    $facilityRequestA = (int) step8Value($pdo, "SELECT request_id FROM resource_requests WHERE borrower_id=:b AND resource_id=:r AND status='Pending' ORDER BY request_id DESC LIMIT 1", [":b" => $borrowerA, ":r" => $facilityId]);
+    $facilityRequestA = (int) step8Value($pdo, "SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE rr.borrower_id=:b AND ri.resource_id=:r AND rr.status='Pending' ORDER BY rr.request_id DESC LIMIT 1", [":b" => $borrowerA, ":r" => $facilityId]);
     step8Assert($facilityRequestA > 0, "Facility request failed.");
     $requestIds[] = $facilityRequestA;
     $overlap = $facilitySubmit($cookies["b"], $bSession, "09:30", "10:30");
@@ -669,20 +669,20 @@ try {
     step8Http($baseUrl, "borrower/my_requests.php", "POST", $cookies["a"], ["csrf_token" => $aSession["csrf_token"], "request_id" => $facilityRequestA, "action" => "cancel"]);
     step8Assert(step8Status($pdo, $facilityRequestA) === "Cancelled", "Facility cancellation failed.");
     $facilitySubmit($cookies["b"], $bSession, "09:30", "10:30");
-    $facilityRequestB = (int) step8Value($pdo, "SELECT request_id FROM resource_requests WHERE borrower_id=:b AND resource_id=:r AND status='Pending' ORDER BY request_id DESC LIMIT 1", [":b" => $borrowerB, ":r" => $facilityId]);
+    $facilityRequestB = (int) step8Value($pdo, "SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE rr.borrower_id=:b AND ri.resource_id=:r AND rr.status='Pending' ORDER BY rr.request_id DESC LIMIT 1", [":b" => $borrowerB, ":r" => $facilityId]);
     step8Assert($facilityRequestB > 0, "Cancelled reservation still blocked availability.");
     $requestIds[] = $facilityRequestB;
     step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $facilityRequestB, "action" => "reject"]);
     step8Assert(step8Status($pdo, $facilityRequestB) === "Rejected", "Facility rejection failed.");
     $facilitySubmit($cookies["a"], $aSession, "09:00", "10:00");
-    $facilityApprovedId = (int) step8Value($pdo, "SELECT request_id FROM resource_requests WHERE borrower_id=:b AND resource_id=:r AND status='Pending' ORDER BY request_id DESC LIMIT 1", [":b" => $borrowerA, ":r" => $facilityId]);
+    $facilityApprovedId = (int) step8Value($pdo, "SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE rr.borrower_id=:b AND ri.resource_id=:r AND rr.status='Pending' ORDER BY rr.request_id DESC LIMIT 1", [":b" => $borrowerA, ":r" => $facilityId]);
     $requestIds[] = $facilityApprovedId;
     step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $facilityApprovedId, "action" => "approve"]);
     step8Assert(step8Status($pdo, $facilityApprovedId) === "Approved", "Facility approval failed.");
     $approvedOverlap = $facilitySubmit($cookies["b"], $bSession, "09:30", "10:30");
     step8Assert(str_contains($approvedOverlap["body"], "occupies the selected date and time"), "Approved facility reservation did not block overlap.");
     $facilitySubmit($cookies["b"], $bSession, "10:00", "11:00");
-    $nonOverlapId = (int) step8Value($pdo, "SELECT request_id FROM resource_requests WHERE borrower_id=:b AND resource_id=:r AND status='Pending' ORDER BY request_id DESC LIMIT 1", [":b" => $borrowerB, ":r" => $facilityId]);
+    $nonOverlapId = (int) step8Value($pdo, "SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE rr.borrower_id=:b AND ri.resource_id=:r AND rr.status='Pending' ORDER BY rr.request_id DESC LIMIT 1", [":b" => $borrowerB, ":r" => $facilityId]);
     step8Assert($nonOverlapId > 0, "Boundary non-overlapping facility request was blocked.");
     $requestIds[] = $nonOverlapId;
     step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $facilityApprovedId, "action" => "release"]);
@@ -728,7 +728,7 @@ try {
         "csrf_token" => $aSession["csrf_token"], "quantity" => "2", "contact_number" => "+63 900 000 0004",
         "date_needed" => $tomorrow, "start_time" => "", "end_time" => "", "notes" => "Damaged flow {$marker}",
     ]);
-    $damagedRequestId = (int) step8Value($pdo, "SELECT request_id FROM resource_requests WHERE resource_id=:r ORDER BY request_id DESC LIMIT 1", [":r" => $damagedId]);
+    $damagedRequestId = (int) step8Value($pdo, "SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE ri.resource_id=:r ORDER BY rr.request_id DESC LIMIT 1", [":r" => $damagedId]);
     step8Assert($damagedRequestId > 0, "Damaged-return fixture request was not created.");
     $requestIds[] = $damagedRequestId;
     step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $damagedRequestId, "action" => "approve"]);
@@ -815,7 +815,7 @@ try {
         "csrf_token" => $aSession["csrf_token"], "quantity" => "1", "contact_number" => "+63 900 000 0003",
         "date_needed" => $tomorrow, "start_time" => "", "end_time" => "", "notes" => "Blocked {$marker}",
     ]);
-    step8Assert(str_contains($blockedMaintenanceRequest["body"], "under maintenance") && (int) step8Value($pdo, "SELECT COUNT(*) FROM resource_requests WHERE resource_id=:id", [":id" => $maintenanceResourceId]) === 0, "Maintenance resource accepted a request.");
+    step8Assert(str_contains($blockedMaintenanceRequest["body"], "under maintenance") && (int) step8Value($pdo, "SELECT COUNT(*) FROM request_items WHERE resource_id=:id", [":id" => $maintenanceResourceId]) === 0, "Maintenance resource accepted a request.");
     $completePost = ["csrf_token" => $adminSession["csrf_token"], "action" => "complete_schedule", "maintenance_id" => $maintenanceId];
     step8Http($baseUrl, "admin/maintenance.php", "POST", $cookies["admin"], $completePost);
     step8Assert((string) step8Value($pdo, "SELECT status FROM resources WHERE resource_id=:id", [":id" => $maintenanceResourceId]) === "Available", "Completing maintenance did not restore resource status.");
@@ -936,13 +936,12 @@ try {
     foreach ([
         "return photos" => ["DELETE p FROM return_submission_photos p
                              INNER JOIN return_submissions rs ON rs.return_id = p.return_id
-                             INNER JOIN resources r ON r.resource_id = (
-                                 SELECT resource_id FROM resource_requests WHERE request_id = rs.request_id
-                             )
+                             INNER JOIN request_items ri ON ri.request_id = rs.request_id
+                             INNER JOIN resources r ON r.resource_id = ri.resource_id
                              WHERE r.resource_name LIKE :marker", true],
         "return submissions" => ["DELETE rs FROM return_submissions rs
-                                  INNER JOIN resource_requests rr ON rr.request_id = rs.request_id
-                                  INNER JOIN resources r ON r.resource_id = rr.resource_id
+                                   INNER JOIN request_items ri ON ri.request_id = rs.request_id
+                                   INNER JOIN resources r ON r.resource_id = ri.resource_id
                                   WHERE r.resource_name LIKE :marker", true],
         "maintenance" => ["DELETE ms FROM maintenance_schedules ms
                            INNER JOIN resources r ON r.resource_id = ms.resource_id
@@ -951,7 +950,8 @@ try {
                          INNER JOIN resources r ON r.resource_id = ir.resource_id
                          WHERE r.resource_name LIKE :marker", true],
         "requests" => ["DELETE rr FROM resource_requests rr
-                        INNER JOIN resources r ON r.resource_id = rr.resource_id
+                         INNER JOIN request_items ri ON ri.request_id = rr.request_id
+                         INNER JOIN resources r ON r.resource_id = ri.resource_id
                         WHERE r.resource_name LIKE :marker", true],
         "resources" => ["DELETE FROM resources WHERE resource_name LIKE :marker", true],
         "user requests" => ["DELETE rr FROM resource_requests rr
