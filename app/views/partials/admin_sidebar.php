@@ -35,6 +35,9 @@ $dashboardPath = $isStaff ? "../gso_staff/dashboard.php" : "dashboard.php";
             <li class="<?php echo in_array($current_page, ["inventory.php", "add_resource.php", "edit_resource.php", "view_resource.php"], true) ? "active" : ""; ?>">
                 <a href="<?php echo $adminBase; ?>inventory.php"><i class="fa-solid fa-boxes-stacked"></i> Inventory<?php echo $isStaff ? " (View)" : ""; ?></a>
             </li>
+            <li class="<?php echo $current_page === "equipment_units.php" ? "active" : ""; ?>">
+                <a href="<?php echo $adminBase; ?>equipment_units.php"><i class="fa-solid fa-barcode"></i> Equipment Units</a>
+            </li>
             <li class="<?php echo $current_page === "maintenance.php" ? "active" : ""; ?>">
                 <a href="<?php echo $adminBase; ?>maintenance.php"><i class="fa-solid fa-screwdriver-wrench"></i> Work Orders</a>
             </li>

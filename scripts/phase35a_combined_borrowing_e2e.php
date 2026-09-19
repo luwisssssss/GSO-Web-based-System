@@ -163,21 +163,25 @@ try{
  $checks+=5;
 
  // ---- Release and return safety ---------------------------------------
- p35a(gsoRequestFulfilmentBlocker($pdo,$reqA)!==null,"Multi-returnable-line release was not blocked.");
- p35a(gsoRequestFulfilmentBlocker($pdo,$reqD)!==null,"Consumable-bearing release was not blocked.");
+ // Phase 3.5B delivers serialized allocation, consumable issuance and
+ // per-resource return inspection, so these shapes are now supported rather
+ // than deferred. Only a request with no lines at all remains unfulfillable.
+ p35a(gsoRequestFulfilmentBlocker($pdo,$reqA)===null,"Multi-returnable-line release is still blocked.");
+ p35a(gsoRequestFulfilmentBlocker($pdo,$reqD)===null,"Consumable-bearing release is still blocked.");
  p35a(gsoRequestFulfilmentBlocker($pdo,$reqB)===null,"Facility-only release was wrongly blocked.");
  $submit("other",$serial,1,[],date("Y-m-d",strtotime("+22 days")));
  $reqSerial=$newest($ids["other"]);
- p35a(gsoRequestFulfilmentBlocker($pdo,$reqSerial)!==null,"Serialized release was not blocked.");
+ p35a(gsoRequestFulfilmentBlocker($pdo,$reqSerial)===null,"Serialized release is still blocked.");
  $checks+=4;
- // Attempting release of a blocked shape must mutate nothing at all.
- $pdo->prepare("UPDATE resource_requests SET status='Approved' WHERE request_id=?")->execute([$reqA]);
- $stockPre=(string)p35v($pdo,"SELECT CONCAT(IFNULL(available_stock,'N'),'/',IFNULL(total_stock,'N')) FROM resources WHERE resource_id=?",[$itemA]);
- p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqA,"action"=>"release"]);
- p35a((string)p35v($pdo,"SELECT status FROM resource_requests WHERE request_id=?",[$reqA])==="Approved","A blocked request was released.");
- p35a((string)p35v($pdo,"SELECT CONCAT(IFNULL(available_stock,'N'),'/',IFNULL(total_stock,'N')) FROM resources WHERE resource_id=?",[$itemA])===$stockPre,"A blocked release left a partial stock deduction.");
- p35a((int)p35v($pdo,"SELECT COALESCE(SUM(released_quantity),0) FROM request_items WHERE request_id=?",[$reqA])===0,"A blocked release marked lines as released.");
- $pdo->prepare("UPDATE resource_requests SET status='Pending' WHERE request_id=?")->execute([$reqA]);
+ // A release that cannot be fulfilled must mutate nothing at all. The serialized
+ // line has no registered units, so the whole request must roll back.
+ $pdo->prepare("UPDATE resource_requests SET status='Approved' WHERE request_id=?")->execute([$reqSerial]);
+ $stockPre=(string)p35v($pdo,"SELECT CONCAT(IFNULL(available_stock,'N'),'/',IFNULL(total_stock,'N')) FROM resources WHERE resource_id=?",[$serial]);
+ p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqSerial,"action"=>"release"]);
+ p35a((string)p35v($pdo,"SELECT status FROM resource_requests WHERE request_id=?",[$reqSerial])==="Approved","An unfulfillable request was released.");
+ p35a((string)p35v($pdo,"SELECT CONCAT(IFNULL(available_stock,'N'),'/',IFNULL(total_stock,'N')) FROM resources WHERE resource_id=?",[$serial])===$stockPre,"A failed release left a partial stock deduction.");
+ p35a((int)p35v($pdo,"SELECT COALESCE(SUM(released_quantity),0) FROM request_items WHERE request_id=?",[$reqSerial])===0,"A failed release marked lines as released.");
+ $pdo->prepare("UPDATE resource_requests SET status='Pending' WHERE request_id=?")->execute([$reqSerial]);
  $checks+=3;
  // Positive control: a single-line request still releases and deducts once.
  $pdo->prepare("UPDATE resource_requests SET status='Approved' WHERE request_id=?")->execute([$reqMerge]);
@@ -187,12 +191,15 @@ try{
  p35a((int)p35v($pdo,"SELECT available_stock FROM resources WHERE resource_id=?",[$itemA])===$availPre-5,"Release deducted the wrong quantity.");
  p35a((int)p35v($pdo,"SELECT released_quantity FROM request_items WHERE request_id=?",[$reqMerge])===5,"Release did not record the line quantity.");
  $checks+=3;
- // A multi-resource request must not enter the single-condition return form.
+ // A combined request now reaches the return form, and it must offer EVERY
+ // returnable resource rather than one condition for the whole request.
  $pdo->prepare("UPDATE resource_requests SET status='Released' WHERE request_id=?")->execute([$reqA]);
+ $pdo->prepare("UPDATE request_items SET released_quantity=requested_quantity WHERE request_id=?")->execute([$reqA]);
  $ret=p35h($base,"borrower/return_submit.php?request_id={$reqA}",$cookies["student"]);
- p35a(!str_contains($ret["body"],"Reported Condition"),"A combined request reached single-condition return inspection.");
- p35a((int)p35v($pdo,"SELECT COUNT(*) FROM return_submissions WHERE request_id=?",[$reqA])===0,"A return submission was created for a combined request.");
+ p35a(!str_contains($ret["body"],"Reported Condition"),"A combined request still shows a single request-wide condition.");
+ p35a(str_contains($ret["body"],htmlspecialchars("{$mark} Item A"))&&str_contains($ret["body"],htmlspecialchars("{$mark} Item B")),"The return form omitted a returnable resource.");
  $pdo->prepare("UPDATE resource_requests SET status='Pending' WHERE request_id=?")->execute([$reqA]);
+ $pdo->prepare("UPDATE request_items SET released_quantity=0 WHERE request_id=?")->execute([$reqA]);
  $checks+=2;
 
  // ---- Display and reporting must not fan out ---------------------------

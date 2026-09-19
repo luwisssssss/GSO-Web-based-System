@@ -66,7 +66,7 @@ CREATE TABLE `resource_requests` (
   `start_time` time DEFAULT NULL,
   `end_time` time DEFAULT NULL,
   `request_date` datetime NOT NULL DEFAULT current_timestamp(),
-  `status` enum('Pending','Under Review','Approved','Rejected','Cancelled','Released','Returned') NOT NULL DEFAULT 'Pending',
+  `status` enum('Pending','Under Review','Approved','Rejected','Cancelled','Released','Returned','Completed') NOT NULL DEFAULT 'Pending',
   `adviser_state` enum('Not Required','Selection Required','Pending Adviser','Revision Required','Endorsed') NOT NULL DEFAULT 'Not Required',
   `adviser_user_id` int(11) DEFAULT NULL,
   `adviser_required_by` int(11) DEFAULT NULL,
@@ -201,6 +201,74 @@ CREATE TABLE `return_submissions` (
   CONSTRAINT `return_submissions_ibfk_1` FOREIGN KEY (`request_id`) REFERENCES `resource_requests` (`request_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Phase 3.5B: individually tracked physical equipment units.
+CREATE TABLE IF NOT EXISTS `equipment_units` (
+  `unit_id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `resource_id` int(11) NOT NULL,
+  `asset_tag` varchar(60) NOT NULL,
+  `serial_number` varchar(120) DEFAULT NULL,
+  `status` enum('Available','Released','Under Repair','Lost','Retired') NOT NULL DEFAULT 'Available',
+  `condition_status` enum('Good','Damaged','Missing Parts','Needs Repair','Lost') NOT NULL DEFAULT 'Good',
+  `unit_notes` varchar(500) DEFAULT NULL,
+  `acquired_at` date DEFAULT NULL,
+  `registered_by` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`unit_id`),
+  UNIQUE KEY `uq_equipment_units_asset_tag` (`asset_tag`),
+  UNIQUE KEY `uq_equipment_units_serial` (`serial_number`),
+  KEY `idx_equipment_units_resource` (`resource_id`,`status`),
+  CONSTRAINT `fk_equipment_units_resource` FOREIGN KEY (`resource_id`) REFERENCES `resources` (`resource_id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_equipment_units_registrar` FOREIGN KEY (`registered_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Which physical unit satisfied which request line. open_unit_guard holds the
+-- unit id only while the allocation is open, so its UNIQUE index makes a second
+-- concurrent release of the same unit impossible.
+CREATE TABLE IF NOT EXISTS `request_item_units` (
+  `allocation_id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `request_item_id` bigint(20) NOT NULL,
+  `unit_id` bigint(20) NOT NULL,
+  `allocated_by` int(11) NOT NULL,
+  `allocated_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `released_at` datetime DEFAULT NULL,
+  `returned_at` datetime DEFAULT NULL,
+  `open_unit_guard` bigint(20) GENERATED ALWAYS AS (case when `returned_at` is null then `unit_id` end) STORED,
+  PRIMARY KEY (`allocation_id`),
+  UNIQUE KEY `uq_request_item_units_pair` (`request_item_id`,`unit_id`),
+  UNIQUE KEY `uq_request_item_units_open` (`open_unit_guard`),
+  KEY `idx_request_item_units_unit` (`unit_id`,`returned_at`),
+  CONSTRAINT `fk_request_item_units_line` FOREIGN KEY (`request_item_id`) REFERENCES `request_items` (`request_item_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_request_item_units_unit` FOREIGN KEY (`unit_id`) REFERENCES `equipment_units` (`unit_id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_request_item_units_actor` FOREIGN KEY (`allocated_by`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Per-resource return inspection. UNIQUE (return_id, unit_id) relies on NULLs
+-- being distinct: an aggregate line may hold several condition groups, while a
+-- physical unit can appear at most once per return.
+CREATE TABLE IF NOT EXISTS `return_submission_items` (
+  `return_item_id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `return_id` int(11) NOT NULL,
+  `request_item_id` bigint(20) NOT NULL,
+  `unit_id` bigint(20) DEFAULT NULL,
+  `reported_condition` enum('Good','Damaged','Missing Parts','Needs Repair','Lost') DEFAULT NULL,
+  `inspection_condition` enum('Good','Damaged','Missing Parts','Needs Repair','Lost') DEFAULT NULL,
+  `returned_quantity` int(11) NOT NULL DEFAULT 0,
+  `lost_quantity` int(11) NOT NULL DEFAULT 0,
+  `inspection_remarks` varchar(500) DEFAULT NULL,
+  `inspected_by` int(11) DEFAULT NULL,
+  `inspected_at` datetime DEFAULT NULL,
+  `stock_applied` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`return_item_id`),
+  UNIQUE KEY `uq_return_items_unit` (`return_id`,`unit_id`),
+  KEY `idx_return_items_line` (`request_item_id`,`return_id`),
+  CONSTRAINT `fk_return_items_return` FOREIGN KEY (`return_id`) REFERENCES `return_submissions` (`return_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_return_items_line` FOREIGN KEY (`request_item_id`) REFERENCES `request_items` (`request_item_id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_return_items_unit` FOREIGN KEY (`unit_id`) REFERENCES `equipment_units` (`unit_id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_return_items_inspector` FOREIGN KEY (`inspected_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `chk_return_items_quantities` CHECK (`returned_quantity` >= 0 AND `lost_quantity` >= 0 AND (`returned_quantity` + `lost_quantity`) >= 1 AND (`unit_id` is null or (`returned_quantity` + `lost_quantity`) = 1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE `users` (
   `user_id` int(11) NOT NULL AUTO_INCREMENT,
   `full_name` varchar(100) NOT NULL,

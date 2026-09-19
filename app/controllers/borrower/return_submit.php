@@ -9,6 +9,7 @@ require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/notification_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/return_upload_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/return_detail_helper.php";
 
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
@@ -57,28 +58,25 @@ if (!$requestRow) {
     redirectWithFlash("my_borrowed.php", "Borrowed request not found or not eligible for return.");
 }
 
-// Phase 3.5A safety net. This form records one condition for the whole
-// request, so a request covering several returnable resources must not pass
-// through it - one header condition would silently mark every resource Good,
-// Damaged or Lost alike. Release already refuses those shapes; this is the
-// second gate in case one ever reaches Released by another route.
-$returnableLineCount = (int) (function () use ($pdo, $requestId): int {
-    $stmt = $pdo->prepare("
-        SELECT COUNT(*) FROM request_items
-        WHERE request_id = :request_id AND line_kind <> 'Consumable'
-    ");
-    $stmt->execute([":request_id" => $requestId]);
-    return (int) $stmt->fetchColumn();
-})();
+// Phase 3.5B: the borrower accounts for every returnable resource of the
+// request individually. Issued consumables are excluded - they are gone, not
+// returnable - so a consumable-only request never reaches this form at all.
+$returnableLines = gsoReturnableLines($pdo, $requestId);
 
-if ($returnableLineCount > 1) {
+if ($returnableLines === []) {
     redirectWithFlash(
         "my_borrowed.php",
-        "This request covers several resources. Per-resource return inspection is not available yet - please coordinate with the GSO office."
+        "This request contains only issued materials, so there is nothing to return."
     );
 }
 
-if ((string) ($requestRow["resource_type"] ?? "") === "Facility") {
+// A facility line keeps its post-schedule rule wherever it sits in the request.
+$facilityReturnLine = null;
+foreach ($returnableLines as $candidateLine) {
+    if ((string) $candidateLine["line_kind"] === "Facility") { $facilityReturnLine = $candidateLine; break; }
+}
+
+if ($facilityReturnLine !== null) {
     $facilityRange = buildRequestDateRange(
         "Facility",
         $requestRow["date_needed"] ?? null,
@@ -121,7 +119,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $message = "Invalid request token.";
     } else {
         $notes = trim((string)($_POST["condition_notes"] ?? ""));
-        $reportedCondition = trim((string) ($_POST["reported_condition"] ?? "Good"));
+        // Per-line and per-unit outcomes. Nothing defaults to Good: an
+        // unreported resource or unit is rejected rather than assumed intact.
+        $detailResult = gsoValidateBorrowerReturnRows($pdo, $requestId, (array) ($_POST["lines"] ?? []));
+        $detailRows = $detailResult["rows"];
+
+        if ($detailResult["errors"] !== []) {
+            $message = implode(" ", $detailResult["errors"]);
+        }
+
+        // The header condition is the worst outcome across the detail rows, so
+        // existing displays and reports that read return_submissions keep
+        // working without knowing about the per-line structure.
+        $reportedCondition = gsoWorstReturnCondition(array_column($detailRows, "reported_condition"));
         $files = $_FILES["proof_photos"] ?? null;
         $allowedConditions = getConditionStatusOptions();
 
@@ -133,7 +143,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             }));
         }
 
-        if (count($photos) > 3) {
+        if ($message === "" && count($photos) > 3) {
             $message = "Max 3 photos only.";
         }
 
@@ -197,6 +207,30 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         ":reported_condition" => $reportedCondition,
                     ]);
                     $returnId = (int)$pdo->lastInsertId();
+                }
+
+                // Rewrite this submission's detail rows. Rows the GSO already
+                // inspected and settled are preserved, so a resubmission can
+                // never undo a completed stock movement.
+                $pdo->prepare("DELETE FROM return_submission_items WHERE return_id = :return_id AND stock_applied = 0")
+                    ->execute([":return_id" => $returnId]);
+
+                $detailStmt = $pdo->prepare("
+                    INSERT INTO return_submission_items
+                        (return_id, request_item_id, unit_id, reported_condition, returned_quantity, lost_quantity)
+                    VALUES
+                        (:return_id, :request_item_id, :unit_id, :reported_condition, :returned_quantity, :lost_quantity)
+                ");
+
+                foreach ($detailRows as $detailRow) {
+                    $detailStmt->execute([
+                        ":return_id" => $returnId,
+                        ":request_item_id" => (int) $detailRow["request_item_id"],
+                        ":unit_id" => $detailRow["unit_id"] !== null ? (int) $detailRow["unit_id"] : null,
+                        ":reported_condition" => (string) $detailRow["reported_condition"],
+                        ":returned_quantity" => (int) $detailRow["returned_quantity"],
+                        ":lost_quantity" => (int) $detailRow["lost_quantity"],
+                    ]);
                 }
 
                 foreach ($photos as $file) {
@@ -323,24 +357,59 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                     value="<?php echo htmlspecialchars((string)$_SESSION["csrf_token"]); ?>"
                 >
 
-                <label for="reported_condition"><strong>Reported Condition</strong></label>
-                <select
-                    id="reported_condition"
-                    name="reported_condition"
-                    class="form-control-block form-control-block--spaced"
-                >
+                <p class="mini-muted">
+                    Account for every resource issued on this request. Issued materials
+                    are not listed because they are not returned.
+                </p>
+
+                <?php foreach ($returnableLines as $returnLine): ?>
                     <?php
-                    $selectedReportedCondition = (string) ($existing["reported_condition"] ?? "Good");
-                    foreach (getConditionStatusOptions() as $conditionOption):
+                    $lineId = (int) $returnLine["request_item_id"];
+                    $lineReleased = max(1, (int) $returnLine["released_quantity"]);
+                    $openUnits = array_values(array_filter(
+                        $returnLine["units"],
+                        static fn(array $u): bool => $u["returned_at"] === null
+                    ));
                     ?>
-                        <option
-                            value="<?php echo htmlspecialchars($conditionOption); ?>"
-                            <?php echo $selectedReportedCondition === $conditionOption ? "selected" : ""; ?>
-                        >
-                            <?php echo htmlspecialchars($conditionOption); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
+                    <section class="return-line-block">
+                        <h4>
+                            <?php echo htmlspecialchars((string) $returnLine["resource_name"]); ?>
+                            <?php if ((string) $returnLine["line_kind"] !== "Facility"): ?>
+                                <small>(<?php echo $lineReleased; ?> issued)</small>
+                            <?php endif; ?>
+                        </h4>
+                        <?php if ((string) $returnLine["tracking_mode"] === "Serialized"): ?>
+                            <?php foreach ($openUnits as $unit): ?>
+                                <div class="return-unit-row">
+                                    <span><?php echo htmlspecialchars((string) $unit["asset_tag"]); ?></span>
+                                    <select name="lines[<?php echo $lineId; ?>][units][<?php echo (int) $unit["unit_id"]; ?>][condition]" required>
+                                        <option value="">Select condition</option>
+                                        <?php foreach (getConditionStatusOptions() as $conditionOption): ?>
+                                            <option value="<?php echo htmlspecialchars($conditionOption); ?>"><?php echo htmlspecialchars($conditionOption); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <div class="return-unit-row">
+                                <?php if ((string) $returnLine["line_kind"] !== "Facility"): ?>
+                                    <label>Returned
+                                        <input type="number" name="lines[<?php echo $lineId; ?>][returned_quantity]" min="0" max="<?php echo $lineReleased; ?>" value="<?php echo $lineReleased; ?>" required>
+                                    </label>
+                                    <label>Lost
+                                        <input type="number" name="lines[<?php echo $lineId; ?>][lost_quantity]" min="0" max="<?php echo $lineReleased; ?>" value="0" required>
+                                    </label>
+                                <?php endif; ?>
+                                <select name="lines[<?php echo $lineId; ?>][condition]" required>
+                                    <option value="">Select condition</option>
+                                    <?php foreach (getConditionStatusOptions() as $conditionOption): ?>
+                                        <option value="<?php echo htmlspecialchars($conditionOption); ?>"><?php echo htmlspecialchars($conditionOption); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        <?php endif; ?>
+                    </section>
+                <?php endforeach; ?>
 
                 <label for="condition_notes"><strong>Condition / Notes</strong></label>
                 <textarea

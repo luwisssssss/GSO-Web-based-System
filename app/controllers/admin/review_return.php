@@ -7,6 +7,7 @@ require_once dirname(__DIR__, 3) . "/includes/notification_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/return_upload_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/maintenance_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/return_detail_helper.php";
 
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
@@ -163,100 +164,32 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 throw new Exception("Request is not in Released state.");
             }
 
-            if ($resourceType === "Item") {
-                $resourceStmt = $pdo->prepare("
-                    SELECT resource_id, total_stock, available_stock, under_repair_stock
-                    FROM resources
-                    WHERE resource_id = :resource_id
-                    FOR UPDATE
-                ");
-                $resourceStmt->execute([
-                    ":resource_id" => $resourceId
-                ]);
-                $resourceRow = $resourceStmt->fetch(PDO::FETCH_ASSOC);
+            // Phase 3.5B: each returned resource line, and each physical unit,
+            // carries its own inspection outcome. A damaged laptop parks only
+            // that laptop; a lost chair reduces only chair stock. The helper
+            // flips stock_applied inside this transaction, so a second
+            // inspection can never restore the same stock twice.
+            $inspectionResult = gsoApplyReturnInspection(
+                $pdo,
+                (int) $locked["return_id"],
+                (array) ($_POST["inspection"] ?? []),
+                $adminId
+            );
 
-                if (!$resourceRow) {
-                    throw new Exception("Resource not found.");
-                }
-
-                $totalStock = (int) ($resourceRow["total_stock"] ?? 0);
-                $availableStock = (int) ($resourceRow["available_stock"] ?? 0);
-                $underRepairStock = max(0, (int) ($resourceRow["under_repair_stock"] ?? 0));
-                $newAvailableStock = $availableStock;
-                $newTotalStock = $totalStock;
-                $newUnderRepairStock = $underRepairStock;
-                $nextConditionStatus = $inspectionCondition;
-                $conditionNotes = ($inspectionRemarks === "" ? null : $inspectionRemarks);
-
-                if ($inspectionCondition === "Good") {
-                    $newAvailableStock = $availableStock + $returnedQty;
-
-                    if ($newAvailableStock > $totalStock - $underRepairStock) {
-                        $newAvailableStock = max(0, $totalStock - $underRepairStock);
-                    }
-                } elseif ($inspectionCondition === "Lost") {
-                    $newTotalStock = max(0, $totalStock - $returnedQty);
-
-                    if ($newAvailableStock > $newTotalStock) {
-                        $newAvailableStock = $newTotalStock;
-                    }
-
-                    $newUnderRepairStock = min($underRepairStock, max(0, $newTotalStock - $newAvailableStock));
-
-                    if ($newTotalStock > 0) {
-                        $nextConditionStatus = "Good";
-                        $conditionNotes = trim("Latest return inspection: {$returnedQty} item(s) marked Lost. " . $inspectionRemarks);
-                    }
-                } else {
-                    // Hold the affected units out of service until they are
-                    // repaired; everything else stays available to borrow.
-                    $newUnderRepairStock = min(
-                        $underRepairStock + $returnedQty,
-                        max(0, $newTotalStock - $newAvailableStock)
-                    );
-
-                    if ($totalStock > $returnedQty) {
-                        $nextConditionStatus = "Good";
-                        $conditionNotes = trim("Latest return inspection: {$returnedQty} item(s) marked {$inspectionCondition}. " . $inspectionRemarks);
-                    }
-                }
-
-                $updateResourceStmt = $pdo->prepare("
-                    UPDATE resources
-                    SET
-                        available_stock = :available_stock,
-                        total_stock = :total_stock,
-                        under_repair_stock = :under_repair_stock,
-                        condition_status = :condition_status,
-                        condition_notes = :condition_notes
-                    WHERE resource_id = :resource_id
-                    LIMIT 1
-                ");
-                $updateResourceStmt->execute([
-                    ":available_stock" => $newAvailableStock,
-                    ":total_stock" => $newTotalStock,
-                    ":under_repair_stock" => $newUnderRepairStock,
-                    ":condition_status" => $nextConditionStatus,
-                    ":condition_notes" => ($conditionNotes === "" ? null : $conditionNotes),
-                    ":resource_id" => $resourceId
-                ]);
-            } else {
-                $updateResourceStmt = $pdo->prepare("
-                    UPDATE resources
-                    SET
-                        condition_status = :condition_status,
-                        condition_notes = :condition_notes
-                    WHERE resource_id = :resource_id
-                    LIMIT 1
-                ");
-                $updateResourceStmt->execute([
-                    ":condition_status" => $inspectionCondition,
-                    ":condition_notes" => ($inspectionRemarks === "" ? null : $inspectionRemarks),
-                    ":resource_id" => $resourceId
-                ]);
+            if (!($inspectionResult["ok"] ?? false)) {
+                throw new Exception((string) $inspectionResult["message"]);
             }
 
-            refreshResourceOperationalStatus($pdo, $resourceId);
+            // The header keeps the worst outcome so existing displays, reports
+            // and the lifecycle helper continue to work unchanged.
+            $detailConditions = $pdo->prepare("
+                SELECT inspection_condition FROM return_submission_items
+                WHERE return_id = :return_id AND inspection_condition IS NOT NULL
+            ");
+            $detailConditions->execute([":return_id" => (int) $locked["return_id"]]);
+            $inspectionCondition = gsoWorstReturnCondition(
+                $detailConditions->fetchAll(PDO::FETCH_COLUMN) ?: ["Good"]
+            );
 
             $pdo->prepare("
                 UPDATE resource_requests
@@ -434,25 +367,53 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
             <form method="POST" class="review-return-form">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
 
-                <label for="inspection_condition"><strong>Inspection Condition</strong></label>
-                <select
-                    id="inspection_condition"
-                    name="inspection_condition"
-                    class="form-control-block"
-                    required
-                >
-                    <?php
-                    $selectedInspectionCondition = (string) ($info["inspection_condition"] ?? ($info["reported_condition"] ?? "Good"));
-                    foreach (getConditionStatusOptions() as $conditionOption):
-                    ?>
-                        <option
-                            value="<?php echo htmlspecialchars($conditionOption); ?>"
-                            <?php echo $selectedInspectionCondition === $conditionOption ? "selected" : ""; ?>
+                <h4 class="section-title">Per-Resource Inspection</h4>
+                <p class="mini-muted">
+                    Record an outcome for every returned resource. Each line is settled
+                    independently, so a damaged item never affects the others.
+                </p>
+
+                <?php $returnDetails = gsoReturnDetailRows($pdo, (int) $info["return_id"]); ?>
+                <?php foreach ($returnDetails as $detail): ?>
+                    <div class="return-unit-row">
+                        <span>
+                            <?php echo htmlspecialchars((string) $detail["resource_name"]); ?>
+                            <?php if (!empty($detail["asset_tag"])): ?>
+                                &mdash; <?php echo htmlspecialchars((string) $detail["asset_tag"]); ?>
+                            <?php elseif ((string) $detail["line_kind"] !== "Facility"): ?>
+                                &mdash; <?php echo (int) $detail["returned_quantity"]; ?> returned,
+                                <?php echo (int) $detail["lost_quantity"]; ?> lost
+                            <?php endif; ?>
+                            <?php if ((int) $detail["stock_applied"] === 1): ?>
+                                <em>(already settled)</em>
+                            <?php endif; ?>
+                        </span>
+                        <select
+                            name="inspection[<?php echo (int) $detail["return_item_id"]; ?>][condition]"
+                            <?php echo (int) $detail["stock_applied"] === 1 ? "disabled" : "required"; ?>
                         >
-                            <?php echo htmlspecialchars($conditionOption); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
+                            <?php
+                            $detailSelected = (string) ($detail["inspection_condition"]
+                                ?? ($detail["lost_quantity"] > 0 ? "Lost" : ($detail["reported_condition"] ?? "Good")));
+                            foreach (getConditionStatusOptions() as $conditionOption):
+                            ?>
+                                <option
+                                    value="<?php echo htmlspecialchars($conditionOption); ?>"
+                                    <?php echo $detailSelected === $conditionOption ? "selected" : ""; ?>
+                                >
+                                    <?php echo htmlspecialchars($conditionOption); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <input
+                            type="text"
+                            name="inspection[<?php echo (int) $detail["return_item_id"]; ?>][remarks]"
+                            placeholder="Remarks (optional)"
+                            maxlength="500"
+                            value="<?php echo htmlspecialchars((string) ($detail["inspection_remarks"] ?? "")); ?>"
+                        >
+                    </div>
+                <?php endforeach; ?>
 
                 <label for="inspection_remarks"><strong>Inspection Remarks</strong></label>
                 <textarea

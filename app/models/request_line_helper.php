@@ -250,37 +250,18 @@ if (!function_exists("gsoRequestFulfilmentBlocker")) {
     function gsoRequestFulfilmentBlocker(PDO $pdo, int $requestId): ?string
     {
         $stmt = $pdo->prepare("
-            SELECT
-                SUM(CASE WHEN ri.line_kind = 'Consumable' THEN 1 ELSE 0 END) AS consumable_lines,
-                SUM(CASE WHEN r.tracking_mode = 'Serialized' THEN 1 ELSE 0 END) AS serialized_lines,
-                SUM(CASE WHEN ri.line_kind <> 'Consumable' THEN 1 ELSE 0 END) AS returnable_lines,
-                COUNT(*) AS total_lines
-            FROM request_items ri
-            INNER JOIN resources r ON r.resource_id = ri.resource_id
-            WHERE ri.request_id = :request_id
+            SELECT COUNT(*) FROM request_items WHERE request_id = :request_id
         ");
         $stmt->execute([":request_id" => $requestId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-        if ((int) ($row["total_lines"] ?? 0) === 0) {
+        if ((int) $stmt->fetchColumn() === 0) {
             return "This request has no resource lines and cannot be fulfilled.";
         }
 
-        if ((int) ($row["serialized_lines"] ?? 0) > 0) {
-            return "This request includes individually tracked equipment. "
-                . "Physical unit allocation is not available yet, so it cannot be released.";
-        }
-
-        if ((int) ($row["consumable_lines"] ?? 0) > 0) {
-            return "This request includes consumable materials. "
-                . "Consumable issuance is not available yet, so it cannot be released.";
-        }
-
-        if ((int) ($row["returnable_lines"] ?? 0) > 1) {
-            return "This request covers several returnable resources. "
-                . "Per-resource return inspection is not available yet, so it cannot be released.";
-        }
-
+        // Phase 3.5B implements serialized allocation, consumable issuance and
+        // per-resource return inspection, so the 3.5A deferral gates are gone.
+        // Every remaining fulfilment rule is enforced inside the release
+        // transaction itself, where it can be validated against locked rows.
         return null;
     }
 }

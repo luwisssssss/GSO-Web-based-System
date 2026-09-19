@@ -10,6 +10,7 @@ require_once dirname(__DIR__, 3) . "/includes/facility_calendar_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/adviser_endorsement_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/director_approval_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_line_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/equipment_unit_helper.php";
 
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
@@ -478,73 +479,205 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
 
         $requestRow = $lockedRequest;
-        $quantity = max(1, (int) ($requestRow["quantity"] ?? 0));
-        $resourceType = (string) ($requestRow["resource_type"] ?? "Item");
         $dateNeeded = $requestRow["date_needed"] ?? null;
         $startTime = $requestRow["start_time"] ?? null;
         $endTime = $requestRow["end_time"] ?? null;
 
-        $availability = checkResourceAvailability(
-            $pdo,
-            $requestRow,
-            $quantity,
-            $dateNeeded,
-            $startTime,
-            $endTime,
-            $scheduleDueDate,
-            $requestId
-        );
-
-        if (!($availability["ok"] ?? false)) {
-            throw new Exception((string) ($availability["message"] ?? "This request is no longer available."));
-        }
-
-        if ($resourceType === "Item") {
-            if ((int) ($requestRow["is_archived"] ?? 0) === 1) {
-                throw new Exception("This resource is archived and cannot be released.");
-            }
-
-            if ((string) ($requestRow["resource_status"] ?? "") !== "Available") {
-                throw new Exception("Only available item resources can be released.");
-            }
-
-            if ((string) ($requestRow["condition_status"] ?? "Good") !== "Good") {
-                throw new Exception("This item cannot be released because its condition is not good.");
-            }
-
-            $availableStock = (int) ($requestRow["available_stock"] ?? 0);
-
-            if ($availableStock < $quantity) {
-                throw new Exception("Not enough physical stock is available for release.");
-            }
-
-            $updateStockStmt = $pdo->prepare("
-                UPDATE resources
-                SET available_stock = :available_stock
-                WHERE resource_id = :resource_id
-                LIMIT 1
-            ");
-            $updateStockStmt->execute([
-                ":available_stock" => $availableStock - $quantity,
-                ":resource_id" => $requestRow["resource_id"]
-            ]);
-        }
-
-        // Record what each line actually handed over, inside the same
-        // transaction as the stock movement, so a failed release leaves no
-        // partial deduction and no partially-released line behind.
-        $markLineReleasedStmt = $pdo->prepare("
-            UPDATE request_items
-            SET released_quantity = requested_quantity
-            WHERE request_item_id = :request_item_id
-        ");
+        // Phase 3.5B: every line of the request is fulfilled inside this one
+        // transaction. The whole release is validated before any mutation, and
+        // any single failure throws, so the enclosing rollback guarantees no
+        // stock is deducted, no consumable is issued and no unit allocation
+        // survives while another line went unfulfilled.
+        $selectedUnits = (array) ($_POST["unit_ids"] ?? []);
+        $lineResourceTypes = [];
+        $lineIsFacility = false;
 
         foreach ($releaseLines as $releaseLine) {
-            $markLineReleasedStmt->execute([
-                ":request_item_id" => (int) $releaseLine["request_item_id"],
+            $lineId = (int) $releaseLine["request_item_id"];
+            $lineResourceId = (int) $releaseLine["resource_id"];
+            $lineKind = (string) $releaseLine["line_kind"];
+            $lineQuantity = max(1, (int) $releaseLine["requested_quantity"]);
+            $lineResourceTypes[] = (string) $releaseLine["resource_type"];
+
+            $resourceStmt = $pdo->prepare("
+                SELECT resource_id, resource_name, resource_type, tracking_mode, category,
+                       total_stock, available_stock, under_repair_stock, capacity,
+                       status, condition_status, is_archived
+                FROM resources WHERE resource_id = :resource_id FOR UPDATE
+            ");
+            $resourceStmt->execute([":resource_id" => $lineResourceId]);
+            $lineResource = $resourceStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$lineResource) {
+                throw new Exception("A requested resource no longer exists.");
+            }
+
+            $lineName = (string) $lineResource["resource_name"];
+
+            if ((int) ($lineResource["is_archived"] ?? 0) === 1) {
+                throw new Exception("{$lineName} is archived and cannot be released.");
+            }
+
+            if ((string) $lineResource["status"] !== "Available") {
+                throw new Exception("{$lineName} is not available for release.");
+            }
+
+            // Schedule and stock availability are revalidated per line through
+            // the shared service, which already reads request lines.
+            $availability = checkResourceAvailability(
+                $pdo,
+                $lineResource,
+                $lineKind === "Facility" ? 1 : $lineQuantity,
+                $dateNeeded,
+                $startTime,
+                $endTime,
+                $scheduleDueDate,
+                $requestId
+            );
+
+            if (!($availability["ok"] ?? false)) {
+                throw new Exception($lineName . ": " . (string) ($availability["message"] ?? "no longer available."));
+            }
+
+            if ($lineKind === "Facility") {
+                // A room is not an equipment unit and holds no stock; the line
+                // is simply recorded as released and keeps its return duty.
+                $lineIsFacility = true;
+                $pdo->prepare("UPDATE request_items SET released_quantity = 1 WHERE request_item_id = :id")
+                    ->execute([":id" => $lineId]);
+                continue;
+            }
+
+            if ((string) $lineResource["condition_status"] !== "Good") {
+                throw new Exception("{$lineName} cannot be released because its condition is not good.");
+            }
+
+            if ($lineKind === "Consumable") {
+                // Issuance is the moment stock leaves permanently: both the
+                // available and the total counters drop, because the material
+                // is never coming back.
+                $availableStock = (int) ($lineResource["available_stock"] ?? 0);
+
+                if ($availableStock < $lineQuantity) {
+                    throw new Exception("Not enough {$lineName} in stock to issue.");
+                }
+
+                $pdo->prepare("
+                    UPDATE resources
+                    SET available_stock = available_stock - :qty,
+                        total_stock = GREATEST(0, total_stock - :qty2)
+                    WHERE resource_id = :resource_id
+                      AND available_stock >= :qty3
+                ")->execute([
+                    ":qty" => $lineQuantity,
+                    ":qty2" => $lineQuantity,
+                    ":qty3" => $lineQuantity,
+                    ":resource_id" => $lineResourceId,
+                ]);
+
+                $pdo->prepare("
+                    UPDATE request_items
+                    SET issued_quantity = :qty, released_quantity = :qty2
+                    WHERE request_item_id = :id
+                ")->execute([":qty" => $lineQuantity, ":qty2" => $lineQuantity, ":id" => $lineId]);
+                continue;
+            }
+
+            if ((string) $lineResource["tracking_mode"] === "Serialized") {
+                // The operator hands over specific physical units. Each unit is
+                // claimed with a conditional update plus the open-allocation
+                // unique index, so a concurrent release cannot take the same
+                // unit twice and a forged or foreign unit id cannot be used.
+                $chosen = array_values(array_unique(array_map(
+                    "intval",
+                    (array) ($selectedUnits[$lineId] ?? [])
+                )));
+
+                if (count($chosen) !== $lineQuantity) {
+                    throw new Exception(
+                        "Select exactly {$lineQuantity} unit(s) of {$lineName} to issue."
+                    );
+                }
+
+                foreach ($chosen as $unitId) {
+                    $unitStmt = $pdo->prepare("
+                        SELECT unit_id, resource_id, status, condition_status, asset_tag
+                        FROM equipment_units WHERE unit_id = :unit_id FOR UPDATE
+                    ");
+                    $unitStmt->execute([":unit_id" => $unitId]);
+                    $unit = $unitStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if (!$unit || (int) $unit["resource_id"] !== $lineResourceId) {
+                        throw new Exception("A selected unit does not belong to {$lineName}.");
+                    }
+
+                    if ((string) $unit["status"] !== "Available"
+                        || (string) $unit["condition_status"] !== "Good"
+                    ) {
+                        throw new Exception("Unit {$unit['asset_tag']} is not available for release.");
+                    }
+
+                    $claim = $pdo->prepare("
+                        UPDATE equipment_units
+                        SET status = 'Released', updated_at = NOW()
+                        WHERE unit_id = :unit_id AND status = 'Available' AND condition_status = 'Good'
+                    ");
+                    $claim->execute([":unit_id" => $unitId]);
+
+                    if ($claim->rowCount() !== 1) {
+                        throw new Exception("Unit {$unit['asset_tag']} was taken by another release.");
+                    }
+
+                    $pdo->prepare("
+                        INSERT INTO request_item_units
+                            (request_item_id, unit_id, allocated_by, released_at)
+                        VALUES (:line_id, :unit_id, :actor, NOW())
+                    ")->execute([
+                        ":line_id" => $lineId,
+                        ":unit_id" => $unitId,
+                        ":actor" => $adminUserId,
+                    ]);
+                }
+
+                $pdo->prepare("UPDATE request_items SET released_quantity = :qty WHERE request_item_id = :id")
+                    ->execute([":qty" => $lineQuantity, ":id" => $lineId]);
+
+                // Counters are rebuilt from the unit rows rather than adjusted,
+                // so no arithmetic slip can double-deduct.
+                gsoRecalculateSerializedStock($pdo, $lineResourceId);
+                continue;
+            }
+
+            // Aggregate equipment: deduct exactly what is handed over.
+            $availableStock = (int) ($lineResource["available_stock"] ?? 0);
+
+            if ($availableStock < $lineQuantity) {
+                throw new Exception("Not enough {$lineName} in stock for release.");
+            }
+
+            $deduct = $pdo->prepare("
+                UPDATE resources
+                SET available_stock = available_stock - :qty
+                WHERE resource_id = :resource_id AND available_stock >= :qty2
+            ");
+            $deduct->execute([
+                ":qty" => $lineQuantity,
+                ":qty2" => $lineQuantity,
+                ":resource_id" => $lineResourceId,
             ]);
+
+            if ($deduct->rowCount() !== 1) {
+                throw new Exception("{$lineName} stock changed during release.");
+            }
+
+            $pdo->prepare("UPDATE request_items SET released_quantity = :qty WHERE request_item_id = :id")
+                ->execute([":qty" => $lineQuantity, ":id" => $lineId]);
         }
 
+        // The loan window follows the facility when one is present, otherwise
+        // the equipment default, preserving the existing due-date behaviour.
+        $resourceType = $lineIsFacility ? "Facility" : "Item";
+        $quantity = max(1, (int) ($requestRow["quantity"] ?? 1));
         $releasedAt = date("Y-m-d H:i:s");
         $generatedDueDate = generateLoanDueDate(
             $resourceType,
@@ -554,10 +687,24 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $releasedAt
         );
 
+        // A request with nothing returnable - consumables only - is finished the
+        // moment its materials are issued. Calling that 'Returned' would claim
+        // goods came back that never can, so it goes straight to 'Completed'
+        // and never waits for a return submission.
+        $returnableLineCount = 0;
+
+        foreach ($releaseLines as $releaseLine) {
+            if ((string) $releaseLine["line_kind"] !== "Consumable") {
+                $returnableLineCount++;
+            }
+        }
+
+        $releaseTerminalStatus = $returnableLineCount === 0 ? "Completed" : "Released";
+
         $updateRequestStmt = $pdo->prepare("
             UPDATE resource_requests
             SET
-                status = 'Released',
+                status = :terminal_status,
                 released_by = :released_by,
                 released_at = :released_at,
                 due_date = :due_date,
@@ -570,17 +717,23 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             LIMIT 1
         ");
         $updateRequestStmt->execute([
+            ":terminal_status" => $releaseTerminalStatus,
             ":released_by" => $adminUserId,
             ":released_at" => $releasedAt,
             ":due_date" => $generatedDueDate,
             ":request_id" => $requestId
         ]);
 
+        // The status predicate is still 'Approved', so a repeated POST or a
+        // concurrent release affects zero rows and the whole transaction is
+        // rolled back - no duplicate issuance, no second unit allocation.
         if ($updateRequestStmt->rowCount() !== 1) {
             throw new Exception("This request was already updated. Please refresh the page.");
         }
 
-        refreshResourceOperationalStatus($pdo, (int) $requestRow["resource_id"]);
+        foreach ($releaseLines as $releaseLine) {
+            refreshResourceOperationalStatus($pdo, (int) $releaseLine["resource_id"]);
+        }
 
         addActivityLog(
             $pdo,
@@ -1044,10 +1197,44 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                 <?php endif; ?>
 
                                                 <?php if ($canReleaseRequest): ?>
+                                                    <?php
+                                                    // Serialized lines need the operator to name the exact
+                                                    // physical units being handed over. Only units that are
+                                                    // genuinely free are offered, and the release transaction
+                                                    // revalidates every choice against locked rows anyway.
+                                                    $releaseSelectionLines = gsoRequestLines($pdo, (int) $request["request_id"]);
+                                                    $serializedReleaseLines = array_values(array_filter(
+                                                        $releaseSelectionLines,
+                                                        static fn(array $l): bool => (string) $l["tracking_mode"] === "Serialized"
+                                                    ));
+                                                    ?>
                                                     <form method="POST" class="inline-form" onsubmit="return confirm('Release this approved request now? The return due date will be generated from the release time.');">
                                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
                                                         <input type="hidden" name="request_id" value="<?php echo htmlspecialchars((string) $request["request_id"]); ?>">
                                                         <input type="hidden" name="action" value="release">
+                                                        <?php foreach ($serializedReleaseLines as $serializedLine): ?>
+                                                            <?php
+                                                            $serializedLineId = (int) $serializedLine["request_item_id"];
+                                                            $freeUnits = gsoAvailableUnitsForResource($pdo, (int) $serializedLine["resource_id"]);
+                                                            ?>
+                                                            <div class="release-unit-picker">
+                                                                <strong><?php echo htmlspecialchars((string) $serializedLine["resource_name"]); ?></strong>
+                                                                <small>select <?php echo (int) $serializedLine["requested_quantity"]; ?></small>
+                                                                <?php foreach ($freeUnits as $freeUnit): ?>
+                                                                    <label>
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            name="unit_ids[<?php echo $serializedLineId; ?>][]"
+                                                                            value="<?php echo (int) $freeUnit["unit_id"]; ?>"
+                                                                        >
+                                                                        <?php echo htmlspecialchars((string) $freeUnit["asset_tag"]); ?>
+                                                                    </label>
+                                                                <?php endforeach; ?>
+                                                                <?php if (!$freeUnits): ?>
+                                                                    <em>No units available.</em>
+                                                                <?php endif; ?>
+                                                            </div>
+                                                        <?php endforeach; ?>
                                                         <button type="submit" role="menuitem">
                                                             <i class="fa-solid fa-box-open" aria-hidden="true"></i>
                                                             <span>Release</span>

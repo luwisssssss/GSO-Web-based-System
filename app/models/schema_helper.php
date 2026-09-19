@@ -779,6 +779,151 @@ if (!function_exists("ensureSystemSchema")) {
                 ");
             }
 
+            // --- Mixed equipment tracking and return details (Phase 3.5B) ----
+            // equipment_units starts empty on purpose: physical units exist
+            // only once authorised GSO staff register real asset tags. No
+            // unit is ever fabricated from an aggregate quantity.
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS equipment_units (
+                    unit_id BIGINT NOT NULL AUTO_INCREMENT,
+                    resource_id INT NOT NULL,
+                    asset_tag VARCHAR(60) NOT NULL,
+                    serial_number VARCHAR(120) NULL,
+                    status ENUM('Available','Released','Under Repair','Lost','Retired') NOT NULL DEFAULT 'Available',
+                    condition_status ENUM('Good','Damaged','Missing Parts','Needs Repair','Lost') NOT NULL DEFAULT 'Good',
+                    unit_notes VARCHAR(500) NULL,
+                    acquired_at DATE NULL,
+                    registered_by INT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NULL,
+                    PRIMARY KEY (unit_id),
+                    UNIQUE KEY uq_equipment_units_asset_tag (asset_tag),
+                    UNIQUE KEY uq_equipment_units_serial (serial_number),
+                    KEY idx_equipment_units_resource (resource_id, status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+
+            if (tableExists($pdo, "equipment_units")) {
+                if (!foreignKeyExists($pdo, "equipment_units", "fk_equipment_units_resource")) {
+                    $pdo->exec("
+                        ALTER TABLE equipment_units
+                        ADD CONSTRAINT fk_equipment_units_resource
+                            FOREIGN KEY (resource_id) REFERENCES resources (resource_id)
+                            ON DELETE RESTRICT
+                    ");
+                }
+                if (!foreignKeyExists($pdo, "equipment_units", "fk_equipment_units_registrar")) {
+                    $pdo->exec("
+                        ALTER TABLE equipment_units
+                        ADD CONSTRAINT fk_equipment_units_registrar
+                            FOREIGN KEY (registered_by) REFERENCES users (user_id)
+                            ON DELETE SET NULL
+                    ");
+                }
+            }
+
+            // open_unit_guard carries the unit id only while the allocation is
+            // still open, so its UNIQUE index makes a second concurrent
+            // release of the same physical unit impossible at the storage
+            // engine level. Allocation history is never deleted.
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS request_item_units (
+                    allocation_id BIGINT NOT NULL AUTO_INCREMENT,
+                    request_item_id BIGINT NOT NULL,
+                    unit_id BIGINT NOT NULL,
+                    allocated_by INT NOT NULL,
+                    allocated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    released_at DATETIME NULL,
+                    returned_at DATETIME NULL,
+                    open_unit_guard BIGINT AS (CASE WHEN returned_at IS NULL THEN unit_id END) STORED,
+                    PRIMARY KEY (allocation_id),
+                    UNIQUE KEY uq_request_item_units_pair (request_item_id, unit_id),
+                    UNIQUE KEY uq_request_item_units_open (open_unit_guard),
+                    KEY idx_request_item_units_unit (unit_id, returned_at),
+                    CONSTRAINT fk_request_item_units_line FOREIGN KEY (request_item_id) REFERENCES request_items (request_item_id) ON DELETE CASCADE,
+                    CONSTRAINT fk_request_item_units_unit FOREIGN KEY (unit_id) REFERENCES equipment_units (unit_id) ON DELETE RESTRICT,
+                    CONSTRAINT fk_request_item_units_actor FOREIGN KEY (allocated_by) REFERENCES users (user_id) ON DELETE RESTRICT
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+
+            // One condition group per aggregate line, or one row per physical
+            // unit. UNIQUE (return_id, unit_id) relies on NULLs being distinct
+            // so aggregates may hold several groups while a unit appears once.
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS return_submission_items (
+                    return_item_id BIGINT NOT NULL AUTO_INCREMENT,
+                    return_id INT NOT NULL,
+                    request_item_id BIGINT NOT NULL,
+                    unit_id BIGINT NULL,
+                    reported_condition ENUM('Good','Damaged','Missing Parts','Needs Repair','Lost') NULL,
+                    inspection_condition ENUM('Good','Damaged','Missing Parts','Needs Repair','Lost') NULL,
+                    returned_quantity INT NOT NULL DEFAULT 0,
+                    lost_quantity INT NOT NULL DEFAULT 0,
+                    inspection_remarks VARCHAR(500) NULL,
+                    inspected_by INT NULL,
+                    inspected_at DATETIME NULL,
+                    stock_applied TINYINT(1) NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (return_item_id),
+                    UNIQUE KEY uq_return_items_unit (return_id, unit_id),
+                    KEY idx_return_items_line (request_item_id, return_id),
+                    CONSTRAINT fk_return_items_return FOREIGN KEY (return_id) REFERENCES return_submissions (return_id) ON DELETE CASCADE,
+                    CONSTRAINT fk_return_items_line FOREIGN KEY (request_item_id) REFERENCES request_items (request_item_id) ON DELETE RESTRICT,
+                    CONSTRAINT fk_return_items_unit FOREIGN KEY (unit_id) REFERENCES equipment_units (unit_id) ON DELETE RESTRICT,
+                    CONSTRAINT fk_return_items_inspector FOREIGN KEY (inspected_by) REFERENCES users (user_id) ON DELETE SET NULL,
+                    CONSTRAINT chk_return_items_quantities CHECK (
+                        returned_quantity >= 0
+                        AND lost_quantity >= 0
+                        AND (returned_quantity + lost_quantity) >= 1
+                        AND (unit_id IS NULL OR (returned_quantity + lost_quantity) = 1)
+                    )
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+
+            // A consumable-only request is finished once its materials are
+            // issued; calling that 'Returned' would claim goods came back.
+            if (tableExists($pdo, "resource_requests")
+                && !enumColumnHasValue($pdo, "resource_requests", "status", "Completed")
+            ) {
+                $pdo->exec("
+                    ALTER TABLE resource_requests
+                    MODIFY COLUMN status
+                        ENUM('Pending','Under Review','Approved','Rejected','Cancelled','Released','Returned','Completed')
+                        NOT NULL DEFAULT 'Pending'
+                ");
+            }
+
+            // Historical returns become aggregate detail rows with
+            // stock_applied already set, so the new inspection path can never
+            // re-apply a stock movement the old header-level path made.
+            if (tableExists($pdo, "return_submission_items") && tableExists($pdo, "request_items")) {
+                $pdo->exec("
+                    INSERT INTO return_submission_items
+                        (return_id, request_item_id, unit_id, reported_condition, inspection_condition,
+                         returned_quantity, lost_quantity, inspection_remarks, inspected_by, inspected_at,
+                         stock_applied, created_at)
+                    SELECT
+                        rs.return_id,
+                        ri.request_item_id,
+                        NULL,
+                        rs.reported_condition,
+                        rs.inspection_condition,
+                        CASE WHEN rs.inspection_condition = 'Lost' THEN 0 ELSE GREATEST(1, ri.requested_quantity) END,
+                        CASE WHEN rs.inspection_condition = 'Lost' THEN GREATEST(1, ri.requested_quantity) ELSE 0 END,
+                        rs.inspection_remarks,
+                        rs.admin_id,
+                        rs.reviewed_at,
+                        1,
+                        rs.submitted_at
+                    FROM return_submissions rs
+                    INNER JOIN request_items ri
+                        ON ri.request_id = rs.request_id AND ri.line_kind <> 'Consumable'
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM return_submission_items rsi WHERE rsi.return_id = rs.return_id
+                    )
+                ");
+            }
+
             if (tableExists($pdo, "maintenance_schedules")) {
                 if (!foreignKeyExists($pdo, "maintenance_schedules", "fk_ms_created_by")) {
                     $pdo->exec("

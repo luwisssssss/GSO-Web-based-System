@@ -4174,3 +4174,37 @@ textarea:focus {
 .request-line-table td:first-child {
     white-space: nowrap;
 }
+
+/* Phase 3.5B: unit selection and per-resource return inspection. */
+.return-line-block {
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.return-line-block h4 {
+    margin: 0 0 8px;
+}
+
+.return-unit-row,
+.release-unit-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.release-unit-picker {
+    padding: 6px 10px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+}
+
+.release-unit-picker label {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+}
