@@ -209,14 +209,15 @@ if ($statusFilter !== "All") {
 
 if ($search !== "") {
     $baseWhereSql .= " AND (
-        u.full_name LIKE :search
-        OR u.email LIKE :search
-        OR u.username LIKE :search
-        OR u.university_id LIKE :search
-        OR u.department LIKE :search
-        OR u.account_type LIKE :search
+        u.full_name LIKE :search_name
+        OR u.email LIKE :search_email
+        OR u.username LIKE :search_username
+        OR u.university_id LIKE :search_university
+        OR u.department LIKE :search_department
+        OR u.account_type LIKE :search_type
     )";
-    $params[":search"] = "%" . $search . "%";
+    $value = "%" . $search . "%";
+    foreach (["search_name","search_email","search_username","search_university","search_department","search_type"] as $key) $params[":".$key] = $value;
 }
 
 $countSql = "SELECT COUNT(*) " . $baseWhereSql;

@@ -43,13 +43,14 @@ $params = [];
 
 if ($search !== "") {
     $sql .= " AND (
-        resource_name LIKE :search
-        OR resource_type LIKE :search
-        OR category LIKE :search
-        OR description LIKE :search
-        OR location LIKE :search
+        resource_name LIKE :search_name
+        OR resource_type LIKE :search_type
+        OR category LIKE :search_category
+        OR description LIKE :search_description
+        OR location LIKE :search_location
     )";
-    $params[":search"] = "%" . $search . "%";
+    $value = "%" . $search . "%";
+    foreach (["search_name","search_type","search_category","search_description","search_location"] as $key) $params[":".$key] = $value;
 }
 
 if ($categoryFilter !== "All") {

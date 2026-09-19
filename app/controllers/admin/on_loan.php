@@ -176,16 +176,17 @@ $params = [];
 
 if ($search !== "") {
     $sql .= " AND (
-        rr.request_id LIKE :search
-        OR borrower.full_name LIKE :search
-        OR borrower.username LIKE :search
-        OR borrower.email LIKE :search
-        OR r.resource_name LIKE :search
-        OR r.resource_type LIKE :search
-        OR r.category LIKE :search
-        OR r.location LIKE :search
+        rr.request_id LIKE :search_id
+        OR borrower.full_name LIKE :search_name
+        OR borrower.username LIKE :search_username
+        OR borrower.email LIKE :search_email
+        OR r.resource_name LIKE :search_resource
+        OR r.resource_type LIKE :search_type
+        OR r.category LIKE :search_category
+        OR r.location LIKE :search_location
     )";
-    $params[":search"] = "%" . $search . "%";
+    $value = "%" . $search . "%";
+    foreach (["search_id","search_name","search_username","search_email","search_resource","search_type","search_category","search_location"] as $key) $params[":".$key] = $value;
 }
 
 if ($loanStateFilter === "Overdue") {

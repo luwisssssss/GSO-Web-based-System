@@ -51,12 +51,13 @@ if ($dateTo !== "") {
 
 if ($search !== "") {
     $baseWhereSql .= " AND (
-        rr.request_id LIKE :search
-        OR r.resource_name LIKE :search
-        OR r.resource_type LIKE :search
-        OR r.category LIKE :search
+        rr.request_id LIKE :search_id
+        OR r.resource_name LIKE :search_resource
+        OR r.resource_type LIKE :search_type
+        OR r.category LIKE :search_category
     )";
-    $params[":search"] = "%" . $search . "%";
+    $value = "%" . $search . "%";
+    foreach (["search_id","search_resource","search_type","search_category"] as $key) $params[":".$key] = $value;
 }
 
 $countSql = "SELECT COUNT(*) " . $baseWhereSql;

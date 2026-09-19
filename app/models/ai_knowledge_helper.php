@@ -166,8 +166,9 @@ if (!function_exists("gsoListKnowledgeEntries")) {
 
         $search = trim((string) ($filters["search"] ?? ""));
         if ($search !== "") {
-            $where[] = "(title LIKE :search OR question LIKE :search OR keywords LIKE :search)";
-            $params[":search"] = "%" . str_replace(["%", "_"], ["\\%", "\\_"], $search) . "%";
+            $where[] = "(title LIKE :search_title OR question LIKE :search_question OR keywords LIKE :search_keywords)";
+            $value = "%" . str_replace(["%", "_"], ["\\%", "\\_"], $search) . "%";
+            $params[":search_title"] = $params[":search_question"] = $params[":search_keywords"] = $value;
         }
 
         $sql = "SELECT entry_id, title, category, question, content, keywords, status, updated_at

@@ -85,14 +85,15 @@ if ($actionFilter !== "All") {
 
 if ($search !== "") {
     $baseWhereSql .= " AND (
-        al.action LIKE :search
-        OR al.details LIKE :search
-        OR u.full_name LIKE :search
-        OR u.username LIKE :search
-        OR u.role LIKE :search
-        OR al.log_id LIKE :search
+        al.action LIKE :search_action
+        OR al.details LIKE :search_details
+        OR u.full_name LIKE :search_name
+        OR u.username LIKE :search_username
+        OR u.role LIKE :search_role
+        OR al.log_id LIKE :search_id
     )";
-    $params[":search"] = "%" . $search . "%";
+    $value = "%" . $search . "%";
+    foreach (["search_action","search_details","search_name","search_username","search_role","search_id"] as $key) $params[":".$key] = $value;
 }
 
 $countSql = "SELECT COUNT(*) " . $baseWhereSql;
