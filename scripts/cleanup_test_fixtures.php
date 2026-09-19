@@ -9,8 +9,9 @@ declare(strict_types=1);
  * harnesses now sweep by marker, so this only has to clear the historical
  * leftovers once.
  *
- * Fixtures are identified strictly by the naming patterns the harnesses use.
- * Nothing outside those patterns is touched.
+ * Fixtures are identified by their audited primary keys and exact names.
+ * A fixture name found under a different key, or a known key carrying a
+ * different name, is treated as unsafe and aborts the run.
  *
  * Dry run (default - shows what would be removed, changes nothing):
  *   C:\xampp\php\php.exe scripts\cleanup_test_fixtures.php
@@ -25,32 +26,88 @@ require_once $root . "/config/db.php";
 
 $apply = in_array("--apply", $argv ?? [], true);
 
-$resourcePatterns = ["Step8 %", "Step9 %", "Step10 %", "VRFY %", "PROBE %"];
-$userPatterns = [
-    "Step 6 %", "Step 7 %", "Step 8 %", "Step 9 %", "Step 10 %", "VRFY %",
-    "MultiTurn Probe", "Demo User",
-    // Exact, previously documented verification fixtures. These strings have
-    // no wildcard, so similarly named legitimate accounts are not selected.
-    "Verify Admin", "Verify Borrower", "Verify Other",
+$expectedResources = [
+    74 => "VRFY Item",
+    75 => "VRFY Room",
+    76 => "Step8 Item S8-B46DFEA6B98D",
+    77 => "Step8 Facility S8-B46DFEA6B98D",
+    78 => "Step8 Maintenance S8-B46DFEA6B98D",
+    79 => "Step8 Item S8-A6F44A65A93E",
+    80 => "Step8 Facility S8-A6F44A65A93E",
+    81 => "Step8 Maintenance S8-A6F44A65A93E",
 ];
 
-$findIds = static function (PDO $pdo, string $table, string $idColumn, string $nameColumn, array $patterns): array {
-    $ids = [];
+$expectedUsers = [
+    108 => "Verify Admin",
+    109 => "Verify Borrower",
+    110 => "Verify Other",
+    111 => "Step 8 Borrower A S8-B46DFEA6B98D",
+    112 => "Step 8 Borrower B S8-B46DFEA6B98D",
+    113 => "Step 8 Lifecycle S8-B46DFEA6B98D",
+    114 => "Step 8 Pending Admin S8-B46DFEA6B98D",
+    115 => "Step 8 Borrower A S8-A6F44A65A93E",
+    116 => "Step 8 Borrower B S8-A6F44A65A93E",
+    117 => "Step 8 Lifecycle S8-A6F44A65A93E",
+    118 => "Step 8 Pending Admin S8-A6F44A65A93E",
+];
 
-    foreach ($patterns as $pattern) {
-        $stmt = $pdo->prepare("SELECT {$idColumn}, {$nameColumn} FROM `{$table}` WHERE {$nameColumn} LIKE :pattern");
-        $stmt->execute([":pattern" => $pattern]);
+$findExactFixtures = static function (
+    PDO $pdo,
+    string $table,
+    string $idColumn,
+    string $nameColumn,
+    array $expected
+): array {
+    $idPlaceholders = implode(",", array_fill(0, count($expected), "?"));
+    $stmt = $pdo->prepare(
+        "SELECT {$idColumn}, {$nameColumn} FROM `{$table}` WHERE {$idColumn} IN ({$idPlaceholders})"
+    );
+    $stmt->execute(array_keys($expected));
 
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $ids[(int) $row[$idColumn]] = (string) $row[$nameColumn];
+    $found = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $id = (int) $row[$idColumn];
+        $name = (string) $row[$nameColumn];
+        if (!isset($expected[$id]) || !hash_equals($expected[$id], $name)) {
+            throw new RuntimeException(
+                "Safety check failed: {$table}.{$idColumn} {$id} is '{$name}', expected audited fixture '{$expected[$id]}'."
+            );
+        }
+        $found[$id] = $name;
+    }
+
+    $namePlaceholders = implode(",", array_fill(0, count($expected), "?"));
+    $stmt = $pdo->prepare(
+        "SELECT {$idColumn}, {$nameColumn} FROM `{$table}` WHERE {$nameColumn} IN ({$namePlaceholders})"
+    );
+    $stmt->execute(array_values($expected));
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $id = (int) $row[$idColumn];
+        $name = (string) $row[$nameColumn];
+        if (!isset($expected[$id]) || !hash_equals($expected[$id], $name)) {
+            throw new RuntimeException(
+                "Safety check failed: audited fixture name '{$name}' exists at unexpected {$table}.{$idColumn} {$id}."
+            );
         }
     }
 
-    return $ids;
+    ksort($found);
+    return $found;
 };
 
-$resources = $findIds($pdo, "resources", "resource_id", "resource_name", $resourcePatterns);
-$users = $findIds($pdo, "users", "user_id", "full_name", $userPatterns);
+try {
+    $resources = $findExactFixtures(
+        $pdo,
+        "resources",
+        "resource_id",
+        "resource_name",
+        $expectedResources
+    );
+    $users = $findExactFixtures($pdo, "users", "user_id", "full_name", $expectedUsers);
+} catch (Throwable $e) {
+    fwrite(STDERR, "Cleanup safety check failed; no changes were made: " . $e->getMessage() . "\n");
+    exit(2);
+}
 $fixtureRequestIds = [];
 if ($resources !== [] || $users !== []) {
     $conditions = [];
