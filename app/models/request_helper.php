@@ -529,7 +529,15 @@ if (!function_exists("checkResourceAvailability")) {
 
         $totalStock = isset($resource["total_stock"]) ? (int) $resource["total_stock"] : 0;
 
-        if ($totalStock <= 0) {
+        // Units parked for repair are not serviceable, so they cannot be
+        // scheduled even though they still count toward total stock.
+        $schedulableStock = max(0, $totalStock - getUnderRepairQuantity(
+            $pdo,
+            (int) ($resource["resource_id"] ?? 0),
+            $resource
+        ));
+
+        if ($schedulableStock <= 0) {
             return [
                 "ok" => false,
                 "message" => "This item has no stock available for scheduling."
@@ -546,11 +554,11 @@ if (!function_exists("checkResourceAvailability")) {
             $excludeRequestId
         );
 
-        if ($reservedQuantity + $quantity > $totalStock) {
+        if ($reservedQuantity + $quantity > $schedulableStock) {
             return [
                 "ok" => false,
                 "message" => "Insufficient stock for the selected borrowing schedule. "
-                    . ($totalStock - $reservedQuantity) . " item(s) remain available in that time window."
+                    . max(0, $schedulableStock - $reservedQuantity) . " item(s) remain available in that time window."
             ];
         }
 
@@ -782,7 +790,7 @@ if (!function_exists("isPastFacilityRequest")) {
             return false;
         }
 
-        if (!in_array($status, ["Pending", "Under Review", "Approved", "Released"], true)) {
+        if (!in_array($status, ["Pending", "Under Review", "Approved"], true)) {
             return false;
         }
 

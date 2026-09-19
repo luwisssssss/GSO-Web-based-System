@@ -1,4 +1,5 @@
 <?php
+define("GSO_REQUIRED_PERMISSION", "work_order.manage");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
@@ -136,17 +137,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $pdo->beginTransaction();
 
             $adminLockStmt = $pdo->prepare("
-                SELECT 1
+                SELECT role
                 FROM users
                 WHERE user_id = :user_id
-                  AND role = 'Admin'
+                  AND role IN ('Admin', 'GSO Staff')
                   AND account_status = 'Approved'
                   AND email_verified = 1
                 FOR UPDATE
             ");
             $adminLockStmt->execute([":user_id" => $adminUserId]);
-            if (!$adminLockStmt->fetchColumn()) {
-                throw new DomainException("Your Admin account is no longer authorized.");
+            $lockedRole = $adminLockStmt->fetchColumn();
+            if (!is_string($lockedRole) || !gsoUserHasPermission($lockedRole, "work_order.manage")) {
+                throw new DomainException("Your account is no longer authorized for work orders.");
             }
 
             $resourceLockStmt = $pdo->prepare("
@@ -320,11 +322,29 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
               AND status IN ('Scheduled', 'In Progress')
             LIMIT 1
         ");
-        $success = $updateStmt->execute([
-            ":status" => $nextStatus,
-            ":updated_by" => $adminUserId,
-            ":maintenance_id" => $maintenanceId
-        ]) && $updateStmt->rowCount() === 1;
+        try {
+            $pdo->beginTransaction();
+
+            $success = $updateStmt->execute([
+                ":status" => $nextStatus,
+                ":updated_by" => $adminUserId,
+                ":maintenance_id" => $maintenanceId
+            ]) && $updateStmt->rowCount() === 1;
+
+            if ($success && $nextStatus === "Completed") {
+                // A finished repair puts the units it held back into service.
+                restoreRepairedStock($pdo, (int) $schedule["resource_id"]);
+            }
+
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            error_log("Maintenance schedule update failed: " . $e->getMessage());
+            $success = false;
+        }
 
         if ($success) {
             refreshResourceOperationalStatus($pdo, (int) $schedule["resource_id"]);

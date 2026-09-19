@@ -1,4 +1,5 @@
 <?php
+define("GSO_REQUIRED_PERMISSION", "request.view_queue");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
@@ -6,6 +7,7 @@ require_once dirname(__DIR__, 3) . "/includes/notification_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/maintenance_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/facility_calendar_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/adviser_endorsement_helper.php";
 
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
@@ -33,7 +35,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         redirectRequestsPage();
     }
 
-    if ($requestId <= 0 || !in_array($action, ["approve", "reject", "release"], true)) {
+    if ($requestId <= 0 || !in_array($action, ["review", "approve", "reject", "release", "require_adviser"], true)) {
         $_SESSION["flash_message"] = "Invalid request action.";
         $_SESSION["flash_type"] = "error";
         redirectRequestsPage();
@@ -51,6 +53,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             rr.end_time,
             rr.request_date,
             rr.status,
+            rr.adviser_state,
+            rr.adviser_user_id,
             rr.due_date,
             rr.return_date,
             rr.notes,
@@ -62,7 +66,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             r.available_stock,
             r.condition_status,
             r.is_archived
+            , borrower.account_type AS borrower_account_type
         FROM resource_requests rr
+        INNER JOIN users borrower ON borrower.user_id = rr.borrower_id
         INNER JOIN resources r ON rr.resource_id = r.resource_id
         WHERE rr.request_id = :request_id
         LIMIT 1
@@ -78,12 +84,79 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         redirectRequestsPage();
     }
 
+    if ($action === "require_adviser") {
+        $isAdmin=(string)($_SESSION["role"]??"")==="Admin";
+        $eligible=$isAdmin && (string)($requestRow["borrower_account_type"]??"")==="Student"
+            && in_array((string)$requestRow["status"],["Pending","Under Review"],true)
+            && (string)($requestRow["adviser_state"]??"Not Required")==="Not Required";
+        if(!$eligible){ $_SESSION["flash_message"]="Only the GSO Head may route an eligible Student request for Adviser endorsement.";$_SESSION["flash_type"]="error";redirectRequestsPage(); }
+        $stmt=$pdo->prepare("UPDATE resource_requests SET adviser_state='Selection Required',adviser_required_by=:required_by,adviser_required_at=NOW(),reviewed_by=:reviewed_by,reviewed_at=NOW(),status='Under Review',approved_by=NULL,approved_at=NULL WHERE request_id=:id AND status IN ('Pending','Under Review') AND adviser_state='Not Required' AND adviser_user_id IS NULL");
+        $ok=$stmt->execute([":required_by"=>$adminUserId,":reviewed_by"=>$adminUserId,":id"=>$requestId])&&$stmt->rowCount()===1;
+        if($ok){
+            addActivityLog($pdo,$adminUserId,"Adviser Endorsement Required","GSO Head required Adviser endorsement for request #{$requestId}.");
+            createNotification($pdo,(int)$requestRow["borrower_id"],"adviser_required","Adviser Endorsement Required","Select your Adviser / Subject Teacher to continue request REQ-".str_pad((string)$requestId,3,"0",STR_PAD_LEFT).".","adviser_request.php?request_id={$requestId}");
+        }
+        $_SESSION["flash_message"]=$ok?"Request returned to the Student for Adviser selection.":"The request changed before it could be routed.";$_SESSION["flash_type"]=$ok?"success":"error";redirectRequestsPage();
+    }
+
+    if (gsoAdviserStateBlocksGso($requestRow)) {
+        $_SESSION["flash_message"]="This request is stopped in the Adviser endorsement workflow.";$_SESSION["flash_type"]="error";redirectRequestsPage();
+    }
+    if ((string)($requestRow["adviser_state"]??"")==="Endorsed" && (string)($_SESSION["role"]??"")!=="Admin" && in_array($action,["review","approve","reject"],true)) {
+        $_SESSION["flash_message"]="An endorsed request must return to the GSO Head for review.";$_SESSION["flash_type"]="error";redirectRequestsPage();
+    }
+
     $quantity = max(1, (int) ($requestRow["quantity"] ?? 0));
     $resourceType = (string) ($requestRow["resource_type"] ?? "Item");
     $dateNeeded = $requestRow["date_needed"] ?? null;
     $startTime = $requestRow["start_time"] ?? null;
     $endTime = $requestRow["end_time"] ?? null;
     $scheduleDueDate = null;
+
+    if ($action === "review") {
+        if ((string) ($requestRow["status"] ?? "") !== "Pending") {
+            $_SESSION["flash_message"] = "Only pending requests can be moved under review.";
+            $_SESSION["flash_type"] = "error";
+            redirectRequestsPage();
+        }
+
+        $updateStmt = $pdo->prepare("
+            UPDATE resource_requests
+            SET
+                status = 'Under Review',
+                reviewed_by = :reviewed_by,
+                reviewed_at = NOW()
+            WHERE request_id = :request_id
+              AND status = 'Pending'
+              AND adviser_state IN ('Not Required','Endorsed')
+            LIMIT 1
+        ");
+        $success = $updateStmt->execute([
+            ":reviewed_by" => $adminUserId,
+            ":request_id" => $requestId,
+        ]) && $updateStmt->rowCount() === 1;
+
+        if ($success) {
+            addActivityLog(
+                $pdo,
+                $adminUserId,
+                "Request Under Review",
+                "Admin started reviewing request #{$requestId} for resource: " . ($requestRow["resource_name"] ?? "Unknown")
+            );
+            createNotification(
+                $pdo,
+                (int) $requestRow["borrower_id"],
+                "request_review",
+                "Request Under Review",
+                "Your request for " . ($requestRow["resource_name"] ?? "resource") . " is now under GSO review.",
+                "my_requests.php"
+            );
+        }
+
+        $_SESSION["flash_message"] = $success ? "Request moved under review." : "Failed to update the request.";
+        $_SESSION["flash_type"] = $success ? "success" : "error";
+        redirectRequestsPage();
+    }
 
     if ($action === "reject") {
         if (!in_array((string) ($requestRow["status"] ?? ""), ["Pending", "Under Review"], true)) {
@@ -96,15 +169,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             UPDATE resource_requests
             SET
                 status = 'Rejected',
-                approved_by = :approved_by,
-                approved_at = NOW()
+                reviewed_by = :reviewed_by,
+                reviewed_at = NOW(),
+                approved_by = NULL,
+                approved_at = NULL
             WHERE request_id = :request_id
               AND status IN ('Pending', 'Under Review')
+              AND adviser_state IN ('Not Required','Endorsed')
             LIMIT 1
         ");
 
         $success = $updateStmt->execute([
-            ":approved_by" => $adminUserId,
+            ":reviewed_by" => $adminUserId,
             ":request_id" => $requestId
         ]) && $updateStmt->rowCount() === 1;
 
@@ -188,14 +264,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             UPDATE resource_requests
             SET
                 status = 'Approved',
+                reviewed_by = :reviewed_by,
+                reviewed_at = NOW(),
                 approved_by = :approved_by,
                 approved_at = NOW()
             WHERE request_id = :request_id
               AND status IN ('Pending', 'Under Review')
+              AND adviser_state IN ('Not Required','Endorsed')
             LIMIT 1
         ");
 
         $success = $updateStmt->execute([
+            ":reviewed_by" => $adminUserId,
             ":approved_by" => $adminUserId,
             ":request_id" => $requestId
         ]) && $updateStmt->rowCount() === 1;
@@ -273,6 +353,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 rr.end_time,
                 rr.request_date,
                 rr.status,
+                rr.adviser_state,
                 rr.due_date,
                 rr.return_date,
                 rr.notes,
@@ -302,6 +383,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         if (($lockedRequest["status"] ?? "") !== "Approved") {
             throw new Exception("Only approved requests can be released.");
         }
+        if (gsoAdviserStateBlocksGso($lockedRequest)) { throw new Exception("Adviser endorsement must be completed before release."); }
 
         $releaseQueueBlocker = findEarlierFirstComeFirstServedRequest(
             $pdo,
@@ -379,18 +461,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             UPDATE resource_requests
             SET
                 status = 'Released',
-                approved_by = :approved_by,
-                approved_at = :approved_at,
+                released_by = :released_by,
+                released_at = :released_at,
                 due_date = :due_date,
                 last_reminded_at = NULL,
                 reminder_count = 0
             WHERE request_id = :request_id
               AND status = 'Approved'
+              AND adviser_state IN ('Not Required','Endorsed')
             LIMIT 1
         ");
         $updateRequestStmt->execute([
-            ":approved_by" => $adminUserId,
-            ":approved_at" => $releasedAt,
+            ":released_by" => $adminUserId,
+            ":released_at" => $releasedAt,
             ":due_date" => $generatedDueDate,
             ":request_id" => $requestId
         ]);
@@ -487,14 +570,19 @@ $listStmt = $pdo->query("
         rr.end_time,
         rr.request_date,
         rr.status,
+        rr.adviser_state,
+        rr.adviser_user_id,
+        rr.reviewed_at,
         rr.approved_at,
+        rr.released_at,
         rr.due_date,
         rr.return_date,
         rr.notes,
         borrower.full_name AS borrower_name,
         borrower.email AS borrower_email,
         borrower.username AS borrower_username,
-        approver.full_name AS reviewed_by_name,
+        borrower.account_type AS borrower_account_type,
+        reviewer.full_name AS reviewed_by_name,
         r.resource_name,
         r.resource_type,
         r.category,
@@ -507,7 +595,7 @@ $listStmt = $pdo->query("
     FROM resource_requests rr
     INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
     INNER JOIN resources r ON rr.resource_id = r.resource_id
-    LEFT JOIN users approver ON rr.approved_by = approver.user_id
+    LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN return_submissions rs ON rr.request_id = rs.request_id
     ORDER BY rr.request_date DESC, rr.request_id DESC
 ");
@@ -518,6 +606,7 @@ $filteredRows = [];
 foreach ($rows as $row) {
     $isPastFacilityUnavailable = isPastFacilityRequest($row);
     $displayStatus = $isPastFacilityUnavailable ? "Unavailable" : getRequestLifecycleStatus($row);
+    if (!$isPastFacilityUnavailable && (string)($row["adviser_state"]??"Not Required")!=="Not Required") $displayStatus=(string)$row["adviser_state"];
     $row["display_status"] = $displayStatus;
     $row["display_status_class"] = getStatusCssClass($displayStatus);
     $row["is_past_facility_unavailable"] = $isPastFacilityUnavailable;
@@ -702,11 +791,16 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                 <?php
                                 $borrowerCallHref = buildPhoneCallHref($request["contact_number"] ?? null);
                                 $isPastFacilityUnavailable = !empty($request["is_past_facility_unavailable"]);
+                                $canReviewRequest = ((string) ($request["status"] ?? "") === "Pending");
                                 $canApproveRequest = in_array((string) ($request["status"] ?? ""), ["Pending", "Under Review"], true)
                                     && !$isPastFacilityUnavailable;
                                 $canRejectRequest = in_array((string) ($request["status"] ?? ""), ["Pending", "Under Review"], true);
                                 $canReleaseRequest = ((string) ($request["status"] ?? "") === "Approved")
                                     && !$isPastFacilityUnavailable;
+                                $adviserBlocks=in_array((string)($request["adviser_state"]??"Not Required"),["Selection Required","Pending Adviser","Revision Required"],true);
+                                if($adviserBlocks){$canReviewRequest=$canApproveRequest=$canRejectRequest=$canReleaseRequest=false;}
+                                if((string)($request["adviser_state"]??"")==="Endorsed" && (string)($_SESSION["role"]??"")!=="Admin"){$canReviewRequest=$canApproveRequest=$canRejectRequest=false;}
+                                $canRequireAdviser=(string)($_SESSION["role"]??"")==="Admin" && (string)($request["borrower_account_type"]??"")==="Student" && in_array((string)$request["status"],["Pending","Under Review"],true) && (string)($request["adviser_state"]??"Not Required")==="Not Required";
                                 ?>
                                 <tr class="<?php echo $isPastFacilityUnavailable ? "request-row-unavailable" : ""; ?>">
                                     <td>REQ-<?php echo str_pad((string) $request["request_id"], 3, "0", STR_PAD_LEFT); ?></td>
@@ -799,6 +893,20 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                         <span>Call <?php echo htmlspecialchars((string) $request["contact_number"]); ?></span>
                                                     </a>
                                                 <?php endif; ?>
+
+                                                <?php if ($canReviewRequest): ?>
+                                                    <form method="POST" class="inline-form" onsubmit="return confirm('Move this request under review?');">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
+                                                        <input type="hidden" name="request_id" value="<?php echo htmlspecialchars((string) $request["request_id"]); ?>">
+                                                        <input type="hidden" name="action" value="review">
+                                                        <button type="submit" role="menuitem">
+                                                            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                                                            <span>Start review</span>
+                                                        </button>
+                                                    </form>
+                                                <?php endif; ?>
+
+                                                <?php if ($canRequireAdviser): ?><form method="POST" class="inline-form" onsubmit="return confirm('Require this Student to obtain Adviser endorsement?');"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']); ?>"><input type="hidden" name="request_id" value="<?php echo (int)$request['request_id']; ?>"><input type="hidden" name="action" value="require_adviser"><button type="submit" class="warning-action" role="menuitem"><i class="fa-solid fa-user-check"></i><span>Require Adviser Endorsement</span></button></form><?php endif; ?>
 
                                                 <?php if ($canApproveRequest): ?>
                                                     <form method="POST" class="inline-form" onsubmit="return confirm('Approve this request?');">

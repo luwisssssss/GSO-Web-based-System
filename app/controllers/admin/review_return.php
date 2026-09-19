@@ -1,4 +1,5 @@
 <?php
+define("GSO_REQUIRED_PERMISSION", "return.inspect");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
@@ -39,7 +40,7 @@ $infoStmt = $pdo->prepare("
         rr.resource_id,
         rr.quantity,
         rr.status AS request_status,
-        rr.approved_at,
+        rr.released_at,
         rr.due_date,
         rr.return_date,
 
@@ -164,7 +165,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             if ($resourceType === "Item") {
                 $resourceStmt = $pdo->prepare("
-                    SELECT resource_id, total_stock, available_stock
+                    SELECT resource_id, total_stock, available_stock, under_repair_stock
                     FROM resources
                     WHERE resource_id = :resource_id
                     FOR UPDATE
@@ -180,16 +181,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 $totalStock = (int) ($resourceRow["total_stock"] ?? 0);
                 $availableStock = (int) ($resourceRow["available_stock"] ?? 0);
+                $underRepairStock = max(0, (int) ($resourceRow["under_repair_stock"] ?? 0));
                 $newAvailableStock = $availableStock;
                 $newTotalStock = $totalStock;
+                $newUnderRepairStock = $underRepairStock;
                 $nextConditionStatus = $inspectionCondition;
                 $conditionNotes = ($inspectionRemarks === "" ? null : $inspectionRemarks);
 
                 if ($inspectionCondition === "Good") {
                     $newAvailableStock = $availableStock + $returnedQty;
 
-                    if ($newAvailableStock > $totalStock) {
-                        $newAvailableStock = $totalStock;
+                    if ($newAvailableStock > $totalStock - $underRepairStock) {
+                        $newAvailableStock = max(0, $totalStock - $underRepairStock);
                     }
                 } elseif ($inspectionCondition === "Lost") {
                     $newTotalStock = max(0, $totalStock - $returnedQty);
@@ -198,11 +201,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         $newAvailableStock = $newTotalStock;
                     }
 
+                    $newUnderRepairStock = min($underRepairStock, max(0, $newTotalStock - $newAvailableStock));
+
                     if ($newTotalStock > 0) {
                         $nextConditionStatus = "Good";
                         $conditionNotes = trim("Latest return inspection: {$returnedQty} item(s) marked Lost. " . $inspectionRemarks);
                     }
                 } else {
+                    // Hold the affected units out of service until they are
+                    // repaired; everything else stays available to borrow.
+                    $newUnderRepairStock = min(
+                        $underRepairStock + $returnedQty,
+                        max(0, $newTotalStock - $newAvailableStock)
+                    );
+
                     if ($totalStock > $returnedQty) {
                         $nextConditionStatus = "Good";
                         $conditionNotes = trim("Latest return inspection: {$returnedQty} item(s) marked {$inspectionCondition}. " . $inspectionRemarks);
@@ -214,6 +226,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     SET
                         available_stock = :available_stock,
                         total_stock = :total_stock,
+                        under_repair_stock = :under_repair_stock,
                         condition_status = :condition_status,
                         condition_notes = :condition_notes
                     WHERE resource_id = :resource_id
@@ -222,6 +235,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $updateResourceStmt->execute([
                     ":available_stock" => $newAvailableStock,
                     ":total_stock" => $newTotalStock,
+                    ":under_repair_stock" => $newUnderRepairStock,
                     ":condition_status" => $nextConditionStatus,
                     ":condition_notes" => ($conditionNotes === "" ? null : $conditionNotes),
                     ":resource_id" => $resourceId

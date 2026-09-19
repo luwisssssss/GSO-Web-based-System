@@ -11,6 +11,7 @@ $localVerificationPath = "";
 $mailConfig = require "../config/mail.php";
 $formData = [
     "full_name" => "",
+    "account_type" => "Student",
     "department" => "",
     "university_id" => "",
     "email" => "",
@@ -109,6 +110,7 @@ function gsoBuildSignupVerificationEmail(string $fullName, string $verifyLink): 
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $formData["full_name"] = trim((string) ($_POST["full_name"] ?? ""));
+    $formData["account_type"] = trim((string) ($_POST["account_type"] ?? ""));
     $formData["department"] = trim((string) ($_POST["department"] ?? ""));
     $formData["university_id"] = trim((string) ($_POST["university_id"] ?? ""));
     $formData["email"] = strtolower(trim((string) ($_POST["email"] ?? "")));
@@ -126,7 +128,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         if (
             $formData["full_name"] === ""
-            || $formData["department"] === ""
+            || !in_array($formData["account_type"], ["Student", "Faculty", "University Staff"], true)
+            || ($formData["account_type"] === "Student" && $formData["department"] === "")
             || $formData["email"] === ""
             || $formData["username"] === ""
             || $password === ""
@@ -214,6 +217,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                                 INSERT INTO users
                                 (
                                     full_name,
+                                    account_type,
                                     department,
                                     university_id,
                                     email,
@@ -231,6 +235,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                                 VALUES
                                 (
                                     :full_name,
+                                    :account_type,
                                     :department,
                                     :university_id,
                                     :email,
@@ -247,6 +252,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                                 )
                             ");
                             $stmt->bindValue(":full_name", $formData["full_name"]);
+                            $stmt->bindValue(":account_type", $formData["account_type"]);
                             $stmt->bindValue(":department", $formData["department"] !== "" ? $formData["department"] : null);
                             $stmt->bindValue(":university_id", $formData["university_id"] !== "" ? $formData["university_id"] : null);
                             $stmt->bindValue(":email", $formData["email"]);
@@ -289,6 +295,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                             $formData = [
                                 "full_name" => "",
+                                "account_type" => "Student",
                                 "department" => "",
                                 "university_id" => "",
                                 "email" => "",
@@ -362,12 +369,23 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     </div>
 
                     <div class="form-group">
-                        <label>Department:</label>
-                        <select name="department" required>
+                        <label>Account Type:</label>
+                        <select name="account_type" id="accountType" required>
+                            <?php foreach (["Student", "Faculty", "University Staff"] as $accountType): ?>
+                                <option value="<?php echo htmlspecialchars($accountType); ?>" <?php echo $formData["account_type"] === $accountType ? "selected" : ""; ?>><?php echo htmlspecialchars($accountType); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Department / Unit:</label>
+                        <select name="department" id="department">
                             <option value="" disabled <?php echo $formData["department"] === "" ? "selected" : ""; ?> hidden>Select Department</option>
                             <option value="College of Accountancy" <?php echo $formData["department"] === "College of Accountancy" ? "selected" : ""; ?>>College of Accountancy</option>
                             <option value="College of Computer Studies" <?php echo $formData["department"] === "College of Computer Studies" ? "selected" : ""; ?>>College of Computer Studies</option>
                             <option value="College of Business" <?php echo $formData["department"] === "College of Business" ? "selected" : ""; ?>>College of Business</option>
+                            <option value="General Services Office" <?php echo $formData["department"] === "General Services Office" ? "selected" : ""; ?>>General Services Office</option>
+                            <option value="Administrative Office" <?php echo $formData["department"] === "Administrative Office" ? "selected" : ""; ?>>Administrative Office</option>
                         </select>
                     </div>
 
@@ -456,4 +474,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     });
     </script>
 </body>
+<script>
+const accountType = document.getElementById("accountType");
+const department = document.getElementById("department");
+function syncBorrowerFields() {
+    if (accountType && department) department.required = accountType.value === "Student";
+}
+if (accountType) accountType.addEventListener("change", syncBorrowerFields);
+syncBorrowerFields();
+</script>
 </html>

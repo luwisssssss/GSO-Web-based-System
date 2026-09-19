@@ -24,6 +24,7 @@ $userSql = "
         u.user_id,
         u.full_name,
         u.department,
+        u.account_type,
         u.university_id,
         u.email,
         u.role,
@@ -177,6 +178,7 @@ $activeLoans = $stmtActive->fetchColumn();
                     <div><label>EMAIL</label><input value="<?= htmlspecialchars((string) ($user['email'] ?? '')); ?>" disabled></div>
                     <div><label>USERNAME</label><input value="<?= htmlspecialchars((string) ($user['username'] ?? '')); ?>" disabled></div>
                     <div><label>DEPARTMENT</label><input value="<?= htmlspecialchars((string) ($user['department'] ?? 'N/A')); ?>" disabled></div>
+                    <div><label>ACCOUNT TYPE</label><input value="<?= htmlspecialchars((string) ($user['account_type'] ?? 'Legacy / Unclassified')); ?>" disabled></div>
                     <div><label>ROLE</label><input value="<?= htmlspecialchars((string) ($user['role'] ?? '')); ?>" disabled></div>
                     <div><label>ACCOUNT STATUS</label><input value="<?= htmlspecialchars((string) ($user['account_status'] ?? 'N/A')); ?>" disabled></div>
                     <div><label>APPROVED BY</label><input value="<?= htmlspecialchars((string) ($user['approved_by_name'] ?? 'N/A')); ?>" disabled></div>

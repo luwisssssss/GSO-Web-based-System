@@ -1,5 +1,7 @@
 <?php
 $current_page = basename($_SERVER["PHP_SELF"]);
+require_once dirname(__DIR__, 3) . "/includes/adviser_endorsement_helper.php";
+$showEndorsements = isset($pdo) && gsoIsApprovedFaculty($pdo, (int) ($_SESSION["user_id"] ?? 0));
 ?>
 
 <aside class="sidebar" aria-label="Borrower navigation">
@@ -26,6 +28,7 @@ $current_page = basename($_SERVER["PHP_SELF"]);
             <li class="<?php echo $current_page === "history.php" ? "active" : ""; ?>">
                 <a href="history.php"><i class="fa-solid fa-clock-rotate-left"></i> History</a>
             </li>
+            <?php if ($showEndorsements): ?><li class="<?php echo in_array($current_page,["endorsements.php","endorsement_detail.php"],true)?"active":""; ?>"><a href="endorsements.php"><i class="fa-solid fa-user-check"></i> Endorsements</a></li><?php endif; ?>
         </ul>
 
         <p class="menu-label">Issues</p>

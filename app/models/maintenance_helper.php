@@ -95,6 +95,94 @@ if (!function_exists("refreshResourceOperationalStatus")) {
     }
 }
 
+if (!function_exists("getUnderRepairQuantity")) {
+    /**
+     * Units currently held out of service for repair.
+     *
+     * Not every caller selects the column, so this reads the authoritative
+     * value when it is absent from an already-loaded resource row.
+     */
+    function getUnderRepairQuantity(PDO $pdo, int $resourceId, array $resource = []): int
+    {
+        if (array_key_exists("under_repair_stock", $resource)) {
+            return max(0, (int) $resource["under_repair_stock"]);
+        }
+
+        if ($resourceId <= 0) {
+            return 0;
+        }
+
+        try {
+            $stmt = $pdo->prepare("SELECT under_repair_stock FROM resources WHERE resource_id = :id LIMIT 1");
+            $stmt->execute([":id" => $resourceId]);
+
+            return max(0, (int) $stmt->fetchColumn());
+        } catch (Throwable $e) {
+            error_log("Under-repair lookup failed: " . $e->getMessage());
+            return 0;
+        }
+    }
+}
+
+if (!function_exists("restoreRepairedStock")) {
+    /**
+     * Put units that were held out of service for repair back into circulation.
+     *
+     * A return inspected as Damaged, Missing Parts or Needs Repair parks only
+     * the affected units in `under_repair_stock`, so the remaining good units
+     * stay borrowable. Completing the repair releases the parked units for the
+     * resource and clears the damaged condition flag.
+     *
+     * Returns the number of units restored.
+     */
+    function restoreRepairedStock(PDO $pdo, int $resourceId): int
+    {
+        $stmt = $pdo->prepare("
+            SELECT resource_type, total_stock, available_stock, under_repair_stock
+            FROM resources
+            WHERE resource_id = :resource_id
+            LIMIT 1
+            FOR UPDATE
+        ");
+        $stmt->execute([
+            ":resource_id" => $resourceId
+        ]);
+
+        $resource = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$resource || (string) ($resource["resource_type"] ?? "") !== "Item") {
+            return 0;
+        }
+
+        $underRepair = max(0, (int) ($resource["under_repair_stock"] ?? 0));
+
+        if ($underRepair === 0) {
+            return 0;
+        }
+
+        $totalStock = max(0, (int) ($resource["total_stock"] ?? 0));
+        $availableStock = max(0, (int) ($resource["available_stock"] ?? 0));
+
+        // Units still out on loan keep their slot, so never push availability
+        // past what the total stock can back.
+        $restored = min($underRepair, max(0, $totalStock - $availableStock));
+
+        $pdo->prepare("
+            UPDATE resources
+            SET
+                available_stock = :available_stock,
+                under_repair_stock = 0,
+                condition_status = 'Good'
+            WHERE resource_id = :resource_id
+            LIMIT 1
+        ")->execute([
+            ":available_stock" => $availableStock + $restored,
+            ":resource_id" => $resourceId
+        ]);
+
+        return $restored;
+    }
+}
 if (!function_exists("syncMaintenanceSchedules")) {
     function syncMaintenanceSchedules(PDO $pdo): void
     {

@@ -24,16 +24,10 @@ ensureBorrowerOverdueNotifications($pdo, $borrower_id);
 $baseWhereSql = "
     FROM resource_requests rr
     INNER JOIN resources r ON rr.resource_id = r.resource_id
-    LEFT JOIN users approver ON rr.approved_by = approver.user_id
+    LEFT JOIN users releaser ON rr.released_by = releaser.user_id
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
     WHERE rr.borrower_id = :borrower_id
       AND rr.status = 'Released'
-      AND NOT (
-            r.resource_type = 'Facility'
-            AND rr.date_needed IS NOT NULL
-            AND rr.start_time IS NOT NULL
-            AND TIMESTAMP(rr.date_needed, rr.start_time) <= NOW()
-      )
 ";
 
 $params = [
@@ -77,14 +71,14 @@ $listSql = "
         rr.start_time,
         rr.end_time,
         rr.status,
-        rr.approved_at,
+        rr.released_at,
         rr.due_date,
         rr.notes,
         r.resource_name,
         r.resource_type,
         r.category,
         r.location,
-        approver.full_name AS reviewed_by_name,
+        releaser.full_name AS released_by_name,
         rs.status AS return_status
     " . $baseWhereSql . "
     ORDER BY
@@ -191,7 +185,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                             <th>Released At</th>
                             <th>Due Date</th>
                             <th>Loan State</th>
-                            <th>Reviewed By</th>
+                            <th>Released By</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -224,7 +218,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                     </td>
 
                                     <td><?php echo htmlspecialchars($row["quantity"] ?? "N/A"); ?></td>
-                                    <td><?php echo !empty($row["approved_at"]) ? htmlspecialchars(formatDateTimeDisplay($row["approved_at"])) : "N/A"; ?></td>
+                                    <td><?php echo !empty($row["released_at"]) ? htmlspecialchars(formatDateTimeDisplay($row["released_at"])) : "N/A"; ?></td>
                                     <td><?php echo !empty($row["due_date"]) ? date("M d, Y h:i A", strtotime($row["due_date"])) : "N/A"; ?></td>
 
                                     <td>
@@ -234,7 +228,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                     </td>
 
                                     <td>
-                                        <?php echo !empty($row["reviewed_by_name"]) ? htmlspecialchars($row["reviewed_by_name"]) : "N/A"; ?>
+                                        <?php echo !empty($row["released_by_name"]) ? htmlspecialchars($row["released_by_name"]) : "N/A"; ?>
                                     </td>
 
                                     <td>

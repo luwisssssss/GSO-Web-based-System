@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 config/*.local.php
+/GSO_WebSystem/
 
 # Runtime uploads and temp files
 uploads/*

@@ -120,7 +120,7 @@ $offset = ($page - 1) * $perPage;
 $baseWhereSql = "
     FROM resource_requests rr
     INNER JOIN resources r ON rr.resource_id = r.resource_id
-    LEFT JOIN users approver ON rr.approved_by = approver.user_id
+    LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
     WHERE rr.borrower_id = :borrower_id
 ";
@@ -166,8 +166,10 @@ $listSql = "
         rr.end_time,
         rr.request_date,
         rr.status,
-        rr.approved_by,
-        rr.approved_at,
+        rr.adviser_state,
+        rr.adviser_user_id,
+        rr.reviewed_by,
+        rr.reviewed_at,
         rr.due_date,
         rr.return_date,
         rr.notes,
@@ -175,7 +177,7 @@ $listSql = "
         r.resource_name,
         r.resource_type,
         r.category,
-        approver.full_name AS reviewed_by_name
+        reviewer.full_name AS reviewed_by_name
     " . $baseWhereSql . "
     ORDER BY rr.request_date DESC, rr.request_id DESC
     LIMIT {$perPage} OFFSET {$offset}
@@ -272,6 +274,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                             <?php foreach ($requests as $request): ?>
                                 <?php
                                 $displayStatus = getRequestLifecycleStatus($request);
+                                if(in_array((string)$request["status"],["Pending","Under Review"],true) && (string)($request["adviser_state"]??"Not Required")!=="Not Required")$displayStatus=(string)$request["adviser_state"];
                                 $statusClass = getStatusCssClass($displayStatus);
                                 $canCancelRequest = in_array((string) ($request["status"] ?? ""), $cancelableRequestStatuses, true);
                                 ?>
@@ -313,7 +316,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                     </td>
 
                                     <td>
-                                        <?php echo !empty($request["approved_at"]) ? htmlspecialchars(formatDateTimeDisplay($request["approved_at"])) : "N/A"; ?>
+                                        <?php echo !empty($request["reviewed_at"]) ? htmlspecialchars(formatDateTimeDisplay($request["reviewed_at"])) : "N/A"; ?>
                                     </td>
 
                                     <td>
@@ -329,6 +332,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                             </button>
 
                                             <div class="row-actions-menu" role="menu">
+                                                <?php if(in_array((string)($request["adviser_state"]??""),["Selection Required","Revision Required","Pending Adviser","Endorsed"],true)): ?><a class="row-action-item" role="menuitem" href="adviser_request.php?request_id=<?php echo (int)$request['request_id']; ?>"><i class="fa-solid fa-user-check"></i><span>Adviser workflow / history</span></a><?php endif; ?>
                                                 <?php if ($canCancelRequest): ?>
                                                     <form method="POST" class="inline-form" onsubmit="return confirm('Cancel this request?');">
                                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>">

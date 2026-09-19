@@ -56,9 +56,17 @@ C:\xampp\htdocs\
 * Open http://localhost/phpmyadmin or use the MySQL command-line client.
 * Create the application database (the example configuration uses `gso_database`).
 * Import `database/schema.sql`. It contains schema only and no users, password hashes, requests, or evidence.
-* Existing pre-Incident installations can apply `database/migrations/20260810_001_create_incident_reporting.sql`; new installations using the baseline schema already include that table.
+* Existing installations should apply the reviewed files in `database/migrations/` in filename order, or run `C:\xampp\php\php.exe scripts\migrate.php` with the deployment database account. The Step 8 migrations normalize legacy return statuses, enforce missing actor relationships, and separate release accountability from approval accountability. New installations using the baseline schema already include these changes.
 * Never deploy database backups from `docs/`, an export folder, or another web-accessible location.
 * Run schema migrations with a separate deployment account. Create a dedicated `gso_app` MySQL account for the application, limit it to the required runtime operations on `gso_database`, and set `GSO_RUN_MIGRATIONS=0` after migration. Do not run the web application as MySQL `root`.
+
+## Phase 1 roles and permissions
+
+Authorization roles are `Borrower`, `GSO Staff`, `Admin` (the GSO Head), and `Director` (the Campus Director). Borrower classification is stored separately in `users.account_type` as `Student`, `Faculty`, or `University Staff`; legacy Borrowers remain safely unclassified until verified. Apply `database/migrations/20260918_001_expand_roles_and_account_types.sql` once on an existing installation.
+
+Role landing pages are `borrower/browse.php`, `gso_staff/dashboard.php`, `admin/dashboard.php`, and `director/dashboard.php`. Permissions are centralized in `app/models/role_helper.php`. The Director dashboard is intentionally a shell: Adviser endorsement, Director prioritisation/approval, and decision-history workflows are reserved for later phases.
+
+Run `C:\xampp\php\php.exe scripts\phase1_roles_e2e.php` with local Apache/MySQL to verify role login routing and direct endpoint isolation.
 
 ### 5. Configure Environment Variables
 

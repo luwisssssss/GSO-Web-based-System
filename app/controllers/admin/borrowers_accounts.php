@@ -214,6 +214,7 @@ if ($search !== "") {
         OR u.username LIKE :search
         OR u.university_id LIKE :search
         OR u.department LIKE :search
+        OR u.account_type LIKE :search
     )";
     $params[":search"] = "%" . $search . "%";
 }
@@ -234,6 +235,7 @@ $listSql = "
         u.user_id,
         u.full_name,
         u.department,
+        u.account_type,
         u.university_id,
         u.email,
         u.uploaded_id_type,
@@ -323,6 +325,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                             <th>Email</th>
                             <th>Username</th>
                             <th>Department</th>
+                            <th>Account Type</th>
                             <th>ID Type</th>
                             <th>Status</th>
                             <th>Reviewed By</th>
@@ -342,6 +345,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                     <td><?php echo htmlspecialchars($borrower["email"]); ?></td>
                                     <td><?php echo htmlspecialchars($borrower["username"]); ?></td>
                                     <td><?php echo htmlspecialchars($borrower["department"] ?? "N/A"); ?></td>
+                                    <td><?php echo htmlspecialchars($borrower["account_type"] ?? "Legacy / Unclassified"); ?></td>
                                     <td><?php echo htmlspecialchars($borrower["uploaded_id_type"] ?? "N/A"); ?></td>
                                     <td>
                                         <span class="status-badge <?php echo htmlspecialchars($statusClass); ?>">

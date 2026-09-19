@@ -30,6 +30,9 @@ $reqStmt = $pdo->prepare("
         rr.resource_id,
         rr.quantity,
         rr.status,
+        rr.date_needed,
+        rr.start_time,
+        rr.end_time,
         rr.due_date,
         rr.return_date,
         r.resource_name,
@@ -54,6 +57,24 @@ if (!$requestRow) {
     redirectWithFlash("my_borrowed.php", "Borrowed request not found or not eligible for return.");
 }
 
+if ((string) ($requestRow["resource_type"] ?? "") === "Facility") {
+    $facilityRange = buildRequestDateRange(
+        "Facility",
+        $requestRow["date_needed"] ?? null,
+        $requestRow["start_time"] ?? null,
+        $requestRow["end_time"] ?? null,
+        $requestRow["due_date"] ?? null,
+        "Released"
+    );
+
+    if ($facilityRange !== null && strtotime($facilityRange["end"]) > time()) {
+        redirectWithFlash(
+            "my_borrowed.php",
+            "Facility completion can be submitted after the scheduled end time."
+        );
+    }
+}
+
 $subStmt = $pdo->prepare("
     SELECT return_id, status, condition_notes, reported_condition, admin_notes
     FROM return_submissions
@@ -62,6 +83,14 @@ $subStmt = $pdo->prepare("
 ");
 $subStmt->execute([":request_id" => $requestId]);
 $existing = $subStmt->fetch(PDO::FETCH_ASSOC);
+
+if (($existing["status"] ?? "") === "Pending") {
+    redirectWithFlash(
+        "my_borrowed.php",
+        "Your return is already awaiting GSO review.",
+        "error"
+    );
+}
 
 $message = "";
 
@@ -135,8 +164,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     ")->execute([":return_id" => $returnId]);
                 } else {
                     $insStmt = $pdo->prepare("
-                        INSERT INTO return_submissions (request_id, borrower_id, condition_notes, reported_condition)
-                        VALUES (:request_id, :borrower_id, :notes, :reported_condition)
+                        INSERT INTO return_submissions
+                            (request_id, borrower_id, condition_notes, reported_condition, status)
+                        VALUES
+                            (:request_id, :borrower_id, :notes, :reported_condition, 'Pending')
                     ");
                     $insStmt->execute([
                         ":request_id" => $requestId,
@@ -169,7 +200,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     SELECT user_id
                     FROM users
                     WHERE role = 'Admin'
-                      AND account_status <> 'Disabled'
+                      AND account_status = 'Approved'
+                      AND email_verified = 1
                 ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
                 $borrowNo = "BRW-" . str_pad((string)$requestId, 3, "0", STR_PAD_LEFT);

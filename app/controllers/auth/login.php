@@ -4,6 +4,7 @@ gsoSecureSessionStart();
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/role_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/login_throttle_helper.php";
 
 $message = "";
 $messageType = "info";
@@ -143,7 +144,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $lockRemaining = gsoGetLoginLockRemaining($guard);
     $postLockRemaining = (int) ($guard["post_lock_remaining"] ?? 0);
 
-    if (!hash_equals((string) $_SESSION["csrf_token"], $csrfToken)) {
+    $csrfValid = hash_equals((string) $_SESSION["csrf_token"], $csrfToken);
+    $attemptKey = "";
+    $persistentLockRemaining = 0;
+
+    // Only touch the throttle store once the request is well formed, so a bad
+    // token or an empty form cannot be used to probe it.
+    if ($csrfValid && $loginInputValue !== "" && $password !== "") {
+        $attemptKey = gsoLoginAttemptKey($loginInputValue);
+        $persistentLockRemaining = gsoLoginLockRemaining($pdo, $attemptKey);
+    }
+
+    if (!$csrfValid) {
         $message = "Invalid request token. Please refresh the page and try again.";
         $messageType = "error";
     } elseif ($lockRemaining > 0) {
@@ -152,6 +164,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     } elseif ($loginInputValue === "" || $password === "") {
         $message = "Please fill in all fields.";
         $messageType = "error";
+    } elseif ($persistentLockRemaining > 0) {
+        // Server-side lock: discarding the browser session does not reset it.
+        // Feed the countdown so a fresh session sees the same lock screen.
+        $lockRemaining = $persistentLockRemaining;
+        $message = "Too many failed login attempts. Please wait 30 seconds before trying again.";
+        $messageType = "warning";
     } else {
         $stmt = $pdo->prepare("
             SELECT
@@ -176,6 +194,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$user) {
+            gsoRecordLoginFailure($pdo, $attemptKey);
             $failure = gsoRegisterLoginFailure("Invalid username or password.");
 
             if (($failure["status"] ?? "") === "redirect_forgot_password") {
@@ -186,7 +205,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $message = (string) ($failure["message"] ?? "Invalid username or password.");
             $messageType = ($failure["status"] ?? "") === "locked" ? "warning" : "error";
         } elseif (!password_verify($password, (string) ($user["password_hash"] ?? ""))) {
-            $failure = gsoRegisterLoginFailure("Incorrect password.");
+            gsoRecordLoginFailure($pdo, $attemptKey);
+            $failure = gsoRegisterLoginFailure("Invalid username or password.");
 
             if (($failure["status"] ?? "") === "redirect_forgot_password") {
                 header("Location: forgot_password.php");
@@ -209,9 +229,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 ? "Your borrower account is still pending admin approval."
                 : "Your administrator account is still pending approval.";
             $messageType = "warning";
-        } elseif (($user["role"] ?? "") === "Borrower" || ($user["role"] ?? "") === "Admin") {
+        } elseif (in_array((string) ($user["role"] ?? ""), gsoSupportedRoles(), true)) {
             session_regenerate_id(true);
             gsoClearLoginGuard();
+            gsoClearLoginFailures($pdo, $attemptKey);
             $authenticatedAt = time();
 
             $_SESSION["user_id"] = (int) $user["user_id"];
@@ -229,13 +250,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 "User logged in successfully as " . (string) $user["role"] . "."
             );
 
-            if (($user["role"] ?? "") === "Borrower") {
-                header("Location: ../borrower/browse.php");
-                exit();
-            }
-
-            header("Location: ../admin/dashboard.php");
-            exit();
+            redirectToRoleHome((string) $user["role"], "../");
         } else {
             $message = "Invalid user role.";
             $messageType = "error";

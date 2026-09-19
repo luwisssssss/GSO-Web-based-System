@@ -15,6 +15,7 @@ $cssFiles = array_merge([
     "../public/assets/css/base.css",
     "../public/assets/css/layout.css",
     "../public/assets/css/components.css",
+    "../public/assets/css/pages/chatbot.css",
 ], $cssFiles);
 
 if (($activePage ?? "") === "dashboard") {
@@ -80,3 +81,5 @@ $pageClass = strtolower(preg_replace('/[^a-z0-9]+/i', '-', (string) ($activePage
     });
     </script>
 <?php endif; ?>
+
+<?php require_once dirname(__DIR__, 3) . "/includes/chat_widget.php"; ?>

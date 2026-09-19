@@ -55,7 +55,9 @@ $requestStmt = $pdo->query("
         rr.start_time,
         rr.end_time,
         rr.status,
+        rr.reviewed_at,
         rr.approved_at,
+        rr.released_at,
         rr.due_date,
         rr.return_date,
         rr.contact_number,
@@ -63,7 +65,7 @@ $requestStmt = $pdo->query("
         borrower.full_name AS borrower_name,
         borrower.username AS borrower_username,
         borrower.email AS borrower_email,
-        approver.full_name AS reviewed_by_name,
+        reviewer.full_name AS reviewed_by_name,
         r.resource_name,
         r.resource_type,
         r.category,
@@ -72,7 +74,7 @@ $requestStmt = $pdo->query("
     FROM resource_requests rr
     INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
     INNER JOIN resources r ON rr.resource_id = r.resource_id
-    LEFT JOIN users approver ON rr.approved_by = approver.user_id
+    LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN return_submissions rs ON rr.request_id = rs.request_id
     ORDER BY rr.request_date DESC, rr.request_id DESC
 ");

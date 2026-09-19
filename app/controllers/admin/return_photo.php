@@ -1,4 +1,5 @@
 <?php
+define("GSO_REQUIRED_PERMISSION", "return.inspect");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/incident_helper.php";

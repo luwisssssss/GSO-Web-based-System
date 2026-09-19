@@ -1,4 +1,5 @@
 <?php
+define("GSO_REQUIRED_PERMISSION", "inventory.view");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/resource_image_helper.php";
@@ -12,6 +13,7 @@ if (empty($_SESSION["csrf_token"])) {
 $pageTitle = "Inventory";
 $activePage = "inventory";
 $cssFile = "../public/assets/css/pages/admin.css?v=20260415-inventory-cards";
+$canManageInventory = gsoUserHasPermission((string) ($_SESSION["role"] ?? ""), "inventory.manage");
 
 /*
 |--------------------------------------------------------------------------
@@ -19,6 +21,9 @@ $cssFile = "../public/assets/css/pages/admin.css?v=20260415-inventory-cards";
 |--------------------------------------------------------------------------
 */
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
+    if (!gsoUserHasPermission((string) ($_SESSION["role"] ?? ""), "inventory.manage")) {
+        redirectWithFlash("inventory.php", "Only the GSO Head can change inventory records.");
+    }
     $csrfToken = $_POST["csrf_token"] ?? "";
     $resourceId = isset($_POST["resource_id"]) ? (int) $_POST["resource_id"] : 0;
     $action = $_POST["action"] ?? "";
@@ -340,12 +345,12 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
             <div class="page-header-row">
                 <div>
                     <h2>Inventory</h2>
-                    <p>Manage inventory records from the <code>resources</code> table.</p>
+                    <p><?php echo $canManageInventory ? "Manage" : "View operational"; ?> inventory records.</p>
                 </div>
 
-                <div class="action-group">
+                <?php if ($canManageInventory): ?><div class="action-group">
                     <a href="add_resource.php" class="admin-btn primary-btn">Add Resource</a>
-                </div>
+                </div><?php endif; ?>
             </div>
         </div>
 
@@ -463,17 +468,19 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                 <span>View details</span>
                                             </a>
 
+                                            <?php if ($canManageInventory): ?>
                                             <a href="edit_resource.php?resource_id=<?php echo (int) $resource["resource_id"]; ?>" class="row-action-item" role="menuitem">
                                                 <i class="fa-solid fa-pen" aria-hidden="true"></i>
                                                 <span>Edit resource</span>
                                             </a>
 
+                                            <?php endif; ?>
                                             <a href="maintenance.php?resource_id=<?php echo (int) $resource["resource_id"]; ?>" class="row-action-item warning-action" role="menuitem">
                                                 <i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i>
                                                 <span>Maintenance</span>
                                             </a>
 
-                                            <?php if ((int)$resource["is_archived"] === 0): ?>
+                                            <?php if ($canManageInventory && (int)$resource["is_archived"] === 0): ?>
                                                 <form method="POST" class="inline-form" onsubmit="return confirm('Archive this resource?');">
                                                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>">
                                                     <input type="hidden" name="resource_id" value="<?php echo htmlspecialchars($resource["resource_id"]); ?>">
@@ -483,7 +490,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                         <span>Archive</span>
                                                     </button>
                                                 </form>
-                                            <?php else: ?>
+                                            <?php elseif ($canManageInventory): ?>
                                                 <form method="POST" class="inline-form" onsubmit="return confirm('Restore this resource?');">
                                                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>">
                                                     <input type="hidden" name="resource_id" value="<?php echo htmlspecialchars($resource["resource_id"]); ?>">
@@ -495,7 +502,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                 </form>
                                             <?php endif; ?>
 
-                                            <form method="POST" class="inline-form" onsubmit="return confirm('Delete this resource permanently? This cannot be undone.');">
+                                            <?php if ($canManageInventory): ?><form method="POST" class="inline-form" onsubmit="return confirm('Delete this resource permanently? This cannot be undone.');">
                                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>">
                                                 <input type="hidden" name="resource_id" value="<?php echo htmlspecialchars($resource["resource_id"]); ?>">
                                                 <input type="hidden" name="action" value="delete">
@@ -503,7 +510,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                     <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
                                                     <span>Delete</span>
                                                 </button>
-                                            </form>
+                                            </form><?php endif; ?>
                                         </div>
                                     </div>
                                 </div>

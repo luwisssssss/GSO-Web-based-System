@@ -16,6 +16,14 @@ CREATE TABLE `activity_logs` (
   KEY `idx_activity_logs_user_date` (`user_id`,`log_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE `login_attempts` (
+  `attempt_id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `attempt_key` varchar(190) NOT NULL,
+  `attempted_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`attempt_id`),
+  KEY `idx_login_attempts_key_time` (`attempt_key`,`attempted_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE `maintenance_schedules` (
   `maintenance_id` int(11) NOT NULL AUTO_INCREMENT,
   `resource_id` int(11) NOT NULL,
@@ -59,10 +67,16 @@ CREATE TABLE `resource_requests` (
   `end_time` time DEFAULT NULL,
   `request_date` datetime NOT NULL DEFAULT current_timestamp(),
   `status` enum('Pending','Under Review','Approved','Rejected','Cancelled','Released','Returned') NOT NULL DEFAULT 'Pending',
+  `adviser_state` enum('Not Required','Selection Required','Pending Adviser','Revision Required','Endorsed') NOT NULL DEFAULT 'Not Required',
+  `adviser_user_id` int(11) DEFAULT NULL,
+  `adviser_required_by` int(11) DEFAULT NULL,
+  `adviser_required_at` datetime DEFAULT NULL,
   `approved_by` int(11) DEFAULT NULL,
   `reviewed_by` int(11) DEFAULT NULL,
+  `released_by` int(11) DEFAULT NULL,
   `approved_at` datetime DEFAULT NULL,
   `reviewed_at` datetime DEFAULT NULL,
+  `released_at` datetime DEFAULT NULL,
   `due_date` datetime DEFAULT NULL,
   `return_date` datetime DEFAULT NULL,
   `notes` varchar(255) DEFAULT NULL,
@@ -72,8 +86,23 @@ CREATE TABLE `resource_requests` (
   KEY `fk_resource_requests_resource` (`resource_id`),
   KEY `fk_resource_requests_approved_by` (`approved_by`),
   KEY `fk_resource_requests_reviewed_by` (`reviewed_by`),
+  KEY `fk_resource_requests_released_by` (`released_by`),
   KEY `idx_requests_borrower_return` (`borrower_id`,`return_date`),
   KEY `idx_requests_status_due` (`status`,`due_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `request_adviser_history` (
+  `history_id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `request_id` int(11) NOT NULL,
+  `adviser_user_id` int(11) NOT NULL,
+  `cycle_no` int(11) NOT NULL,
+  `action` enum('Submitted','Endorsed','Returned for Revision') NOT NULL,
+  `remarks` varchar(1000) DEFAULT NULL,
+  `acted_by` int(11) NOT NULL,
+  `acted_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`history_id`),
+  KEY `idx_adviser_history_request` (`request_id`,`acted_at`,`history_id`),
+  KEY `idx_adviser_history_adviser` (`adviser_user_id`,`acted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `resources` (
@@ -86,6 +115,7 @@ CREATE TABLE `resources` (
   `location` varchar(100) DEFAULT NULL,
   `total_stock` int(11) DEFAULT NULL,
   `available_stock` int(11) DEFAULT NULL,
+  `under_repair_stock` int(11) NOT NULL DEFAULT 0,
   `capacity` int(11) DEFAULT NULL,
   `status` enum('Available','Unavailable','Maintenance') NOT NULL DEFAULT 'Available',
   `condition_status` enum('Good','Damaged','Missing Parts','Needs Repair','Lost') NOT NULL DEFAULT 'Good',
@@ -136,7 +166,8 @@ CREATE TABLE `users` (
   `uploaded_id_type` varchar(100) DEFAULT NULL,
   `profile_image` longblob DEFAULT NULL,
   `profile_image_type` varchar(100) DEFAULT NULL,
-  `role` enum('Admin','Borrower') NOT NULL DEFAULT 'Borrower',
+  `role` enum('Admin','Borrower','GSO Staff','Director') NOT NULL DEFAULT 'Borrower',
+  `account_type` enum('Student','Faculty','University Staff') DEFAULT NULL,
   `username` varchar(50) NOT NULL,
   `password_hash` varchar(255) NOT NULL,
   `reset_token_hash` varchar(255) DEFAULT NULL,
@@ -191,4 +222,87 @@ CREATE TABLE `incident_reports` (
   CONSTRAINT `chk_incident_reports_rejection_remarks` CHECK (`status` <> 'Rejected' or `admin_remarks` is not null and char_length(trim(`admin_remarks`)) > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+ALTER TABLE `activity_logs`
+  ADD CONSTRAINT `fk_al_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL;
+
+ALTER TABLE `maintenance_schedules`
+  ADD CONSTRAINT `fk_ms_resource` FOREIGN KEY (`resource_id`) REFERENCES `resources` (`resource_id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_ms_created_by` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_ms_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL;
+
+ALTER TABLE `notifications`
+  ADD CONSTRAINT `fk_notif_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE;
+
+ALTER TABLE `resource_requests`
+  ADD CONSTRAINT `fk_rr_borrower` FOREIGN KEY (`borrower_id`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_rr_resource` FOREIGN KEY (`resource_id`) REFERENCES `resources` (`resource_id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_rr_approved_by` FOREIGN KEY (`approved_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_rr_reviewed_by` FOREIGN KEY (`reviewed_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_rr_released_by` FOREIGN KEY (`released_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_rr_adviser_user` FOREIGN KEY (`adviser_user_id`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_rr_adviser_required_by` FOREIGN KEY (`adviser_required_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL;
+
+ALTER TABLE `request_adviser_history`
+  ADD CONSTRAINT `fk_adviser_history_request` FOREIGN KEY (`request_id`) REFERENCES `resource_requests` (`request_id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_adviser_history_adviser` FOREIGN KEY (`adviser_user_id`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_adviser_history_actor` FOREIGN KEY (`acted_by`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT;
+
+ALTER TABLE `return_submission_photos`
+  ADD CONSTRAINT `fk_rsp_return` FOREIGN KEY (`return_id`) REFERENCES `return_submissions` (`return_id`) ON DELETE CASCADE;
+
+ALTER TABLE `return_submissions`
+  ADD CONSTRAINT `fk_rs_borrower` FOREIGN KEY (`borrower_id`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_rs_admin` FOREIGN KEY (`admin_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL;
+
+ALTER TABLE `users`
+  ADD CONSTRAINT `fk_users_approved_by` FOREIGN KEY (`approved_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL;
+
 SET FOREIGN_KEY_CHECKS = @OLD_FOREIGN_KEY_CHECKS;
+
+CREATE TABLE IF NOT EXISTS `ai_conversations` (
+    `conversation_id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+    `user_id` INT(11) NOT NULL,
+    `title` VARCHAR(160) NOT NULL DEFAULT 'New conversation',
+    `status` ENUM('Active', 'Archived') NOT NULL DEFAULT 'Active',
+    `started_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `ended_at` DATETIME DEFAULT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`conversation_id`),
+    KEY `idx_ai_conversations_user` (`user_id`, `status`, `updated_at`),
+    CONSTRAINT `fk_ai_conversations_user`
+        FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_messages` (
+    `message_id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+    `conversation_id` BIGINT(20) NOT NULL,
+    `sender_type` ENUM('user', 'assistant', 'system') NOT NULL,
+    `message` MEDIUMTEXT NOT NULL,
+    `intent` VARCHAR(60) DEFAULT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`message_id`),
+    KEY `idx_ai_messages_conversation` (`conversation_id`, `message_id`),
+    CONSTRAINT `fk_ai_messages_conversation`
+        FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`conversation_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_knowledge_entries` (
+    `entry_id` INT(11) NOT NULL AUTO_INCREMENT,
+    `title` VARCHAR(160) NOT NULL,
+    `category` VARCHAR(60) NOT NULL DEFAULT 'General',
+    `question` VARCHAR(255) NOT NULL,
+    `content` TEXT NOT NULL,
+    `keywords` VARCHAR(500) NOT NULL DEFAULT '',
+    `status` ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Active',
+    `created_by` INT(11) DEFAULT NULL,
+    `updated_by` INT(11) DEFAULT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`entry_id`),
+    KEY `idx_ai_knowledge_status` (`status`, `category`),
+    CONSTRAINT `fk_ai_knowledge_created_by`
+        FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+    CONSTRAINT `fk_ai_knowledge_updated_by`
+        FOREIGN KEY (`updated_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

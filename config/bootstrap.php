@@ -213,6 +213,65 @@ if (!function_exists("gsoDestroySession")) {
     }
 }
 
+if (!function_exists("gsoAppSecret")) {
+    /**
+     * Server-side secret used to key one-way identifiers such as login
+     * throttling keys.
+     *
+     * The secret deliberately lives outside the database so that a leaked
+     * database dump cannot be used to recover the identifiers it protects.
+     * GSO_APP_KEY in .env takes precedence; otherwise a random key is
+     * generated once and cached in a gitignored config file.
+     */
+    function gsoAppSecret(): string
+    {
+        static $secret = null;
+
+        if ($secret !== null) {
+            return $secret;
+        }
+
+        $configured = trim((string) gsoEnv("GSO_APP_KEY", ""));
+
+        if ($configured !== "") {
+            return $secret = $configured;
+        }
+
+        $keyFile = __DIR__ . DIRECTORY_SEPARATOR . "app_key.local.php";
+        $readKeyFile = static function (string $path): ?string {
+            if (!is_file($path) || !is_readable($path)) {
+                return null;
+            }
+
+            if (function_exists("opcache_invalidate")) {
+                @opcache_invalidate($path, true);
+            }
+
+            $stored = @include $path;
+
+            return is_string($stored) && trim($stored) !== "" ? trim($stored) : null;
+        };
+
+        $stored = $readKeyFile($keyFile);
+
+        if ($stored !== null) {
+            return $secret = $stored;
+        }
+
+        $generated = bin2hex(random_bytes(32));
+        @file_put_contents(
+            $keyFile,
+            "<?php\n\n// Auto-generated local secret. Never commit this file.\n"
+                . "// Set GSO_APP_KEY in .env to manage the secret explicitly instead.\n\n"
+                . "return \"" . $generated . "\";\n",
+            LOCK_EX
+        );
+
+        // Re-read so concurrent first requests converge on the key that won the race.
+        return $secret = $readKeyFile($keyFile) ?? $generated;
+    }
+}
+
 $rootPath = dirname(__DIR__);
 gsoLoadEnvFile($rootPath . DIRECTORY_SEPARATOR . ".env");
 date_default_timezone_set((string) gsoEnv("GSO_APP_TIMEZONE", "Asia/Manila"));

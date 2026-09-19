@@ -19,6 +19,7 @@ require_once $root . "/config/db.php";
 require_once $root . "/includes/request_helper.php";
 require_once $root . "/includes/return_upload_helper.php";
 require_once $root . "/includes/notification_helper.php";
+require_once $root . "/includes/login_throttle_helper.php";
 
 final class Step8Failure extends RuntimeException
 {
@@ -220,12 +221,12 @@ step8Assert(is_string($pngPath) && is_string($png) && file_put_contents($pngPath
 $bootstrapName = "step8_session_" . substr($token, 0, 20) . ".php";
 $bootstrapPath = $root . DIRECTORY_SEPARATOR . $bootstrapName;
 $cookies = [];
-foreach (["admin", "a", "b", "expired", "guest", "login1", "login2", "login3", "signup1", "signup2", "signup3", "signup4"] as $name) {
+foreach (["admin", "a", "b", "expired", "guest", "login1", "login2", "login3", "rate1", "rate2", "signup1", "signup2", "signup3", "signup4"] as $name) {
     $cookies[$name] = tempnam(sys_get_temp_dir(), "gso_s8_{$name}_");
 }
 step8Assert(!in_array(false, $cookies, true), "Could not allocate cookie fixtures.");
 
-$tables = ["users", "resources", "resource_requests", "return_submissions", "return_submission_photos", "notifications", "activity_logs", "maintenance_schedules", "incident_reports"];
+$tables = ["users", "resources", "resource_requests", "return_submissions", "return_submission_photos", "notifications", "activity_logs", "maintenance_schedules", "incident_reports", "login_attempts"];
 $baseline = [];
 foreach ($tables as $table) {
     $baseline[$table] = (int) step8Value($pdo, "SELECT COUNT(*) FROM `{$table}`");
@@ -238,6 +239,7 @@ $requestIds = [];
 $returnIds = [];
 $maintenanceIds = [];
 $returnPhotoNames = [];
+$loginAttemptKeys = [];
 $bootstrapCreated = false;
 $checks = 0;
 $failure = null;
@@ -325,7 +327,47 @@ try {
     step8Assert(in_array($approvedLogin["status"], [302, 303], true) && str_contains($approvedLogin["location"], "borrower/browse.php"), "Approved Borrower login failed.");
     $logout = step8Http($baseUrl, "auth/logout.php", "GET", $approvedCookie);
     step8Assert(in_array($logout["status"], [302, 303], true) && in_array(step8Http($baseUrl, "borrower/browse.php", "GET", $approvedCookie)["status"], [302, 303], true), "Logout did not invalidate the session.");
-    $checks += 6;
+    $rateLimitedLogin = "{$userBase}a";
+    $loginAttemptBaselineId = (int) step8Value($pdo, "SELECT COALESCE(MAX(attempt_id), 0) FROM login_attempts");
+    $rateLimitKey = gsoLoginAttemptKey($rateLimitedLogin, "127.0.0.1");
+    foreach (["127.0.0.1", "::1"] as $loopback) {
+        $loginAttemptKeys[] = gsoLoginAttemptKey($rateLimitedLogin, $loopback);
+    }
+    $ratePage = step8Http($baseUrl, "auth/login.php", "GET", $cookies["rate1"]);
+    $rateCsrf = step8Csrf($ratePage, "rate-limit login page");
+    for ($attempt = 0; $attempt < 3; $attempt++) {
+        step8Http($baseUrl, "auth/login.php", "POST", $cookies["rate1"], [
+            "csrf_token" => $rateCsrf,
+            "login_input" => $rateLimitedLogin,
+            "password" => "Wrong!{$marker}",
+        ]);
+    }
+    $freshRatePage = step8Http($baseUrl, "auth/login.php", "GET", $cookies["rate2"]);
+    $freshRateLogin = step8Http($baseUrl, "auth/login.php", "POST", $cookies["rate2"], [
+        "csrf_token" => step8Csrf($freshRatePage, "fresh rate-limit login page"),
+        "login_input" => $rateLimitedLogin,
+        "password" => $password,
+    ]);
+    step8Assert(
+        $freshRateLogin["status"] === 200
+            && str_contains($freshRateLogin["body"], "Too many failed login attempts")
+            && !str_contains((string) $freshRateLogin["location"], "browse.php"),
+        "Login throttling was bypassed with a fresh browser session."
+    );
+    step8Assert(
+        str_contains($freshRateLogin["body"], "Temporary login lock enabled"),
+        "A throttled fresh session was not shown the temporary lock countdown."
+    );
+    step8Assert(
+        (int) step8Value($pdo, "SELECT COUNT(*) FROM login_attempts WHERE attempt_id > :baseline", [":baseline" => $loginAttemptBaselineId]) === 3,
+        "Failed logins were not recorded server-side under the hashed throttle key."
+    );
+    step8Assert(
+        (int) step8Value($pdo, "SELECT COUNT(*) FROM login_attempts WHERE attempt_key NOT REGEXP '^[0-9a-f]{64}$'") === 0,
+        "login_attempts stored a raw identifier instead of a hashed key."
+    );
+    $pdo->prepare("DELETE FROM login_attempts WHERE attempt_id > :baseline")->execute([":baseline" => $loginAttemptBaselineId]);
+    $checks += 10;
 
     // Signup validation without sending external email.
     $duplicateCases = [
@@ -336,7 +378,7 @@ try {
     foreach ($duplicateCases as [$cookieName, $email, $username, $universityId, $expected]) {
         $signupPage = step8Http($baseUrl, "auth/signup.php", "GET", $cookies[$cookieName]);
         $signup = step8Multipart($baseUrl, "auth/signup.php", $cookies[$cookieName], [
-            "csrf_token" => step8Csrf($signupPage, "signup page"), "full_name" => "Duplicate {$marker}", "department" => "QA",
+            "csrf_token" => step8Csrf($signupPage, "signup page"), "full_name" => "Duplicate {$marker}", "account_type" => "Student", "department" => "QA",
             "university_id" => $universityId, "email" => $email, "username" => $username,
             "password" => $password, "confirm_password" => $password,
         ], "uploaded_id", $pngPath, "id.png");
@@ -344,7 +386,7 @@ try {
     }
     $invalidSignupPage = step8Http($baseUrl, "auth/signup.php", "GET", $cookies["signup4"]);
     $invalidSignup = step8Multipart($baseUrl, "auth/signup.php", $cookies["signup4"], [
-        "csrf_token" => step8Csrf($invalidSignupPage, "invalid signup page"), "full_name" => "Invalid {$marker}", "department" => "QA",
+        "csrf_token" => step8Csrf($invalidSignupPage, "invalid signup page"), "full_name" => "Invalid {$marker}", "account_type" => "Student", "department" => "QA",
         "university_id" => "INV" . substr($token, 0, 8), "email" => "not-an-email", "username" => "invalid{$userBase}",
         "password" => "short", "confirm_password" => "short",
     ], "uploaded_id", $pngPath, "id.png");
@@ -368,14 +410,35 @@ try {
     step8Assert($itemRequestId > 0 && step8Status($pdo, $itemRequestId) === "Pending", "Submitted item request was not Pending.");
     $requestIds[] = $itemRequestId;
     step8Assert(step8NotificationCount($pdo, $adminId, "New Resource Request") >= 1, "Admin request notification was not created.");
+    $review = step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $itemRequestId, "action" => "review"]);
+    step8Assert(in_array($review["status"], [302, 303], true) && step8Status($pdo, $itemRequestId) === "Under Review", "Request review transition failed.");
+    $reviewNoticeCount = step8NotificationCount($pdo, $borrowerA, "Request Under Review", "my_requests.php");
+    step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $itemRequestId, "action" => "review"]);
+    step8Assert(step8NotificationCount($pdo, $borrowerA, "Request Under Review", "my_requests.php") === $reviewNoticeCount, "Repeated review transition duplicated a notification.");
     $approve = step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $itemRequestId, "action" => "approve"]);
     step8Assert(in_array($approve["status"], [302, 303], true) && step8Status($pdo, $itemRequestId) === "Approved", "Request approval failed.");
+    $approvalAudit = step8Rows($pdo, "SELECT approved_by,reviewed_by,approved_at,reviewed_at FROM resource_requests WHERE request_id=:id", [":id" => $itemRequestId])[0] ?? [];
+    step8Assert(
+        (int) ($approvalAudit["approved_by"] ?? 0) === $adminId
+            && (int) ($approvalAudit["reviewed_by"] ?? 0) === $adminId
+            && !empty($approvalAudit["approved_at"])
+            && !empty($approvalAudit["reviewed_at"]),
+        "Approval did not record review and approval accountability."
+    );
     step8Assert((int) step8Value($pdo, "SELECT available_stock FROM resources WHERE resource_id=:id", [":id" => $itemId]) === 5, "Approval incorrectly reduced stock.");
     $approvedNoticeCount = step8NotificationCount($pdo, $borrowerA, "Request Approved", "my_requests.php");
     step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $itemRequestId, "action" => "approve"]);
     step8Assert(step8NotificationCount($pdo, $borrowerA, "Request Approved", "my_requests.php") === $approvedNoticeCount, "Repeated approval duplicated a notification.");
     $release = step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $itemRequestId, "action" => "release"]);
     step8Assert(in_array($release["status"], [302, 303], true) && step8Status($pdo, $itemRequestId) === "Released", "Request release failed.");
+    $releaseAudit = step8Rows($pdo, "SELECT approved_by,approved_at,released_by,released_at FROM resource_requests WHERE request_id=:id", [":id" => $itemRequestId])[0] ?? [];
+    step8Assert(
+        (int) ($releaseAudit["approved_by"] ?? 0) === (int) ($approvalAudit["approved_by"] ?? 0)
+            && (string) ($releaseAudit["approved_at"] ?? "") === (string) ($approvalAudit["approved_at"] ?? "")
+            && (int) ($releaseAudit["released_by"] ?? 0) === $adminId
+            && !empty($releaseAudit["released_at"]),
+        "Release overwrote approval accountability or omitted release accountability."
+    );
     step8Assert((int) step8Value($pdo, "SELECT available_stock FROM resources WHERE resource_id=:id", [":id" => $itemId]) === 3, "Release did not decrement stock exactly once.");
     step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $itemRequestId, "action" => "release"]);
     step8Assert((int) step8Value($pdo, "SELECT available_stock FROM resources WHERE resource_id=:id", [":id" => $itemId]) === 3, "Repeated release decremented stock twice.");
@@ -387,11 +450,32 @@ try {
     $return = step8Multipart($baseUrl, "borrower/return_submit.php?request_id={$itemRequestId}", $cookies["a"], [
         "csrf_token" => $aSession["csrf_token"], "condition_notes" => "Returned safely {$marker}", "reported_condition" => "Good",
     ], "proof_photos[]", $pngPath, "return.png");
-    step8Assert(in_array($return["status"], [302, 303], true), "Return submission failed.");
+    step8Assert(
+        in_array($return["status"], [302, 303], true),
+        "Return submission failed (HTTP {$return["status"]}, location {$return["location"]})."
+    );
     $returnRow = step8Rows($pdo, "SELECT return_id,status FROM return_submissions WHERE request_id=:id", [":id" => $itemRequestId])[0] ?? null;
-    step8Assert(is_array($returnRow) && $returnRow["status"] === "Pending", "Return submission was not Pending.");
+    $observedReturnStatus = is_array($returnRow) ? (string) ($returnRow["status"] ?? "missing") : "missing";
+    step8Assert(
+        is_array($returnRow) && $observedReturnStatus === "Pending",
+        "Return submission was not Pending (observed {$observedReturnStatus}, location {$return["location"]})."
+    );
     $returnId = (int) $returnRow["return_id"];
     $returnIds[] = $returnId;
+    $returnNoticeLink = "review_return.php?request_id={$itemRequestId}";
+    $returnNoticeCount = step8NotificationCount($pdo, $adminId, "Return Submitted", $returnNoticeLink);
+    step8Assert(
+        step8NotificationCount($pdo, $pendingAdmin, "Return Submitted", $returnNoticeLink) === 0,
+        "Pending Admin received a private return notification."
+    );
+    $returnReplay = step8Http($baseUrl, "borrower/return_submit.php?request_id={$itemRequestId}", "POST", $cookies["a"], [
+        "csrf_token" => $aSession["csrf_token"], "condition_notes" => "Replay {$marker}", "reported_condition" => "Good",
+    ]);
+    step8Assert(
+        in_array($returnReplay["status"], [302, 303], true)
+            && step8NotificationCount($pdo, $adminId, "Return Submitted", $returnNoticeLink) === $returnNoticeCount,
+        "Pending return replay created duplicate processing or notification."
+    );
     $photoRow = step8Rows($pdo, "SELECT photo_id,filename FROM return_submission_photos WHERE return_id=:id LIMIT 1", [":id" => $returnId])[0] ?? null;
     step8Assert(is_array($photoRow), "Return photo was not stored.");
     $returnPhotoNames[] = (string) $photoRow["filename"];
@@ -409,7 +493,7 @@ try {
     ]);
     step8Assert((int) step8Value($pdo, "SELECT available_stock FROM resources WHERE resource_id=:id", [":id" => $itemId]) === 5, "Repeated return approval restored stock twice.");
     step8Assert(step8Http($baseUrl, "borrower/history.php", "GET", $cookies["a"])["status"] === 200, "Returned transaction was not available in history.");
-    $checks += 17;
+    $checks += 23;
 
     // A rejected return keeps the loan and stock unchanged, then permits a safe resubmission.
     step8Http($baseUrl, "borrower/request_resource.php?resource_id={$itemId}", "POST", $cookies["b"], [
@@ -465,6 +549,66 @@ try {
     }
     $checks += 4;
 
+    // SCENARIO 7 - a signed-in borrower cannot reach another borrower's records
+    // or perform an Admin state transition by posting straight at the endpoint.
+    step8Http($baseUrl, "borrower/request_resource.php?resource_id={$itemId}", "POST", $cookies["b"], [
+        "csrf_token" => $bSession["csrf_token"], "quantity" => "1", "contact_number" => "+63 900 000 0005",
+        "date_needed" => date("Y-m-d", strtotime("+5 days")), "start_time" => "", "end_time" => "", "notes" => "Victim request {$marker}",
+    ]);
+    $victimRequestId = (int) step8Value($pdo, "SELECT request_id FROM resource_requests WHERE borrower_id=:b AND resource_id=:r AND status='Pending' ORDER BY request_id DESC LIMIT 1", [":b" => $borrowerB, ":r" => $itemId]);
+    step8Assert($victimRequestId > 0, "Could not create the cross-borrower fixture.");
+    $requestIds[] = $victimRequestId;
+
+    // Borrower A tries to cancel Borrower B's request.
+    step8Http($baseUrl, "borrower/my_requests.php", "POST", $cookies["a"], [
+        "csrf_token" => $aSession["csrf_token"], "request_id" => $victimRequestId, "action" => "cancel",
+    ]);
+    step8Assert(
+        step8Status($pdo, $victimRequestId) === "Pending",
+        "A borrower cancelled another borrower's request (IDOR)."
+    );
+
+    // Borrower A tries to file the return for Borrower B's request.
+    step8Http($baseUrl, "borrower/return_submit.php?request_id={$victimRequestId}", "POST", $cookies["a"], [
+        "csrf_token" => $aSession["csrf_token"], "condition_notes" => "IDOR return {$marker}", "reported_condition" => "Good",
+    ]);
+    step8Assert(
+        (int) step8Value($pdo, "SELECT COUNT(*) FROM return_submissions WHERE request_id=:id", [":id" => $victimRequestId]) === 0,
+        "A borrower filed a return against another borrower's request (IDOR)."
+    );
+
+    // The borrower who owns the request still cannot approve or release it.
+    foreach (["approve", "release", "reject", "review"] as $privilegedAction) {
+        step8Http($baseUrl, "admin/requests.php", "POST", $cookies["b"], [
+            "csrf_token" => $bSession["csrf_token"], "request_id" => $victimRequestId, "action" => $privilegedAction,
+        ]);
+    }
+    step8Assert(
+        step8Status($pdo, $victimRequestId) === "Pending",
+        "A borrower drove an Admin request transition by posting to the Admin endpoint."
+    );
+
+    // Admin-only inventory and review endpoints reject a borrower session.
+    foreach ([
+        "admin/edit_resource.php?resource_id={$itemId}",
+        "admin/review_return.php?request_id={$victimRequestId}",
+        "admin/maintenance.php",
+        "admin/activity_logs.php",
+        "admin/reports.php",
+    ] as $adminPath) {
+        $blocked = step8Http($baseUrl, $adminPath, "GET", $cookies["b"]);
+        step8Assert(
+            in_array($blocked["status"], [301, 302, 303, 401, 403, 404], true),
+            "A borrower reached the Admin endpoint {$adminPath} (HTTP {$blocked["status"]})."
+        );
+    }
+
+    step8Http($baseUrl, "borrower/my_requests.php", "POST", $cookies["b"], [
+        "csrf_token" => $bSession["csrf_token"], "request_id" => $victimRequestId, "action" => "cancel",
+    ]);
+    step8Assert(step8Status($pdo, $victimRequestId) === "Cancelled", "The owning borrower could not cancel their own request.");
+    $checks += 10;
+
     // Facility overlap, cancellation, rejection, approval, and boundary non-overlap.
     $facilitySubmit = static function (string $cookie, array $session, string $start, string $end) use ($baseUrl, $facilityId, $facilityDate, $marker): array {
         return step8Http($baseUrl, "borrower/request_resource.php?resource_id={$facilityId}", "POST", $cookie, [
@@ -497,7 +641,111 @@ try {
     $nonOverlapId = (int) step8Value($pdo, "SELECT request_id FROM resource_requests WHERE borrower_id=:b AND resource_id=:r AND status='Pending' ORDER BY request_id DESC LIMIT 1", [":b" => $borrowerB, ":r" => $facilityId]);
     step8Assert($nonOverlapId > 0, "Boundary non-overlapping facility request was blocked.");
     $requestIds[] = $nonOverlapId;
-    $checks += 8;
+    step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $facilityApprovedId, "action" => "release"]);
+    step8Assert(step8Status($pdo, $facilityApprovedId) === "Released", "Approved facility reservation could not be released.");
+    $earlyFacilityReturn = step8Http($baseUrl, "borrower/return_submit.php?request_id={$facilityApprovedId}", "POST", $cookies["a"], [
+        "csrf_token" => $aSession["csrf_token"], "condition_notes" => "Too early {$marker}", "reported_condition" => "Good",
+    ]);
+    step8Assert(
+        in_array($earlyFacilityReturn["status"], [302, 303], true)
+            && (int) step8Value($pdo, "SELECT COUNT(*) FROM return_submissions WHERE request_id=:id", [":id" => $facilityApprovedId]) === 0,
+        "Facility completion was accepted before its scheduled end."
+    );
+    $pdo->prepare("
+        UPDATE resource_requests
+        SET date_needed=DATE_SUB(CURDATE(), INTERVAL 1 DAY), start_time='09:00:00', end_time='10:00:00', due_date=DATE_SUB(NOW(), INTERVAL 1 DAY)
+        WHERE request_id=:id
+    ")->execute([":id" => $facilityApprovedId]);
+    $facilityBorrowCode = "BRW-" . str_pad((string) $facilityApprovedId, 3, "0", STR_PAD_LEFT);
+    $borrowerFacilityLoan = step8Http($baseUrl, "borrower/my_borrowed.php", "GET", $cookies["a"]);
+    $adminFacilityLoan = step8Http($baseUrl, "admin/on_loan.php", "GET", $cookies["admin"]);
+    step8Assert(
+        str_contains($borrowerFacilityLoan["body"], $facilityBorrowCode)
+            && str_contains($adminFacilityLoan["body"], $facilityBorrowCode),
+        "Past facility usage disappeared before explicit completion review."
+    );
+    step8Http($baseUrl, "borrower/return_submit.php?request_id={$facilityApprovedId}", "POST", $cookies["a"], [
+        "csrf_token" => $aSession["csrf_token"], "condition_notes" => "Post-use facility check {$marker}", "reported_condition" => "Good",
+    ]);
+    $facilityReturnId = (int) step8Value($pdo, "SELECT return_id FROM return_submissions WHERE request_id=:id", [":id" => $facilityApprovedId]);
+    step8Assert($facilityReturnId > 0, "Post-use facility completion submission was not created.");
+    $returnIds[] = $facilityReturnId;
+    step8Http($baseUrl, "admin/review_return.php?request_id={$facilityApprovedId}", "POST", $cookies["admin"], [
+        "csrf_token" => $adminSession["csrf_token"], "action" => "approve", "inspection_condition" => "Good", "inspection_remarks" => "Facility verified {$marker}",
+    ]);
+    step8Assert(step8Status($pdo, $facilityApprovedId) === "Returned", "Facility did not require and complete explicit post-use review.");
+    $checks += 13;
+
+    // SCENARIO 2 - a damaged return takes only the affected units out of
+    // service, and repairing them puts them back.
+    $damagedId = step8CreateResource($pdo, "Step8 Damaged {$marker}", "Item", 10);
+    $resourceIds[] = $damagedId;
+    step8Http($baseUrl, "borrower/request_resource.php?resource_id={$damagedId}", "POST", $cookies["a"], [
+        "csrf_token" => $aSession["csrf_token"], "quantity" => "2", "contact_number" => "+63 900 000 0004",
+        "date_needed" => $tomorrow, "start_time" => "", "end_time" => "", "notes" => "Damaged flow {$marker}",
+    ]);
+    $damagedRequestId = (int) step8Value($pdo, "SELECT request_id FROM resource_requests WHERE resource_id=:r ORDER BY request_id DESC LIMIT 1", [":r" => $damagedId]);
+    step8Assert($damagedRequestId > 0, "Damaged-return fixture request was not created.");
+    $requestIds[] = $damagedRequestId;
+    step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $damagedRequestId, "action" => "approve"]);
+    step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $damagedRequestId, "action" => "release"]);
+    step8Assert(
+        (int) step8Value($pdo, "SELECT available_stock FROM resources WHERE resource_id=:id", [":id" => $damagedId]) === 8,
+        "Releasing 2 of 10 units did not leave 8 available."
+    );
+    step8Http($baseUrl, "borrower/return_submit.php?request_id={$damagedRequestId}", "POST", $cookies["a"], [
+        "csrf_token" => $aSession["csrf_token"], "condition_notes" => "Damaged on return {$marker}", "reported_condition" => "Damaged",
+    ]);
+    $damagedReturnId = (int) step8Value($pdo, "SELECT return_id FROM return_submissions WHERE request_id=:id", [":id" => $damagedRequestId]);
+    step8Assert($damagedReturnId > 0, "Damaged return submission was not created.");
+    $returnIds[] = $damagedReturnId;
+    step8Http($baseUrl, "admin/review_return.php?request_id={$damagedRequestId}", "POST", $cookies["admin"], [
+        "csrf_token" => $adminSession["csrf_token"], "action" => "approve",
+        "inspection_condition" => "Damaged", "inspection_remarks" => "2 units damaged {$marker}",
+    ]);
+    $damagedRow = step8Rows($pdo, "SELECT total_stock,available_stock,under_repair_stock,status,condition_status FROM resources WHERE resource_id=:id", [":id" => $damagedId])[0] ?? [];
+    step8Assert(step8Status($pdo, $damagedRequestId) === "Returned", "Damaged return was not completed.");
+    step8Assert(
+        (int) ($damagedRow["available_stock"] ?? -1) === 8,
+        "Damaged units were restored to availability (expected 8 available, got " . ($damagedRow["available_stock"] ?? "null") . ")."
+    );
+    step8Assert(
+        (int) ($damagedRow["total_stock"] ?? -1) === 10,
+        "A damaged return wrote units off the total stock."
+    );
+    step8Assert(
+        (string) ($damagedRow["status"] ?? "") === "Available",
+        "Damaging 2 of 10 units made the whole resource unavailable."
+    );
+    step8Assert(
+        (int) ($damagedRow["under_repair_stock"] ?? -1) === 2,
+        "Damaged units were not tracked as under repair (got " . ($damagedRow["under_repair_stock"] ?? "null") . ")."
+    );
+    $damagedMaintenancePost = [
+        "csrf_token" => $adminSession["csrf_token"], "action" => "add_schedule", "resource_id" => $damagedId,
+        "start_date" => date("Y-m-d"), "duration_days" => "1", "reason" => "Repair damaged units {$marker}", "remarks" => "Step 8 regression",
+    ];
+    step8Http($baseUrl, "admin/maintenance.php", "POST", $cookies["admin"], $damagedMaintenancePost);
+    $damagedMaintenanceId = (int) step8Value($pdo, "SELECT maintenance_id FROM maintenance_schedules WHERE resource_id=:id ORDER BY maintenance_id DESC LIMIT 1", [":id" => $damagedId]);
+    step8Assert($damagedMaintenanceId > 0, "Repair schedule for damaged units was not created.");
+    $maintenanceIds[] = $damagedMaintenanceId;
+    step8Http($baseUrl, "admin/maintenance.php", "POST", $cookies["admin"], [
+        "csrf_token" => $adminSession["csrf_token"], "action" => "complete_schedule", "maintenance_id" => $damagedMaintenanceId,
+    ]);
+    $repairedRow = step8Rows($pdo, "SELECT total_stock,available_stock,under_repair_stock,status FROM resources WHERE resource_id=:id", [":id" => $damagedId])[0] ?? [];
+    step8Assert(
+        (int) ($repairedRow["available_stock"] ?? -1) === 10,
+        "Completing the repair did not return the units to availability (got " . ($repairedRow["available_stock"] ?? "null") . ")."
+    );
+    step8Assert(
+        (int) ($repairedRow["under_repair_stock"] ?? -1) === 0,
+        "Repaired units are still counted as under repair."
+    );
+    step8Assert(
+        (string) ($repairedRow["status"] ?? "") === "Available",
+        "Resource did not return to Available after the repair completed."
+    );
+    $checks += 12;
 
     // Inventory edit invariants and maintenance replay protection.
     $edit = step8Http($baseUrl, "admin/edit_resource.php?resource_id={$maintenanceResourceId}", "POST", $cookies["admin"], [
@@ -527,9 +775,9 @@ try {
     $completePost = ["csrf_token" => $adminSession["csrf_token"], "action" => "complete_schedule", "maintenance_id" => $maintenanceId];
     step8Http($baseUrl, "admin/maintenance.php", "POST", $cookies["admin"], $completePost);
     step8Assert((string) step8Value($pdo, "SELECT status FROM resources WHERE resource_id=:id", [":id" => $maintenanceResourceId]) === "Available", "Completing maintenance did not restore resource status.");
-    $completeLogs = (int) step8Value($pdo, "SELECT COUNT(*) FROM activity_logs WHERE log_id>:baseline AND action='Maintenance Completed' AND details LIKE :marker", [":baseline" => $logBaseline, ":marker" => "%{$marker}%"]);
+    $completeLogs = (int) step8Value($pdo, "SELECT COUNT(*) FROM activity_logs WHERE log_id>:baseline AND action='Maintenance Completed' AND details LIKE :marker", [":baseline" => $logBaseline, ":marker" => "%Step8 Maintenance {$marker}%"]);
     step8Http($baseUrl, "admin/maintenance.php", "POST", $cookies["admin"], $completePost);
-    $completeLogsAfterReplay = (int) step8Value($pdo, "SELECT COUNT(*) FROM activity_logs WHERE log_id>:baseline AND action='Maintenance Completed' AND details LIKE :marker", [":baseline" => $logBaseline, ":marker" => "%{$marker}%"]);
+    $completeLogsAfterReplay = (int) step8Value($pdo, "SELECT COUNT(*) FROM activity_logs WHERE log_id>:baseline AND action='Maintenance Completed' AND details LIKE :marker", [":baseline" => $logBaseline, ":marker" => "%Step8 Maintenance {$marker}%"]);
     step8Assert($completeLogs === 1 && $completeLogsAfterReplay === 1, "Repeated maintenance completion created duplicate processing/logging.");
     $checks += 8;
 
@@ -557,17 +805,27 @@ try {
     step8Assert($reports["status"] === 200 && str_contains($reports["body"], "REQ-" . str_pad((string) $itemRequestId, 3, "0", STR_PAD_LEFT)) && str_contains($reports["body"], "Incident Reporting Analytics"), "Integrated Admin reports did not include controlled borrowing/incident sections.");
     $excel = step8Http($baseUrl, "admin/reports.php?{$reportQuery}&export=excel", "GET", $cookies["admin"]);
     step8Assert($excel["status"] === 200 && str_contains(strtolower($excel["headers"]), "application/vnd.ms-excel"), "Reports export failed.");
-    foreach ([".env", ".git/HEAD", "config/db.php", "database/migrations/20260810_001_create_incident_reporting.sql", "uploads/returns/not-a-file.png", "uploads_temp/"] as $sensitivePath) {
+    foreach ([
+        ".env",
+        ".git/HEAD",
+        "config/db.php",
+        "database/migrations/20260810_001_create_incident_reporting.sql",
+        "uploads/returns/not-a-file.png",
+        "uploads_temp/",
+        "GSO_WebSystem/config/db.php",
+        "GSO_WebSystem/public/assets/images/Gian.jpg",
+    ] as $sensitivePath) {
         $response = step8Http($baseUrl, $sensitivePath, "GET", $cookies["guest"]);
         step8Assert(in_array($response["status"], [403, 404], true), "Sensitive path was exposed: {$sensitivePath} (HTTP {$response["status"]}).");
     }
-    $checks += 8;
+    $checks += 10;
 
     // No new consistency defects from the controlled workflow.
     $consistencySql = "SELECT
         (SELECT COUNT(*) FROM resources WHERE resource_type='Item' AND (total_stock<0 OR available_stock<0 OR available_stock>total_stock))
         + (SELECT COUNT(*) FROM resource_requests WHERE status='Returned' AND return_date IS NULL)
         + (SELECT COUNT(*) FROM resource_requests WHERE status='Released' AND due_date IS NULL)
+        + (SELECT COUNT(*) FROM resource_requests WHERE status IN ('Released','Returned') AND (released_by IS NULL OR released_at IS NULL))
         + (SELECT COUNT(*) FROM return_submissions rs JOIN resource_requests rr ON rr.request_id=rs.request_id WHERE rs.status='Approved' AND rr.status<>'Returned')";
     step8Assert((int) step8Value($pdo, $consistencySql) === 0, "Controlled workflow left a database consistency defect.");
     $checks++;
@@ -597,6 +855,9 @@ try {
             $pdo->prepare("DELETE FROM notifications WHERE user_id=:id")->execute([":id" => $userId]);
             $pdo->prepare("DELETE FROM activity_logs WHERE user_id=:id")->execute([":id" => $userId]);
         }
+        foreach ($loginAttemptKeys as $attemptKey) {
+            $pdo->prepare("DELETE FROM login_attempts WHERE attempt_key=:attempt_key")->execute([":attempt_key" => $attemptKey]);
+        }
         $pdo->prepare("DELETE FROM notifications WHERE notification_id>:baseline AND message LIKE :marker")->execute([":baseline" => $notificationBaseline, ":marker" => "%{$marker}%"]);
         foreach ($links as $link) {
             $pdo->prepare("DELETE FROM notifications WHERE notification_id>:baseline AND link=:link")->execute([":baseline" => $notificationBaseline, ":link" => $link]);
@@ -619,6 +880,48 @@ try {
         }
     } catch (Throwable $exception) {
         $cleanupErrors[] = "database fixtures: " . $exception->getMessage();
+    }
+
+    // Safety net. The block above is a single try, so the first foreign-key
+    // error there skips every remaining delete and leaks fixtures into the
+    // catalogue - which then show up in Browse Resources and to the chatbot.
+    // Each sweep below is guarded on its own and keyed to this run's marker,
+    // so a failure in one cannot strand the others.
+    foreach ([
+        "return photos" => ["DELETE p FROM return_submission_photos p
+                             INNER JOIN return_submissions rs ON rs.return_id = p.return_id
+                             INNER JOIN resources r ON r.resource_id = (
+                                 SELECT resource_id FROM resource_requests WHERE request_id = rs.request_id
+                             )
+                             WHERE r.resource_name LIKE :marker", true],
+        "return submissions" => ["DELETE rs FROM return_submissions rs
+                                  INNER JOIN resource_requests rr ON rr.request_id = rs.request_id
+                                  INNER JOIN resources r ON r.resource_id = rr.resource_id
+                                  WHERE r.resource_name LIKE :marker", true],
+        "maintenance" => ["DELETE ms FROM maintenance_schedules ms
+                           INNER JOIN resources r ON r.resource_id = ms.resource_id
+                           WHERE r.resource_name LIKE :marker", true],
+        "incidents" => ["DELETE ir FROM incident_reports ir
+                         INNER JOIN resources r ON r.resource_id = ir.resource_id
+                         WHERE r.resource_name LIKE :marker", true],
+        "requests" => ["DELETE rr FROM resource_requests rr
+                        INNER JOIN resources r ON r.resource_id = rr.resource_id
+                        WHERE r.resource_name LIKE :marker", true],
+        "resources" => ["DELETE FROM resources WHERE resource_name LIKE :marker", true],
+        "user requests" => ["DELETE rr FROM resource_requests rr
+                             INNER JOIN users u ON u.user_id = rr.borrower_id
+                             WHERE u.full_name LIKE :marker", true],
+        "users" => ["DELETE FROM users WHERE full_name LIKE :marker", true],
+    ] as $label => [$sql, $enabled]) {
+        if (!$enabled) {
+            continue;
+        }
+
+        try {
+            $pdo->prepare($sql)->execute([":marker" => "%{$marker}%"]);
+        } catch (Throwable $exception) {
+            $cleanupErrors[] = "sweep {$label}: " . $exception->getMessage();
+        }
     }
 
     if ($bootstrapCreated && is_file($bootstrapPath)) {

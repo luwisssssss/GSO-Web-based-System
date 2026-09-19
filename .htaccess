@@ -15,6 +15,10 @@ RewriteEngine On
 # Dotfiles/directories include .env, .git, editor metadata, and this file.
 RewriteRule "(^|/)\." - [F,L,NC]
 
+# A project copy placed inside this deployment is never a public application route.
+# Deny it as a unit so nested PHP/configuration and personal assets cannot be served.
+RewriteRule "^GSO_WebSystem(?:/|$)" - [F,L,NC]
+
 # These paths are used only through server-side includes or deployment tools.
 RewriteRule "^(?:app|backups?|config|database|docs|logs?|node_modules|private|routes|scripts|storage|tests?|uploads_temp|vendor|PHPMailer)(?:/|$)" - [F,L,NC]
 

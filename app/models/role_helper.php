@@ -24,11 +24,89 @@ if (!function_exists("redirectWithFlash")) {
 if (!function_exists("getRoleHomePath")) {
     function getRoleHomePath(?string $role, string $prefix = "../"): string
     {
-        if ($role === "Admin") {
-            return $prefix . "admin/dashboard.php";
-        }
+        return match ($role) {
+            "Admin" => $prefix . "admin/dashboard.php",
+            "GSO Staff" => $prefix . "gso_staff/dashboard.php",
+            "Director" => $prefix . "director/dashboard.php",
+            default => $prefix . "borrower/browse.php",
+        };
+    }
+}
 
-        return $prefix . "borrower/browse.php";
+if (!function_exists("gsoSupportedRoles")) {
+    function gsoSupportedRoles(): array
+    {
+        return ["Borrower", "GSO Staff", "Admin", "Director"];
+    }
+}
+
+if (!function_exists("gsoRolePermissions")) {
+    /** Central Phase 1 authorization policy. Admin is deliberately explicit
+     * through the wildcard; other roles receive only listed capabilities. */
+    function gsoRolePermissions(): array
+    {
+        return [
+            "Borrower" => [
+                "borrower.portal", "request.create_own", "request.view_own",
+                "return.submit_own", "incident.submit_own", "profile.manage_own",
+                "chatbot.use",
+            ],
+            "GSO Staff" => [
+                "staff.dashboard", "request.view_queue", "request.approve_ordinary",
+                "release.manage", "return.inspect", "inventory.view",
+                "work_order.manage", "walk_in.create", "profile.manage_own",
+                "chatbot.use",
+            ],
+            "Admin" => ["*"],
+            "Director" => ["director.dashboard", "profile.manage_own", "chatbot.use"],
+        ];
+    }
+}
+
+if (!function_exists("gsoUserHasPermission")) {
+    function gsoUserHasPermission(?string $role, string $permission): bool
+    {
+        $permissions = gsoRolePermissions()[$role ?? ""] ?? [];
+        return in_array("*", $permissions, true) || in_array($permission, $permissions, true);
+    }
+}
+
+if (!function_exists("ensureAuthenticatedPermission")) {
+    function ensureAuthenticatedPermission(
+        string $permission,
+        string $loginPath = "../auth/login.php",
+        string $roleHomePrefix = "../"
+    ): void {
+        gsoSecureSessionStart();
+        if (empty($_SESSION["user_id"])) {
+            header("Location: " . $loginPath);
+            exit();
+        }
+        if (!gsoUserHasPermission((string) ($_SESSION["role"] ?? ""), $permission)) {
+            setFlashMessage("Access denied for this page.");
+            header("Location: " . getRoleHomePath($_SESSION["role"] ?? null, $roleHomePrefix));
+            exit();
+        }
+    }
+}
+
+if (!function_exists("ensureApprovedPermissionAccount")) {
+    function ensureApprovedPermissionAccount(PDO $pdo, string $permission, string $loginPath = "../auth/login.php"): void
+    {
+        gsoSecureSessionStart();
+        $userId = (int) ($_SESSION["user_id"] ?? 0);
+        $stmt = $pdo->prepare("SELECT role FROM users WHERE user_id=:user_id AND account_status='Approved' AND email_verified=1 LIMIT 1");
+        $stmt->execute([":user_id" => $userId]);
+        $role = $stmt->fetchColumn();
+        if (is_string($role) && $role === (string) ($_SESSION["role"] ?? "") && gsoUserHasPermission($role, $permission)) {
+            return;
+        }
+        gsoDestroySession();
+        gsoSecureSessionStart();
+        $_SESSION["flash_message"] = "Your account is no longer authorized. Please sign in again.";
+        $_SESSION["flash_type"] = "error";
+        header("Location: " . $loginPath);
+        exit();
     }
 }
 

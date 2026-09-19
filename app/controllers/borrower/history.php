@@ -19,7 +19,7 @@ $offset = ($page - 1) * $perPage;
 $baseWhereSql = "
     FROM resource_requests rr
     INNER JOIN resources r ON rr.resource_id = r.resource_id
-    LEFT JOIN users approver ON rr.approved_by = approver.user_id
+    LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
     WHERE rr.borrower_id = :borrower_id
       AND rr.status IN ('Rejected', 'Cancelled', 'Returned')
@@ -81,8 +81,8 @@ $listSql = "
         rr.end_time,
         rr.request_date,
         rr.status,
-        rr.approved_by,
-        rr.approved_at,
+        rr.reviewed_by,
+        rr.reviewed_at,
         rr.due_date,
         rr.return_date,
         rr.notes,
@@ -90,7 +90,7 @@ $listSql = "
         r.resource_name,
         r.resource_type,
         r.category,
-        approver.full_name AS reviewed_by_name
+        reviewer.full_name AS reviewed_by_name
     " . $baseWhereSql . "
     ORDER BY rr.request_date DESC, rr.request_id DESC
     LIMIT {$perPage} OFFSET {$offset}
@@ -201,7 +201,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                     </td>
 
                                     <td>
-                                        <?php echo !empty($row["approved_at"]) ? htmlspecialchars(formatDateTimeDisplay($row["approved_at"])) : "N/A"; ?>
+                                        <?php echo !empty($row["reviewed_at"]) ? htmlspecialchars(formatDateTimeDisplay($row["reviewed_at"])) : "N/A"; ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

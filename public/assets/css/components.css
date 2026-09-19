@@ -1217,6 +1217,23 @@ button:disabled {
     color: #1d4ed8;
 }
 
+/* Adviser endorsement workflow states. */
+.status-badge.selectionrequired,
+.status-badge.revisionrequired {
+    background: #fff4e5;
+    color: #b45309;
+}
+
+.status-badge.pendingadviser {
+    background: #f3e8ff;
+    color: #6b21a8;
+}
+
+.status-badge.endorsed {
+    background: #e7f8ef;
+    color: #12784a;
+}
+
 .facility-calendar {
     display: flex;
     flex-direction: column;

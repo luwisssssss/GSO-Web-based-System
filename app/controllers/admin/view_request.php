@@ -1,7 +1,9 @@
 <?php
+define("GSO_REQUIRED_PERMISSION", "request.view_queue");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/adviser_endorsement_helper.php";
 
 $pageTitle = "View Request";
 $activePage = "requests";
@@ -26,7 +28,14 @@ $stmt = $pdo->prepare("
         rr.request_date,
         rr.status,
         rr.approved_by,
+        rr.reviewed_by,
+        rr.released_by,
+        rr.adviser_state,
+        rr.adviser_user_id,
+        rr.adviser_required_at,
         rr.approved_at,
+        rr.reviewed_at,
+        rr.released_at,
         rr.due_date,
         rr.return_date,
         rr.notes,
@@ -39,7 +48,12 @@ $stmt = $pdo->prepare("
         borrower.department AS borrower_department,
         borrower.university_id AS borrower_university_id,
 
-        approver.full_name AS reviewed_by_name,
+        reviewer.full_name AS reviewed_by_name,
+        approver.full_name AS approved_by_name,
+        releaser.full_name AS released_by_name,
+        adviser.full_name AS adviser_name,
+        adviser.department AS adviser_department,
+        requirer.full_name AS adviser_required_by_name,
 
         r.resource_name,
         r.resource_type,
@@ -54,7 +68,11 @@ $stmt = $pdo->prepare("
     FROM resource_requests rr
     INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
     INNER JOIN resources r ON rr.resource_id = r.resource_id
+    LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN users approver ON rr.approved_by = approver.user_id
+    LEFT JOIN users releaser ON rr.released_by = releaser.user_id
+    LEFT JOIN users adviser ON rr.adviser_user_id = adviser.user_id
+    LEFT JOIN users requirer ON rr.adviser_required_by = requirer.user_id
     LEFT JOIN return_submissions rs ON rr.request_id = rs.request_id
     WHERE rr.request_id = :request_id
     LIMIT 1
@@ -263,7 +281,27 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
                     <div class="detail-row">
                         <span>Reviewed At</span>
+                        <strong><?php echo !empty($request["reviewed_at"]) ? htmlspecialchars(formatDateTimeDisplay($request["reviewed_at"])) : "N/A"; ?></strong>
+                    </div>
+
+                    <div class="detail-row">
+                        <span>Approved By</span>
+                        <strong><?php echo !empty($request["approved_by_name"]) ? htmlspecialchars($request["approved_by_name"]) : "N/A"; ?></strong>
+                    </div>
+
+                    <div class="detail-row">
+                        <span>Approved At</span>
                         <strong><?php echo !empty($request["approved_at"]) ? htmlspecialchars(formatDateTimeDisplay($request["approved_at"])) : "N/A"; ?></strong>
+                    </div>
+
+                    <div class="detail-row">
+                        <span>Released By</span>
+                        <strong><?php echo !empty($request["released_by_name"]) ? htmlspecialchars($request["released_by_name"]) : "N/A"; ?></strong>
+                    </div>
+
+                    <div class="detail-row">
+                        <span>Released At</span>
+                        <strong><?php echo !empty($request["released_at"]) ? htmlspecialchars(formatDateTimeDisplay($request["released_at"])) : "N/A"; ?></strong>
                     </div>
 
                     <div class="detail-row">
@@ -278,6 +316,77 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                 </div>
             </div>
         </div>
+
+        <?php
+        $adviserState = (string) ($request["adviser_state"] ?? "Not Required");
+        $adviserHistory = $adviserState === "Not Required"
+            ? []
+            : gsoAdviserHistory($pdo, (int) $request["request_id"]);
+        ?>
+        <?php if ($adviserState !== "Not Required" || $adviserHistory): ?>
+            <div class="card detail-block">
+                <h3 class="section-title">Adviser Endorsement</h3>
+                <div class="detail-list">
+                    <div class="detail-row">
+                        <span>Endorsement State</span>
+                        <strong><span class="status-badge <?php echo htmlspecialchars(getStatusCssClass($adviserState)); ?>"><?php echo htmlspecialchars($adviserState); ?></span></strong>
+                    </div>
+
+                    <div class="detail-row">
+                        <span>Assigned Adviser</span>
+                        <strong><?php echo !empty($request["adviser_name"]) ? htmlspecialchars((string) $request["adviser_name"]) : "Awaiting student selection"; ?></strong>
+                    </div>
+
+                    <div class="detail-row">
+                        <span>Adviser Department</span>
+                        <strong><?php echo !empty($request["adviser_department"]) ? htmlspecialchars((string) $request["adviser_department"]) : "N/A"; ?></strong>
+                    </div>
+
+                    <div class="detail-row">
+                        <span>Required By</span>
+                        <strong><?php echo !empty($request["adviser_required_by_name"]) ? htmlspecialchars((string) $request["adviser_required_by_name"]) : "N/A"; ?></strong>
+                    </div>
+
+                    <div class="detail-row">
+                        <span>Required At</span>
+                        <strong><?php echo !empty($request["adviser_required_at"]) ? htmlspecialchars(formatDateTimeDisplay($request["adviser_required_at"])) : "N/A"; ?></strong>
+                    </div>
+                </div>
+
+                <h4 class="section-title mt-12">Endorsement History</h4>
+                <?php if (!$adviserHistory): ?>
+                    <div class="note-box">No endorsement events recorded yet.</div>
+                <?php else: ?>
+                    <div class="table-wrapper">
+                        <table class="request-table">
+                            <thead>
+                                <tr>
+                                    <th>Cycle</th>
+                                    <th>Event</th>
+                                    <th>Actor</th>
+                                    <th>Recorded</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($adviserHistory as $event): ?>
+                                    <tr>
+                                        <td><?php echo (int) $event["cycle_no"]; ?></td>
+                                        <td><?php echo htmlspecialchars((string) $event["action"]); ?></td>
+                                        <td><?php echo htmlspecialchars((string) $event["actor_name"]); ?></td>
+                                        <td><?php echo htmlspecialchars(formatDateTimeDisplay($event["acted_at"])); ?></td>
+                                        <td><?php echo $event["remarks"] !== null ? nl2br(htmlspecialchars((string) $event["remarks"])) : "&mdash;"; ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+                <p class="mini-muted mt-12">
+                    An adviser rejection is a hard stop. The request can only continue after the student revises it and the same adviser endorses it.
+                </p>
+            </div>
+        <?php endif; ?>
 
         <div class="card">
             <h3 class="section-title">Resource Description</h3>

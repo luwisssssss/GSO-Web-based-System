@@ -1,4 +1,5 @@
 <?php
+define("GSO_REQUIRED_PERMISSION", "release.manage");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
@@ -140,8 +141,8 @@ $sql = "
         rr.start_time,
         rr.end_time,
         rr.status,
-        rr.approved_by,
-        rr.approved_at,
+        rr.released_by,
+        rr.released_at,
         rr.due_date,
         rr.return_date,
         rr.contact_number,
@@ -153,7 +154,7 @@ $sql = "
         borrower.email AS borrower_email,
         borrower.username AS borrower_username,
 
-        approver.full_name AS reviewed_by_name,
+        releaser.full_name AS released_by_name,
 
         r.resource_name,
         r.resource_type,
@@ -164,16 +165,10 @@ $sql = "
     FROM resource_requests rr
     INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
     INNER JOIN resources r ON rr.resource_id = r.resource_id
-    LEFT JOIN users approver ON rr.approved_by = approver.user_id
+    LEFT JOIN users releaser ON rr.released_by = releaser.user_id
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
     WHERE rr.status = 'Released'
       AND rr.return_date IS NULL
-      AND NOT (
-            r.resource_type = 'Facility'
-            AND rr.date_needed IS NOT NULL
-            AND rr.start_time IS NOT NULL
-            AND TIMESTAMP(rr.date_needed, rr.start_time) <= NOW()
-      )
 ";
 
 $params = [];
@@ -203,7 +198,7 @@ $sql .= " ORDER BY
                 WHEN rr.due_date IS NOT NULL AND rr.due_date <= NOW() THEN 1
                 ELSE 2
             END,
-            rr.approved_at ASC,
+            rr.released_at ASC,
             rr.request_date ASC,
             rr.request_id ASC";
 
@@ -298,7 +293,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                             <th>Released At</th>
                             <th>Due Date</th>
                             <th>Loan State</th>
-                            <th>Reviewed By</th>
+                            <th>Released By</th>
                             <th>Return Proof</th>
                             <th>Actions</th>
                         </tr>
@@ -347,7 +342,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
                                     <td><?php echo htmlspecialchars($row["quantity"] ?? "N/A"); ?></td>
 
-                                    <td><?php echo htmlspecialchars(formatDateTimeDisplay($row["approved_at"] ?? "")); ?></td>
+                                    <td><?php echo htmlspecialchars(formatDateTimeDisplay($row["released_at"] ?? "")); ?></td>
                                     <td><?php echo htmlspecialchars(formatDateTimeDisplay($row["due_date"] ?? "")); ?></td>
 
                                     <td>
@@ -370,7 +365,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                     </td>
 
                                     <td>
-                                        <?php echo !empty($row["reviewed_by_name"]) ? htmlspecialchars($row["reviewed_by_name"]) : "N/A"; ?>
+                                        <?php echo !empty($row["released_by_name"]) ? htmlspecialchars($row["released_by_name"]) : "N/A"; ?>
                                     </td>
 
                                     <td><?php echo htmlspecialchars($returnProofLabel); ?></td>

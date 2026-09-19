@@ -34,6 +34,7 @@ $resourceStmt = $pdo->prepare("
         location,
         total_stock,
         available_stock,
+        under_repair_stock,
         capacity,
         status,
         condition_status,

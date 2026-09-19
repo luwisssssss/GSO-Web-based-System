@@ -1,4 +1,5 @@
 <?php
+define("GSO_REQUIRED_PERMISSION", "inventory.view");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/resource_image_helper.php";
@@ -8,6 +9,7 @@ require_once dirname(__DIR__, 3) . "/includes/facility_calendar_helper.php";
 $pageTitle = "View Resource";
 $activePage = "inventory";
 $cssFile = "../public/assets/css/pages/admin.css";
+$canManageInventory = gsoUserHasPermission((string) ($_SESSION["role"] ?? ""), "inventory.manage");
 
 if (!isset($_GET["resource_id"]) || empty($_GET["resource_id"])) {
     redirectWithFlash("inventory.php", "Resource ID is required.");
@@ -102,7 +104,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
             <div class="page-action-bar">
                 <a href="inventory.php" class="admin-btn info-btn">Back to Inventory</a>
-                <a href="edit_resource.php?resource_id=<?php echo $resource["resource_id"]; ?>" class="admin-btn primary-btn">Edit Resource</a>
+                <?php if ($canManageInventory): ?><a href="edit_resource.php?resource_id=<?php echo $resource["resource_id"]; ?>" class="admin-btn primary-btn">Edit Resource</a><?php endif; ?>
                 <a href="maintenance.php?resource_id=<?php echo $resource["resource_id"]; ?>" class="admin-btn neutral-btn">Maintenance</a>
             </div>
         </div>

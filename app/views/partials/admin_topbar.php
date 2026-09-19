@@ -4,6 +4,8 @@ require_once dirname(__DIR__, 3) . "/includes/avatar_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/notification_helper.php";
 
 $user_id = $_SESSION["user_id"];
+$isStaff = (string) ($_SESSION["role"] ?? "") === "GSO Staff";
+$adminBase = $isStaff ? "../admin/" : "";
 
 $unreadCount = getUnreadNotificationCount($pdo, $user_id);
 $notifications = getNotifications($pdo, $user_id, 20);
@@ -33,12 +35,16 @@ $notificationSummary = $unreadCount > 0
 
             <div class="quick-actions-dropdown" id="quickActionsDropdown">
                 <h4>Quick Actions</h4>
-                <a href="requests.php?status=Pending"><i class="fa-solid fa-clipboard-check"></i><span>Review Requests</span></a>
+                <a href="<?php echo $adminBase; ?>requests.php?status=Pending"><i class="fa-solid fa-clipboard-check"></i><span>Review Requests</span></a>
+                <?php if (!$isStaff): ?>
                 <a href="incidents.php?status=Submitted"><i class="fa-solid fa-triangle-exclamation"></i><span>Review Incidents</span></a>
-                <a href="on_loan.php"><i class="fa-solid fa-box-open"></i><span>Active Borrowings</span></a>
+                <?php endif; ?>
+                <a href="<?php echo $adminBase; ?>on_loan.php"><i class="fa-solid fa-box-open"></i><span>Active Borrowings</span></a>
+                <?php if (!$isStaff): ?>
                 <a href="add_resource.php"><i class="fa-solid fa-plus"></i><span>Add Resource</span></a>
                 <a href="borrowers_accounts.php?status=Pending"><i class="fa-solid fa-user-check"></i><span>Approve Borrowers</span></a>
                 <a href="reports.php"><i class="fa-solid fa-chart-pie"></i><span>Generate Reports</span></a>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -126,7 +132,7 @@ $notificationSummary = $unreadCount > 0
                     </div>
                 <?php endif; ?>
                 <div class="notification-dropdown-footer">
-                    <a href="notifications.php">View all notifications</a>
+                    <?php if (!$isStaff): ?><a href="notifications.php">View all notifications</a><?php endif; ?>
                 </div>
             </div>
         </div>
@@ -149,9 +155,9 @@ $notificationSummary = $unreadCount > 0
                     <p><?php echo htmlspecialchars($_SESSION["email"]); ?></p>
                 </div>
 
-                <a href="profile.php" class="logout-btn profile-menu-link">
+                <?php if (!$isStaff): ?><a href="profile.php" class="logout-btn profile-menu-link">
                     <i class="fa-solid fa-user"></i> Profile
-                </a>
+                </a><?php endif; ?>
 
                 <a href="../auth/logout.php" class="logout-btn">
                     <i class="fa-solid fa-right-from-bracket"></i> Logout
