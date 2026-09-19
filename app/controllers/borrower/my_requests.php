@@ -168,6 +168,7 @@ $listSql = "
         rr.status,
         rr.adviser_state,
         rr.adviser_user_id,
+        rr.director_state,
         rr.reviewed_by,
         rr.reviewed_at,
         rr.due_date,
@@ -177,7 +178,14 @@ $listSql = "
         r.resource_name,
         r.resource_type,
         r.category,
-        reviewer.full_name AS reviewed_by_name
+        reviewer.full_name AS reviewed_by_name,
+        (
+            SELECT h.action
+            FROM request_director_history h
+            WHERE h.request_id = rr.request_id
+            ORDER BY h.decided_at DESC, h.director_history_id DESC
+            LIMIT 1
+        ) AS director_last_action
     " . $baseWhereSql . "
     ORDER BY rr.request_date DESC, rr.request_id DESC
     LIMIT {$perPage} OFFSET {$offset}
@@ -275,6 +283,18 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                 <?php
                                 $displayStatus = getRequestLifecycleStatus($request);
                                 if(in_array((string)$request["status"],["Pending","Under Review"],true) && (string)($request["adviser_state"]??"Not Required")!=="Not Required")$displayStatus=(string)$request["adviser_state"];
+                                // Borrowers see the Director outcome in plain language; the
+                                // prioritisation case must say a new request is needed.
+                                $borrowerDirectorState = (string) ($request["director_state"] ?? "Not Required");
+                                if (in_array((string) $request["status"], ["Pending", "Under Review"], true) && $borrowerDirectorState === "Pending") {
+                                    $displayStatus = "Pending Campus Director";
+                                } elseif ($borrowerDirectorState === "Approved" && (string) $request["status"] === "Approved") {
+                                    $displayStatus = "Approved by Campus Director";
+                                } elseif ($borrowerDirectorState === "Rejected" && (string) $request["status"] === "Rejected") {
+                                    $displayStatus = (string) ($request["director_last_action"] ?? "") === "Rejected by Prioritization"
+                                        ? "Rejected due to facility prioritisation"
+                                        : "Rejected by Campus Director";
+                                }
                                 $statusClass = getStatusCssClass($displayStatus);
                                 $canCancelRequest = in_array((string) ($request["status"] ?? ""), $cancelableRequestStatuses, true);
                                 ?>

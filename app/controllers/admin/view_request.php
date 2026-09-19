@@ -4,6 +4,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/adviser_endorsement_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/director_approval_helper.php";
 
 $pageTitle = "View Request";
 $activePage = "requests";
@@ -33,6 +34,9 @@ $stmt = $pdo->prepare("
         rr.adviser_state,
         rr.adviser_user_id,
         rr.adviser_required_at,
+        rr.director_state,
+        rr.director_required_by,
+        rr.director_required_at,
         rr.approved_at,
         rr.reviewed_at,
         rr.released_at,
@@ -47,6 +51,7 @@ $stmt = $pdo->prepare("
         borrower.username AS borrower_username,
         borrower.department AS borrower_department,
         borrower.university_id AS borrower_university_id,
+        borrower.account_type AS borrower_account_type,
 
         reviewer.full_name AS reviewed_by_name,
         approver.full_name AS approved_by_name,
@@ -54,6 +59,7 @@ $stmt = $pdo->prepare("
         adviser.full_name AS adviser_name,
         adviser.department AS adviser_department,
         requirer.full_name AS adviser_required_by_name,
+        director_requirer.full_name AS director_required_by_name,
 
         r.resource_name,
         r.resource_type,
@@ -73,6 +79,7 @@ $stmt = $pdo->prepare("
     LEFT JOIN users releaser ON rr.released_by = releaser.user_id
     LEFT JOIN users adviser ON rr.adviser_user_id = adviser.user_id
     LEFT JOIN users requirer ON rr.adviser_required_by = requirer.user_id
+    LEFT JOIN users director_requirer ON rr.director_required_by = director_requirer.user_id
     LEFT JOIN return_submissions rs ON rr.request_id = rs.request_id
     WHERE rr.request_id = :request_id
     LIMIT 1
@@ -386,6 +393,24 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                     An adviser rejection is a hard stop. The request can only continue after the student revises it and the same adviser endorses it.
                 </p>
             </div>
+        <?php endif; ?>
+
+        <?php $directorHistory=gsoDirectorHistory($pdo,(int)$request["request_id"]); $directorState=(string)($request["director_state"]??"Not Required"); ?>
+        <?php if($directorState!=="Not Required"||$directorHistory): ?>
+        <div class="card detail-block"><h3 class="section-title">Campus Director Approval</h3><div class="detail-list">
+            <div class="detail-row"><span>Director State</span><strong><?php echo htmlspecialchars($directorState); ?></strong></div>
+            <div class="detail-row"><span>Required By</span><strong><?php echo htmlspecialchars((string)($request["director_required_by_name"]??"N/A")); ?></strong></div>
+            <div class="detail-row"><span>Required At</span><strong><?php echo !empty($request["director_required_at"])?htmlspecialchars(formatDateTimeDisplay($request["director_required_at"])):"N/A"; ?></strong></div>
+        </div><h4 class="section-title mt-12">Director Decision History</h4>
+        <?php if(!$directorHistory): ?><div class="note-box">Awaiting Campus Director decision.</div><?php else: ?><div class="table-wrapper"><table class="request-table"><thead><tr><th>Decision</th><th>Director</th><th>Recorded</th><th>Conflict Outcome</th><th>Remarks</th></tr></thead><tbody><?php foreach($directorHistory as $event):?><tr><td><?php echo htmlspecialchars((string)$event["action"]); ?></td><td><?php echo htmlspecialchars((string)$event["director_name"]); ?></td><td><?php echo htmlspecialchars(formatDateTimeDisplay($event["decided_at"])); ?></td><td><?php
+            if (empty($event["winner_request_id"])) {
+                echo "Not a conflict decision";
+            } elseif ((int) $event["winner_request_id"] === (int) $request["request_id"]) {
+                echo "Prioritized over competing requests";
+            } else {
+                echo "Lost prioritisation to " . htmlspecialchars(formatRequestCode((int) $event["winner_request_id"]));
+            }
+        ?></td><td><?php echo nl2br(htmlspecialchars((string)($event["remarks"]??"—"))); ?></td></tr><?php endforeach;?></tbody></table></div><?php endif; ?></div>
         <?php endif; ?>
 
         <div class="card">

@@ -71,6 +71,9 @@ CREATE TABLE `resource_requests` (
   `adviser_user_id` int(11) DEFAULT NULL,
   `adviser_required_by` int(11) DEFAULT NULL,
   `adviser_required_at` datetime DEFAULT NULL,
+  `director_state` enum('Not Required','Pending','Approved','Rejected') NOT NULL DEFAULT 'Not Required',
+  `director_required_by` int(11) DEFAULT NULL,
+  `director_required_at` datetime DEFAULT NULL,
   `approved_by` int(11) DEFAULT NULL,
   `reviewed_by` int(11) DEFAULT NULL,
   `released_by` int(11) DEFAULT NULL,
@@ -87,6 +90,7 @@ CREATE TABLE `resource_requests` (
   KEY `fk_resource_requests_approved_by` (`approved_by`),
   KEY `fk_resource_requests_reviewed_by` (`reviewed_by`),
   KEY `fk_resource_requests_released_by` (`released_by`),
+  KEY `idx_rr_director_queue` (`director_state`,`status`,`director_required_at`),
   KEY `idx_requests_borrower_return` (`borrower_id`,`return_date`),
   KEY `idx_requests_status_due` (`status`,`due_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -103,6 +107,22 @@ CREATE TABLE `request_adviser_history` (
   PRIMARY KEY (`history_id`),
   KEY `idx_adviser_history_request` (`request_id`,`acted_at`,`history_id`),
   KEY `idx_adviser_history_adviser` (`adviser_user_id`,`acted_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `request_director_history` (
+  `director_history_id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `request_id` int(11) NOT NULL,
+  `director_user_id` int(11) NOT NULL,
+  `action` enum('Approved','Rejected','Prioritized','Rejected by Prioritization') NOT NULL,
+  `remarks` varchar(1000) DEFAULT NULL,
+  `decision_batch` char(36) DEFAULT NULL,
+  `winner_request_id` int(11) DEFAULT NULL,
+  `decided_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`director_history_id`),
+  KEY `idx_director_history_request` (`request_id`,`decided_at`,`director_history_id`),
+  KEY `idx_director_history_actor` (`director_user_id`,`decided_at`),
+  KEY `idx_director_history_batch` (`decision_batch`,`director_history_id`),
+  KEY `idx_director_history_winner` (`winner_request_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `resources` (
@@ -242,10 +262,18 @@ ALTER TABLE `resource_requests`
   ADD CONSTRAINT `fk_rr_adviser_user` FOREIGN KEY (`adviser_user_id`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT,
   ADD CONSTRAINT `fk_rr_adviser_required_by` FOREIGN KEY (`adviser_required_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL;
 
+ALTER TABLE `resource_requests`
+  ADD CONSTRAINT `fk_rr_director_required_by` FOREIGN KEY (`director_required_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL;
+
 ALTER TABLE `request_adviser_history`
   ADD CONSTRAINT `fk_adviser_history_request` FOREIGN KEY (`request_id`) REFERENCES `resource_requests` (`request_id`) ON DELETE CASCADE,
   ADD CONSTRAINT `fk_adviser_history_adviser` FOREIGN KEY (`adviser_user_id`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT,
   ADD CONSTRAINT `fk_adviser_history_actor` FOREIGN KEY (`acted_by`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT;
+
+ALTER TABLE `request_director_history`
+  ADD CONSTRAINT `fk_director_history_request` FOREIGN KEY (`request_id`) REFERENCES `resource_requests` (`request_id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_director_history_actor` FOREIGN KEY (`director_user_id`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_director_history_winner` FOREIGN KEY (`winner_request_id`) REFERENCES `resource_requests` (`request_id`) ON DELETE SET NULL;
 
 ALTER TABLE `return_submission_photos`
   ADD CONSTRAINT `fk_rsp_return` FOREIGN KEY (`return_id`) REFERENCES `return_submissions` (`return_id`) ON DELETE CASCADE;

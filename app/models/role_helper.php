@@ -58,7 +58,10 @@ if (!function_exists("gsoRolePermissions")) {
                 "chatbot.use",
             ],
             "Admin" => ["*"],
-            "Director" => ["director.dashboard", "profile.manage_own", "chatbot.use"],
+            "Director" => [
+                "director.dashboard", "director.request.view", "director.request.decide",
+                "profile.manage_own", "chatbot.use",
+            ],
         ];
     }
 }

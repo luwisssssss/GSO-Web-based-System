@@ -366,7 +366,48 @@ if (!function_exists("findScheduleConflict")) {
             return null;
         }
 
+        $conflicts = findScheduleConflicts(
+            $pdo,
+            $resourceId,
+            $resourceType,
+            $dateNeeded,
+            $startTime,
+            $endTime,
+            $dueDate,
+            $excludeRequestId,
+            $borrowerId
+        );
+
+        return $conflicts[0] ?? null;
+    }
+}
+
+if (!function_exists("findScheduleConflicts")) {
+    /**
+     * Return every active request that directly overlaps the supplied window.
+     * Boundary behavior and active statuses intentionally reuse the same
+     * primitives as findScheduleConflict(), which remains the single-result
+     * compatibility API used by existing availability checks.
+     */
+    function findScheduleConflicts(
+        PDO $pdo,
+        int $resourceId,
+        string $resourceType,
+        ?string $dateNeeded,
+        ?string $startTime,
+        ?string $endTime,
+        ?string $dueDate,
+        ?int $excludeRequestId = null,
+        ?int $borrowerId = null
+    ): array {
+        $targetRange = buildRequestDateRange($resourceType, $dateNeeded, $startTime, $endTime, $dueDate);
+
+        if ($targetRange === null) {
+            return [];
+        }
+
         $requests = fetchActiveScheduleRequests($pdo, $resourceId, $excludeRequestId, $borrowerId);
+        $conflicts = [];
 
         foreach ($requests as $row) {
             $rowRange = buildRequestDateRange(
@@ -383,11 +424,11 @@ if (!function_exists("findScheduleConflict")) {
             }
 
             if (intervalsOverlap($targetRange["start"], $targetRange["end"], $rowRange["start"], $rowRange["end"])) {
-                return $row;
+                $conflicts[] = $row;
             }
         }
 
-        return null;
+        return $conflicts;
     }
 }
 

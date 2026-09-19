@@ -1234,6 +1234,24 @@ button:disabled {
     color: #12784a;
 }
 
+/* Campus Director approval and facility prioritisation states. */
+.status-badge.pendingdirector,
+.status-badge.pendingcampusdirector {
+    background: #e8eefc;
+    color: #1e3a8a;
+}
+
+.status-badge.approvedbycampusdirector {
+    background: #e7f8ef;
+    color: #12784a;
+}
+
+.status-badge.rejectedbycampusdirector,
+.status-badge.rejectedduetofacilityprioritisation {
+    background: #fdeaea;
+    color: #b91c1c;
+}
+
 .facility-calendar {
     display: flex;
     flex-direction: column;

@@ -546,6 +546,91 @@ if (!function_exists("ensureSystemSchema")) {
                 }
             }
 
+            // --- Campus Director approval workflow (Phase 3) ---------------
+            // The request stores only its current routing state. Director
+            // decisions, including every member of a prioritisation outcome,
+            // are immutable events in request_director_history.
+            if (tableExists($pdo, "resource_requests")) {
+                if (!columnExists($pdo, "resource_requests", "director_state")) {
+                    $pdo->exec("
+                        ALTER TABLE resource_requests
+                        ADD COLUMN director_state
+                            ENUM('Not Required','Pending','Approved','Rejected')
+                            NOT NULL DEFAULT 'Not Required'
+                            AFTER adviser_required_at
+                    ");
+                }
+
+                if (!columnExists($pdo, "resource_requests", "director_required_by")) {
+                    $pdo->exec("
+                        ALTER TABLE resource_requests
+                        ADD COLUMN director_required_by INT(11) NULL AFTER director_state
+                    ");
+                }
+
+                if (!columnExists($pdo, "resource_requests", "director_required_at")) {
+                    $pdo->exec("
+                        ALTER TABLE resource_requests
+                        ADD COLUMN director_required_at DATETIME NULL AFTER director_required_by
+                    ");
+                }
+
+                if (!foreignKeyExists($pdo, "resource_requests", "fk_rr_director_required_by")) {
+                    $pdo->exec("
+                        ALTER TABLE resource_requests
+                        ADD KEY idx_rr_director_queue (director_state, status, director_required_at),
+                        ADD CONSTRAINT fk_rr_director_required_by
+                            FOREIGN KEY (director_required_by) REFERENCES users (user_id)
+                            ON DELETE SET NULL
+                    ");
+                }
+            }
+
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS request_director_history (
+                    director_history_id BIGINT(20) NOT NULL AUTO_INCREMENT,
+                    request_id INT(11) NOT NULL,
+                    director_user_id INT(11) NOT NULL,
+                    action ENUM('Approved','Rejected','Prioritized','Rejected by Prioritization') NOT NULL,
+                    remarks VARCHAR(1000) NULL,
+                    decision_batch CHAR(36) NULL,
+                    winner_request_id INT(11) NULL,
+                    decided_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (director_history_id),
+                    KEY idx_director_history_request (request_id, decided_at, director_history_id),
+                    KEY idx_director_history_actor (director_user_id, decided_at),
+                    KEY idx_director_history_batch (decision_batch, director_history_id),
+                    KEY idx_director_history_winner (winner_request_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+
+            if (tableExists($pdo, "request_director_history")) {
+                if (!foreignKeyExists($pdo, "request_director_history", "fk_director_history_request")) {
+                    $pdo->exec("
+                        ALTER TABLE request_director_history
+                        ADD CONSTRAINT fk_director_history_request
+                            FOREIGN KEY (request_id) REFERENCES resource_requests (request_id)
+                            ON DELETE CASCADE
+                    ");
+                }
+                if (!foreignKeyExists($pdo, "request_director_history", "fk_director_history_actor")) {
+                    $pdo->exec("
+                        ALTER TABLE request_director_history
+                        ADD CONSTRAINT fk_director_history_actor
+                            FOREIGN KEY (director_user_id) REFERENCES users (user_id)
+                            ON DELETE RESTRICT
+                    ");
+                }
+                if (!foreignKeyExists($pdo, "request_director_history", "fk_director_history_winner")) {
+                    $pdo->exec("
+                        ALTER TABLE request_director_history
+                        ADD CONSTRAINT fk_director_history_winner
+                            FOREIGN KEY (winner_request_id) REFERENCES resource_requests (request_id)
+                            ON DELETE SET NULL
+                    ");
+                }
+            }
+
             if (tableExists($pdo, "maintenance_schedules")) {
                 if (!foreignKeyExists($pdo, "maintenance_schedules", "fk_ms_created_by")) {
                     $pdo->exec("
