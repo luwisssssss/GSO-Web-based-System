@@ -157,6 +157,21 @@ if (!function_exists("ensureSystemSchema")) {
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             ");
 
+            if (tableExists($pdo,"maintenance_schedules")) {
+                $maintenanceColumns=[
+                    "quantity"=>"INT(11) NOT NULL DEFAULT 0 AFTER resource_id",
+                    "source_return_id"=>"INT(11) NULL AFTER quantity",
+                    "source_return_item_id"=>"BIGINT(20) NULL AFTER source_return_id",
+                    "incident_id"=>"INT(11) NULL AFTER source_return_item_id",
+                    "equipment_unit_id"=>"BIGINT(20) NULL AFTER incident_id",
+                    "assigned_to"=>"INT(11) NULL AFTER equipment_unit_id",
+                    "completion_notes"=>"VARCHAR(1000) NULL AFTER remarks",
+                    "completed_at"=>"DATETIME NULL AFTER updated_at",
+                    "restored_at"=>"DATETIME NULL AFTER completed_at",
+                ];
+                foreach($maintenanceColumns as $column=>$definition){if(!columnExists($pdo,"maintenance_schedules",$column))$pdo->exec("ALTER TABLE maintenance_schedules ADD COLUMN {$column} {$definition}");}
+            }
+
             // --- AI chatbot foundation (Step 9) -------------------------------
             // Conversations and messages are scoped to one authenticated user.
             // The knowledge base holds the only content the assistant may answer
@@ -942,7 +957,31 @@ if (!function_exists("ensureSystemSchema")) {
                             ON DELETE SET NULL
                     ");
                 }
+                $maintenanceFks=[
+                    "fk_ms_assigned_to"=>"assigned_to","fk_ms_incident"=>"incident_id",
+                    "fk_ms_source_return"=>"source_return_id","fk_ms_source_return_item"=>"source_return_item_id",
+                    "fk_ms_equipment_unit"=>"equipment_unit_id",
+                ];
+                $targets=["assigned_to"=>"users(user_id)","incident_id"=>"incident_reports(incident_id)","source_return_id"=>"return_submissions(return_id)","source_return_item_id"=>"return_submission_items(return_item_id)","equipment_unit_id"=>"equipment_units(unit_id)"];
+                foreach($maintenanceFks as $name=>$column){if(!foreignKeyExists($pdo,"maintenance_schedules",$name))$pdo->exec("ALTER TABLE maintenance_schedules ADD KEY idx_ms_{$column} ({$column}), ADD CONSTRAINT {$name} FOREIGN KEY ({$column}) REFERENCES {$targets[$column]} ON DELETE SET NULL");}
             }
+
+            $pdo->exec("CREATE TABLE IF NOT EXISTS borrower_liabilities (
+                liability_id BIGINT(20) NOT NULL AUTO_INCREMENT,request_id INT(11) NOT NULL,
+                return_item_id BIGINT(20) NULL,borrower_id INT(11) NOT NULL,equipment_unit_id BIGINT(20) NULL,
+                accountability_type ENUM('Damage','Loss','Missing Parts') NOT NULL,
+                accountability_status ENUM('Pending Review','Confirmed','Waived','Resolved') NOT NULL DEFAULT 'Pending Review',
+                reviewed_by INT(11) NOT NULL,reviewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                resolution_notes VARCHAR(1000) NULL,created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY(liability_id),UNIQUE KEY uq_liability_return_item(return_item_id),
+                KEY idx_liability_borrower(borrower_id,accountability_status),KEY idx_liability_request(request_id),
+                CONSTRAINT fk_liability_request FOREIGN KEY(request_id) REFERENCES resource_requests(request_id) ON DELETE RESTRICT,
+                CONSTRAINT fk_liability_return_item FOREIGN KEY(return_item_id) REFERENCES return_submission_items(return_item_id) ON DELETE RESTRICT,
+                CONSTRAINT fk_liability_borrower FOREIGN KEY(borrower_id) REFERENCES users(user_id) ON DELETE RESTRICT,
+                CONSTRAINT fk_liability_unit FOREIGN KEY(equipment_unit_id) REFERENCES equipment_units(unit_id) ON DELETE RESTRICT,
+                CONSTRAINT fk_liability_reviewer FOREIGN KEY(reviewed_by) REFERENCES users(user_id) ON DELETE RESTRICT
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         } catch (Throwable $e) {
             $hasRun = false;
             throw new RuntimeException("Schema initialization failed: " . $e->getMessage(), 0, $e);

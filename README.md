@@ -68,6 +68,14 @@ Role landing pages are `borrower/browse.php`, `gso_staff/dashboard.php`, `admin/
 
 Run `C:\xampp\php\php.exe scripts\phase1_roles_e2e.php` with local Apache/MySQL to verify role login routing and direct endpoint isolation.
 
+## Phase 3.5C maintenance and accountability
+
+`maintenance_schedules` is the authoritative work-order record. Incident work links through `incident_id`; repair work arising from an inspected return links to the exact `return_submission_items.return_item_id` and, for serialized equipment, its `equipment_units.unit_id`. A planned end date never restores repair inventory: an authorized GSO user must explicitly complete the assigned work order, after which only its recorded aggregate quantity or physical unit is restored once.
+
+Only the Admin/GSO Head may confirm a repair work order from a damaged, needs-repair, or missing-parts return. Lost items cannot enter the repair workflow. `borrower_liabilities` records separate, non-financial GSO findings for damage, loss, or missing parts; it neither presumes borrower fault nor changes stock. Existing installations apply `database/migrations/20260923_001_extend_maintenance_and_accountability.sql`; new installations receive the same structure from `database/schema.sql` and `ensureSystemSchema()`.
+
+Equipment-unit mutation requires `inventory.manage_units`. GSO Staff and Admin may register and maintain eligible units, while activation of Serialized tracking remains an exact Admin/GSO Head action. Run `C:\xampp\php\php.exe scripts\phase35c_workorder_accountability_e2e.php` to verify the Phase 3.5C schema, authorization, repair-restoration, idempotency, and accountability controls.
+
 ### 5. Configure Environment Variables
 
 * Copy `.env.example` to `.env`; never commit or serve the resulting file.

@@ -5,6 +5,7 @@ require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/maintenance_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/work_order_helper.php";
 
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
@@ -30,6 +31,23 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $_SESSION["flash_message"] = "Invalid request token.";
         $_SESSION["flash_type"] = "error";
         redirectMaintenancePage();
+    }
+
+    if($action==="create_return_work_order"){
+        $result=gsoCreateReturnRepairWorkOrder($pdo,(int)($_POST["return_item_id"]??0),$adminUserId,(int)($_POST["assigned_to"]??0),max(1,(int)($_POST["duration_days"]??1)),trim((string)($_POST["remarks"]??"")));
+        if($result["ok"])addActivityLog($pdo,$adminUserId,"Repair Work Order Created",(string)$result["message"]);
+        $_SESSION["flash_message"]=$result["message"];$_SESSION["flash_type"]=$result["ok"]?"success":"error";redirectMaintenancePage();
+    }
+    if($action==="record_accountability"){
+        $result=gsoRecordBorrowerAccountability($pdo,(int)($_POST["return_item_id"]??0),$adminUserId,(string)($_POST["accountability_status"]??""),trim((string)($_POST["resolution_notes"]??"")));
+        if($result["ok"])addActivityLog($pdo,$adminUserId,"Borrower Accountability Reviewed","Return detail #".(int)($_POST["return_item_id"]??0)." accountability recorded.");
+        $_SESSION["flash_message"]=$result["message"];$_SESSION["flash_type"]=$result["ok"]?"success":"error";redirectMaintenancePage();
+    }
+    if($action==="assign_work_order"){
+        $mid=(int)($_POST["maintenance_id"]??0);$result=gsoAssignRepairWorkOrder($pdo,$mid,$adminUserId,(int)($_POST["assigned_to"]??0));if($result["ok"])addActivityLog($pdo,$adminUserId,"Work Order Assigned","MTN-{$mid} assignment updated.");$_SESSION["flash_message"]=$result["message"];$_SESSION["flash_type"]=$result["ok"]?"success":"error";redirectMaintenancePage();
+    }
+    if($action==="complete_schedule"){
+        $mid=(int)($_POST["maintenance_id"]??0);$label=$pdo->prepare("SELECT r.resource_name FROM maintenance_schedules m JOIN resources r ON r.resource_id=m.resource_id WHERE m.maintenance_id=?");$label->execute([$mid]);$resourceName=(string)($label->fetchColumn()?:"resource");$result=gsoCompleteRepairWorkOrder($pdo,$mid,$adminUserId,trim((string)($_POST["completion_notes"]??"")));if($result["ok"])addActivityLog($pdo,$adminUserId,"Maintenance Completed","Completed maintenance for {$resourceName}.");$_SESSION["flash_message"]=$result["message"];$_SESSION["flash_type"]=$result["ok"]?"success":"error";redirectMaintenancePage();
     }
 
     if ($action === "add_schedule") {
@@ -152,7 +170,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             }
 
             $resourceLockStmt = $pdo->prepare("
-                SELECT resource_id, resource_name, resource_type, is_archived
+                SELECT resource_id, resource_name, resource_type, tracking_mode,
+                       under_repair_stock, is_archived
                 FROM resources
                 WHERE resource_id = :resource_id
                 FOR UPDATE
@@ -226,20 +245,29 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 }
             }
 
+            // Legacy/manual aggregate repair schedules predate return-detail
+            // work orders. Snapshot their held quantity now so completion never
+            // restores an unrelated future repair pool.
+            $repairQuantity = (string) ($resource["resource_type"] ?? "") === "Item"
+                && (string) ($resource["tracking_mode"] ?? "Aggregate") === "Aggregate"
+                ? max(0, (int) ($resource["under_repair_stock"] ?? 0))
+                : 0;
+
             $insertStmt = $pdo->prepare("
                 INSERT INTO maintenance_schedules
                 (
-                    resource_id, start_date, end_date, duration_days,
+                    resource_id, quantity, start_date, end_date, duration_days,
                     reason, remarks, status, created_by, updated_by, updated_at
                 )
                 VALUES
                 (
-                    :resource_id, :start_date, :end_date, :duration_days,
+                    :resource_id, :quantity, :start_date, :end_date, :duration_days,
                     :reason, :remarks, :status, :created_by, :updated_by, NOW()
                 )
             ");
             $insertStmt->execute([
                 ":resource_id" => $resourceId,
+                ":quantity" => $repairQuantity,
                 ":start_date" => $startDate,
                 ":end_date" => $endDate,
                 ":duration_days" => $durationDays,
@@ -284,7 +312,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         redirectMaintenancePage();
     }
 
-    if (in_array($action, ["complete_schedule", "cancel_schedule"], true)) {
+    if ($action === "cancel_schedule") {
         $maintenanceId = (int) ($_POST["maintenance_id"] ?? 0);
 
         $scheduleStmt = $pdo->prepare("
@@ -311,7 +339,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             redirectMaintenancePage();
         }
 
-        $nextStatus = $action === "complete_schedule" ? "Completed" : "Cancelled";
+        $nextStatus = "Cancelled";
         $updateStmt = $pdo->prepare("
             UPDATE maintenance_schedules
             SET
@@ -330,11 +358,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 ":updated_by" => $adminUserId,
                 ":maintenance_id" => $maintenanceId
             ]) && $updateStmt->rowCount() === 1;
-
-            if ($success && $nextStatus === "Completed") {
-                // A finished repair puts the units it held back into service.
-                restoreRepairedStock($pdo, (int) $schedule["resource_id"]);
-            }
 
             $pdo->commit();
         } catch (Throwable $e) {
@@ -397,6 +420,7 @@ $scheduleStmt = $pdo->query("
         ms.start_date,
         ms.end_date,
         ms.duration_days,
+        ms.quantity,ms.source_return_item_id,ms.incident_id,ms.equipment_unit_id,ms.assigned_to,ms.completed_at,ms.restored_at,
         ms.reason,
         ms.remarks,
         ms.status,
@@ -408,10 +432,12 @@ $scheduleStmt = $pdo->query("
         r.condition_status,
         creator.full_name AS created_by_name,
         updater.full_name AS updated_by_name
+        ,assignee.full_name AS assigned_to_name
     FROM maintenance_schedules ms
     INNER JOIN resources r ON ms.resource_id = r.resource_id
     LEFT JOIN users creator ON ms.created_by = creator.user_id
     LEFT JOIN users updater ON ms.updated_by = updater.user_id
+    LEFT JOIN users assignee ON ms.assigned_to = assignee.user_id
     ORDER BY
         CASE
             WHEN ms.status = 'In Progress' THEN 1
@@ -447,6 +473,9 @@ foreach ($scheduleRows as $row) {
 
     $filteredSchedules[] = $row;
 }
+
+$assignees=$pdo->query("SELECT user_id,full_name,role FROM users WHERE role IN ('Admin','GSO Staff') AND account_status='Approved' AND email_verified=1 ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC)?:[];
+$repairCandidates=$pdo->query("SELECT i.return_item_id,i.return_id,i.inspection_condition,i.returned_quantity,i.unit_id,ri.resource_id,r.resource_name,u.asset_tag,rr.request_id,b.full_name AS borrower_name, EXISTS(SELECT 1 FROM maintenance_schedules m WHERE m.source_return_item_id=i.return_item_id AND m.status IN ('Scheduled','In Progress')) AS has_active_work_order FROM return_submission_items i JOIN return_submissions rs ON rs.return_id=i.return_id JOIN resource_requests rr ON rr.request_id=rs.request_id JOIN users b ON b.user_id=rr.borrower_id JOIN request_items ri ON ri.request_item_id=i.request_item_id JOIN resources r ON r.resource_id=ri.resource_id LEFT JOIN equipment_units u ON u.unit_id=i.unit_id WHERE i.stock_applied=1 AND i.inspection_condition IN ('Damaged','Needs Repair','Missing Parts','Lost') ORDER BY i.inspected_at DESC,i.return_item_id DESC")->fetchAll(PDO::FETCH_ASSOC)?:[];
 
 $flashMessage = $_SESSION["flash_message"] ?? "";
 $flashType = $_SESSION["flash_type"] ?? "";
@@ -540,6 +569,11 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
             </form>
         </div>
 
+        <?php if($repairCandidates):?><div class="card"><h3>Inspected Return Follow-up</h3><p>Repair orders require GSO Head confirmation. Accountability is a separate, non-financial review and does not presume borrower fault.</p><div class="table-wrapper"><table class="request-table"><thead><tr><th>Return Detail</th><th>Borrower / Resource</th><th>Condition</th><th>Actions</th></tr></thead><tbody><?php foreach($repairCandidates as $candidate):?><tr><td>#<?php echo (int)$candidate['return_item_id'];?></td><td><?php echo htmlspecialchars((string)$candidate['borrower_name']);?> · <?php echo htmlspecialchars((string)$candidate['resource_name']);?><?php echo $candidate['asset_tag']?' · '.htmlspecialchars((string)$candidate['asset_tag']):'';?></td><td><?php echo htmlspecialchars((string)$candidate['inspection_condition']);?></td><td>
+        <?php if((string)($_SESSION['role']??'')==='Admin'&&(string)$candidate['inspection_condition']!=='Lost'&&!(int)$candidate['has_active_work_order']):?><form method="post" class="inline-form"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']);?>"><input type="hidden" name="action" value="create_return_work_order"><input type="hidden" name="return_item_id" value="<?php echo (int)$candidate['return_item_id'];?>"><input type="number" name="duration_days" min="1" max="365" value="1"><select name="assigned_to"><option value="">Unassigned</option><?php foreach($assignees as $person):?><option value="<?php echo (int)$person['user_id'];?>"><?php echo htmlspecialchars((string)$person['full_name']);?></option><?php endforeach;?></select><button class="admin-btn primary-btn">Create Repair Work Order</button></form><?php elseif((string)$candidate['inspection_condition']!=='Lost'):?><small><?php echo (int)$candidate['has_active_work_order']?'Active work order exists':'GSO Head confirmation required';?></small><?php endif;?>
+        <?php if(in_array((string)$candidate['inspection_condition'],['Damaged','Missing Parts','Lost'],true)):?><form method="post" class="inline-form"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']);?>"><input type="hidden" name="action" value="record_accountability"><input type="hidden" name="return_item_id" value="<?php echo (int)$candidate['return_item_id'];?>"><select name="accountability_status"><option>Pending Review</option><option>Confirmed</option><option>Waived</option><option>Resolved</option></select><input name="resolution_notes" maxlength="1000" placeholder="Non-financial review notes"><button class="admin-btn info-btn">Record Accountability</button></form><?php endif;?>
+        </td></tr><?php endforeach;?></tbody></table></div></div><?php endif;?>
+
         <div class="card">
             <form method="GET" class="table-toolbar">
                 <input
@@ -619,10 +653,12 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
                                             <div class="row-actions-menu" role="menu">
                                                 <?php if (in_array((string) ($schedule["status"] ?? ""), ["Scheduled", "In Progress"], true)): ?>
+                                                    <form method="POST" class="inline-form"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']);?>"><input type="hidden" name="action" value="assign_work_order"><input type="hidden" name="maintenance_id" value="<?php echo (int)$schedule['maintenance_id'];?>"><select name="assigned_to" required><option value="">Assign personnel</option><?php foreach($assignees as $person):?><option value="<?php echo (int)$person['user_id'];?>" <?php echo (int)$schedule['assigned_to']===(int)$person['user_id']?'selected':'';?>><?php echo htmlspecialchars((string)$person['full_name']);?></option><?php endforeach;?></select><button type="submit">Assign</button></form>
                                                     <form method="POST" class="inline-form" onsubmit="return confirm('Mark this maintenance as completed?');">
                                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
                                                         <input type="hidden" name="action" value="complete_schedule">
                                                         <input type="hidden" name="maintenance_id" value="<?php echo htmlspecialchars((string) $schedule["maintenance_id"]); ?>">
+                                                        <input name="completion_notes" maxlength="1000" placeholder="Completion notes">
                                                         <button type="submit" class="success-action" role="menuitem">
                                                             <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
                                                             <span>Complete</span>

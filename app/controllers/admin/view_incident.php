@@ -390,17 +390,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $maintenanceStmt = $pdo->prepare("
                 INSERT INTO maintenance_schedules
                 (
-                    resource_id, start_date, end_date, duration_days,
+                    resource_id, incident_id, assigned_to, start_date, end_date, duration_days,
                     reason, remarks, status, created_by, updated_by, updated_at
                 )
                 VALUES
                 (
-                    :resource_id, :start_date, :end_date, :duration_days,
+                    :resource_id, :incident_id, :assigned_to, :start_date, :end_date, :duration_days,
                     :reason, :remarks, 'In Progress', :created_by, :updated_by, NOW()
                 )
             ");
             $maintenanceStmt->execute([
                 ":resource_id" => $resourceId,
+                ":incident_id" => $incidentId,
+                ":assigned_to" => $adminId,
                 ":start_date" => $startDate,
                 ":end_date" => $endDate,
                 ":duration_days" => $durationDays,

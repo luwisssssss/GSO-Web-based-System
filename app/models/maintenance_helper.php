@@ -133,9 +133,16 @@ if (!function_exists("restoreRepairedStock")) {
      * stay borrowable. Completing the repair releases the parked units for the
      * resource and clears the damaged condition flag.
      *
+     * $requestedQuantity restores only that many units, which is how a work
+     * order covering 2 of 10 damaged chairs leaves the other 8 held. Omitting
+     * it falls back to draining the whole repair pool; that legacy default is
+     * kept for backward compatibility but no caller uses it - every completion
+     * path passes the work order's own recorded quantity. New callers should
+     * always be explicit.
+     *
      * Returns the number of units restored.
      */
-    function restoreRepairedStock(PDO $pdo, int $resourceId): int
+    function restoreRepairedStock(PDO $pdo, int $resourceId, ?int $requestedQuantity = null): int
     {
         $stmt = $pdo->prepare("
             SELECT resource_type, total_stock, available_stock, under_repair_stock
@@ -165,18 +172,20 @@ if (!function_exists("restoreRepairedStock")) {
 
         // Units still out on loan keep their slot, so never push availability
         // past what the total stock can back.
-        $restored = min($underRepair, max(0, $totalStock - $availableStock));
+        $requestedQuantity = $requestedQuantity === null ? $underRepair : max(0,$requestedQuantity);
+        $restored = min($requestedQuantity,$underRepair,max(0,$totalStock-$availableStock));
 
         $pdo->prepare("
             UPDATE resources
             SET
                 available_stock = :available_stock,
-                under_repair_stock = 0,
-                condition_status = 'Good'
+                under_repair_stock = GREATEST(0,under_repair_stock-:restored),
+                condition_status = CASE WHEN under_repair_stock<=0 THEN 'Good' ELSE condition_status END
             WHERE resource_id = :resource_id
             LIMIT 1
         ")->execute([
             ":available_stock" => $availableStock + $restored,
+            ":restored" => $restored,
             ":resource_id" => $resourceId
         ]);
 
@@ -214,6 +223,9 @@ if (!function_exists("syncMaintenanceSchedules")) {
                 updated_at = NOW()
             WHERE status IN ('Scheduled', 'In Progress')
               AND end_date < CURDATE()
+              AND incident_id IS NULL AND source_return_item_id IS NULL
+              AND equipment_unit_id IS NULL AND quantity=0
+              AND reason NOT LIKE 'Incident %'
         ");
 
         $pdo->exec("

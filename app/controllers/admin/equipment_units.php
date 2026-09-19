@@ -2,7 +2,7 @@
 // Individual equipment unit registry. Inventory management is a GSO duty, so
 // this screen sits behind the existing inventory permission: Borrowers and the
 // Campus Director have no access to asset mutations.
-define("GSO_REQUIRED_PERMISSION", "inventory.view");
+define("GSO_REQUIRED_PERMISSION", "inventory.manage_units");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
@@ -57,6 +57,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             addActivityLog($pdo, $actorId, "Equipment Unit Updated", "Unit #" . (int) ($_POST["unit_id"] ?? 0) . " updated.");
         }
     } elseif ($action === "activate_serialized") {
+        if((string)($_SESSION["role"]??"")!=="Admin")redirectWithFlash("equipment_units.php?resource_id={$resourceId}","Only the GSO Head may activate Serialized tracking.");
         $result = gsoActivateSerializedTracking($pdo, $resourceId, $actorId);
 
         if ($result["ok"]) {

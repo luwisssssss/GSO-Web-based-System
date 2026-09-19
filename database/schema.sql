@@ -27,21 +27,40 @@ CREATE TABLE `login_attempts` (
 CREATE TABLE `maintenance_schedules` (
   `maintenance_id` int(11) NOT NULL AUTO_INCREMENT,
   `resource_id` int(11) NOT NULL,
+  `quantity` int(11) NOT NULL DEFAULT 0,
+  `source_return_id` int(11) DEFAULT NULL,
+  `source_return_item_id` bigint(20) DEFAULT NULL,
+  `incident_id` int(11) DEFAULT NULL,
+  `equipment_unit_id` bigint(20) DEFAULT NULL,
+  `assigned_to` int(11) DEFAULT NULL,
   `start_date` date NOT NULL,
   `end_date` date NOT NULL,
   `duration_days` int(11) NOT NULL DEFAULT 1,
   `reason` varchar(255) NOT NULL,
   `remarks` varchar(500) DEFAULT NULL,
+  `completion_notes` varchar(1000) DEFAULT NULL,
   `status` enum('Scheduled','In Progress','Completed','Cancelled') NOT NULL DEFAULT 'Scheduled',
   `created_by` int(11) NOT NULL,
   `updated_by` int(11) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
+  `completed_at` datetime DEFAULT NULL,
+  `restored_at` datetime DEFAULT NULL,
   PRIMARY KEY (`maintenance_id`),
   KEY `idx_maintenance_resource` (`resource_id`),
   KEY `idx_maintenance_status` (`status`),
   KEY `idx_maintenance_dates` (`start_date`,`end_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `borrower_liabilities` (
+  `liability_id` bigint(20) NOT NULL AUTO_INCREMENT,`request_id` int(11) NOT NULL,`return_item_id` bigint(20) DEFAULT NULL,
+  `borrower_id` int(11) NOT NULL,`equipment_unit_id` bigint(20) DEFAULT NULL,
+  `accountability_type` enum('Damage','Loss','Missing Parts') NOT NULL,
+  `accountability_status` enum('Pending Review','Confirmed','Waived','Resolved') NOT NULL DEFAULT 'Pending Review',
+  `reviewed_by` int(11) NOT NULL,`reviewed_at` datetime NOT NULL DEFAULT current_timestamp(),`resolution_notes` varchar(1000) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),`updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`liability_id`),UNIQUE KEY `uq_liability_return_item` (`return_item_id`),KEY `idx_liability_borrower` (`borrower_id`,`accountability_status`),KEY `idx_liability_request` (`request_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `notifications` (
   `notification_id` int(11) NOT NULL AUTO_INCREMENT,
@@ -341,7 +360,19 @@ ALTER TABLE `activity_logs`
 ALTER TABLE `maintenance_schedules`
   ADD CONSTRAINT `fk_ms_resource` FOREIGN KEY (`resource_id`) REFERENCES `resources` (`resource_id`) ON DELETE RESTRICT,
   ADD CONSTRAINT `fk_ms_created_by` FOREIGN KEY (`created_by`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT,
-  ADD CONSTRAINT `fk_ms_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL;
+  ADD CONSTRAINT `fk_ms_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_ms_assigned_to` FOREIGN KEY (`assigned_to`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_ms_incident` FOREIGN KEY (`incident_id`) REFERENCES `incident_reports` (`incident_id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_ms_source_return` FOREIGN KEY (`source_return_id`) REFERENCES `return_submissions` (`return_id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_ms_source_return_item` FOREIGN KEY (`source_return_item_id`) REFERENCES `return_submission_items` (`return_item_id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_ms_equipment_unit` FOREIGN KEY (`equipment_unit_id`) REFERENCES `equipment_units` (`unit_id`) ON DELETE SET NULL;
+
+ALTER TABLE `borrower_liabilities`
+  ADD CONSTRAINT `fk_liability_request` FOREIGN KEY (`request_id`) REFERENCES `resource_requests` (`request_id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_liability_return_item` FOREIGN KEY (`return_item_id`) REFERENCES `return_submission_items` (`return_item_id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_liability_borrower` FOREIGN KEY (`borrower_id`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_liability_unit` FOREIGN KEY (`equipment_unit_id`) REFERENCES `equipment_units` (`unit_id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_liability_reviewer` FOREIGN KEY (`reviewed_by`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT;
 
 ALTER TABLE `notifications`
   ADD CONSTRAINT `fk_notif_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE;

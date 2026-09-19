@@ -54,6 +54,7 @@ if (!function_exists("gsoRolePermissions")) {
             "GSO Staff" => [
                 "staff.dashboard", "request.view_queue", "request.approve_ordinary",
                 "release.manage", "return.inspect", "inventory.view",
+                "inventory.manage_units",
                 "work_order.manage", "walk_in.create", "profile.manage_own",
                 "chatbot.use",
             ],
