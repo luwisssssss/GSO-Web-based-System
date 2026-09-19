@@ -5,6 +5,7 @@ require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/notification_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/facility_calendar_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/request_line_helper.php";
 
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
@@ -29,6 +30,7 @@ $resourceStmt = $pdo->prepare("
         resource_id,
         resource_name,
         resource_type,
+        tracking_mode,
         category,
         description,
         location,
@@ -96,45 +98,83 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $errors[] = "Please enter a valid contact number.";
         }
 
+        // Phase 3.5A: one request carries many resource lines. The page's
+        // primary resource is always line one; extra_lines[] adds the rest.
+        // Only resource ids and quantities are accepted from the browser - the
+        // classification of every line is re-read from the database below.
+        $submittedLines = [["resource_id" => $resourceId, "quantity" => $quantity]];
+
+        foreach ((array) ($_POST["extra_lines"] ?? []) as $extraLine) {
+            if (!is_array($extraLine)) {
+                continue;
+            }
+
+            $submittedLines[] = [
+                "resource_id" => (int) ($extraLine["resource_id"] ?? 0),
+                "quantity" => (int) ($extraLine["quantity"] ?? 0),
+            ];
+        }
+
+        $normalized = gsoNormalizeRequestedLines($pdo, $submittedLines);
+        $requestLines = $normalized["lines"];
+        $errors = array_merge($errors, $normalized["errors"]);
+
+        // The schedule is request-level, so it is validated once against the
+        // strictest line: a facility line drives facility schedule rules.
+        $scheduleType = "Item";
+
+        foreach ($requestLines as $line) {
+            if ($line["line_kind"] === "Facility") {
+                $scheduleType = "Facility";
+                break;
+            }
+        }
+
         $errors = array_merge($errors, validateBorrowScheduleInputs(
-            $resourceType,
-            $quantity,
+            $scheduleType,
+            $scheduleType === "Facility" ? 1 : max(1, $quantity),
             $dateNeeded !== "" ? $dateNeeded : null,
             $startTime !== "" ? $startTime : null,
             $endTime !== "" ? $endTime : null,
             null
         ));
 
+        // Per-line duplicate and availability checks. Availability runs through
+        // the unchanged shared service, which now reads request lines.
         if (empty($errors)) {
-            $duplicateConflict = findBorrowerDuplicateConflict(
-                $pdo,
-                $borrowerId,
-                $resourceId,
-                $resourceType,
-                $dateNeeded,
-                $startTime !== "" ? $startTime : null,
-                $endTime !== "" ? $endTime : null,
-                null
-            );
+            foreach ($requestLines as $line) {
+                $lineResource = $line["resource"];
+                $lineType = (string) $lineResource["resource_type"];
 
-            if ($duplicateConflict) {
-                $errors[] = "You already have a request for the same resource and schedule.";
-            }
-        }
+                if (findBorrowerDuplicateConflict(
+                    $pdo,
+                    $borrowerId,
+                    (int) $line["resource_id"],
+                    $lineType,
+                    $dateNeeded,
+                    $startTime !== "" ? $startTime : null,
+                    $endTime !== "" ? $endTime : null,
+                    null
+                )) {
+                    $errors[] = "You already have a request for "
+                        . $lineResource["resource_name"] . " on the same schedule.";
+                    continue;
+                }
 
-        if (empty($errors)) {
-            $availability = checkResourceAvailability(
-                $pdo,
-                $resource,
-                $quantity,
-                $dateNeeded,
-                $startTime !== "" ? $startTime : null,
-                $endTime !== "" ? $endTime : null,
-                null
-            );
+                $availability = checkResourceAvailability(
+                    $pdo,
+                    $lineResource,
+                    (int) $line["quantity"],
+                    $dateNeeded,
+                    $startTime !== "" ? $startTime : null,
+                    $endTime !== "" ? $endTime : null,
+                    null
+                );
 
-            if (!($availability["ok"] ?? false)) {
-                $errors[] = (string) ($availability["message"] ?? "This resource is unavailable for the selected schedule.");
+                if (!($availability["ok"] ?? false)) {
+                    $errors[] = $lineResource["resource_name"] . ": "
+                        . (string) ($availability["message"] ?? "unavailable for the selected schedule.");
+                }
             }
         }
 
@@ -179,10 +219,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 )
             ");
 
+            // Legacy compatibility mirror only: the primary line is written to
+            // resource_requests.resource_id/quantity so paths that have not yet
+            // migrated still render something truthful. It is NOT the complete
+            // request - request_items is authoritative for every decision.
+            $mirrorLine = gsoPrimaryMirrorLine($requestLines);
+
+            try {
+            $pdo->beginTransaction();
+
             $success = $insertStmt->execute([
                 ":borrower_id" => $borrowerId,
-                ":resource_id" => $resourceId,
-                ":quantity" => $quantity,
+                ":resource_id" => (int) ($mirrorLine["resource_id"] ?? $resourceId),
+                ":quantity" => (int) ($mirrorLine["quantity"] ?? $quantity),
                 ":contact_number" => $contactNumber,
                 ":date_needed" => $dateNeeded,
                 ":start_time" => $startTime !== "" ? $startTime : null,
@@ -193,11 +242,42 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             if ($success) {
                 $newRequestId = (int) $pdo->lastInsertId();
 
+                // One header, all lines, one commit. If any line fails the whole
+                // request is rolled back, so a partially-built request with a
+                // live reference number can never exist.
+                $lineStmt = $pdo->prepare("
+                    INSERT INTO request_items
+                        (request_id, resource_id, line_kind, requested_quantity)
+                    VALUES
+                        (:request_id, :resource_id, :line_kind, :requested_quantity)
+                ");
+
+                foreach ($requestLines as $line) {
+                    $lineStmt->execute([
+                        ":request_id" => $newRequestId,
+                        ":resource_id" => (int) $line["resource_id"],
+                        ":line_kind" => $line["line_kind"],
+                        ":requested_quantity" => (int) $line["quantity"],
+                    ]);
+                }
+
+                // One request, one reference, one notification per recipient -
+                // never one per resource line.
+                $lineLabels = [];
+
+                foreach ($requestLines as $line) {
+                    $lineLabels[] = $line["resource"]["resource_name"]
+                        . ($line["line_kind"] === "Facility" ? "" : " x" . $line["quantity"]);
+                }
+
+                $lineSummary = implode(", ", $lineLabels);
+
                 addActivityLog(
                     $pdo,
                     $borrowerId,
                     "Borrower Request Submitted",
-                    "Borrower submitted request #{$newRequestId} for resource: " . ($resource["resource_name"] ?? "Unknown")
+                    "Borrower submitted request #{$newRequestId} covering " . count($requestLines)
+                        . " resource line(s): " . substr($lineSummary, 0, 180)
                 );
 
                 $adminRows = $pdo->query("
@@ -213,12 +293,16 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         (int) $adminRow["user_id"],
                         "request",
                         "New Resource Request",
-                        "A new request for " . ($resource["resource_name"] ?? "resource") . " requires review.",
+                        substr(formatRequestCode($newRequestId) . " requires review: " . $lineSummary, 0, 255),
                         "requests.php"
                     );
                 }
 
-                $message = "Request submitted successfully. Please wait for admin review.";
+                $pdo->commit();
+
+                $message = "Request submitted successfully. "
+                    . formatRequestCode($newRequestId) . " covers " . count($requestLines)
+                    . " resource line(s). Please wait for admin review.";
                 $messageType = "success";
 
                 $formQuantity = $defaultQuantity;
@@ -228,12 +312,55 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $formEndTime = "";
                 $formNotes = "";
             } else {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+
                 $message = "Failed to submit request.";
+                $messageType = "error";
+            }
+            } catch (Throwable $submissionError) {
+                // A duplicate line, a second facility or any other constraint
+                // breach discards the whole request rather than leaving a
+                // half-built one behind.
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+
+                error_log("Combined request submission failed: " . $submissionError->getMessage());
+                $message = "The request could not be submitted. Please review your selected resources and try again.";
                 $messageType = "error";
             }
         }
     }
 }
+
+// Resources the borrower may add as extra lines. The page's primary resource
+// is excluded because it is always line one, and the classification shown here
+// is only a hint: every submitted line is re-classified server-side.
+$selectableStmt = $pdo->prepare("
+    SELECT resource_id, resource_name, resource_type, tracking_mode
+    FROM resources
+    WHERE is_archived = 0
+      AND status <> 'Unavailable'
+      AND resource_id <> :resource_id
+    ORDER BY resource_type ASC, resource_name ASC
+");
+$selectableStmt->execute([":resource_id" => $resourceId]);
+$selectableResources = [];
+
+foreach ($selectableStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $selectableRow) {
+    $selectableRow["line_kind"] = gsoLineKindForTrackingMode(
+        (string) $selectableRow["tracking_mode"],
+        (string) $selectableRow["resource_type"]
+    );
+    $selectableResources[] = $selectableRow;
+}
+
+$primaryLineKind = gsoLineKindForTrackingMode(
+    (string) ($resource["tracking_mode"] ?? "Aggregate"),
+    $resourceType
+);
 
 $todayDate = date("Y-m-d");
 $minDateTime = date("Y-m-d\TH:i");
@@ -406,6 +533,117 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                         <?php endif; ?>
                     </div>
                 </div>
+
+                <div class="form-row">
+                    <label>Additional resources for this activity</label>
+                    <p class="mini-muted">
+                        Everything you add here stays on this one request, under a single
+                        reference number and a single approval. A request may include at most
+                        one facility.
+                    </p>
+                    <div id="extraLineRows"></div>
+                    <div class="request-line-picker">
+                        <select id="extraLineResource" aria-label="Resource to add">
+                            <option value="">Select a resource to add</option>
+                            <?php foreach ($selectableResources as $selectable): ?>
+                                <option
+                                    value="<?php echo (int) $selectable["resource_id"]; ?>"
+                                    data-kind="<?php echo htmlspecialchars((string) $selectable["line_kind"]); ?>"
+                                    data-name="<?php echo htmlspecialchars((string) $selectable["resource_name"]); ?>"
+                                >
+                                    <?php
+                                    echo htmlspecialchars(
+                                        $selectable["resource_name"]
+                                        . " (" . $selectable["line_kind"] . ")"
+                                    );
+                                    ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <input type="number" id="extraLineQuantity" min="1" max="1000" value="1" aria-label="Quantity to add">
+                        <button type="button" id="addExtraLine" class="admin-btn info-btn">Add resource</button>
+                    </div>
+                    <p id="extraLineError" class="flash-message flash-error" hidden></p>
+                </div>
+                <script>
+                (function () {
+                    const rows = document.getElementById("extraLineRows");
+                    const picker = document.getElementById("extraLineResource");
+                    const qtyInput = document.getElementById("extraLineQuantity");
+                    const addButton = document.getElementById("addExtraLine");
+                    const errorBox = document.getElementById("extraLineError");
+                    if (!rows || !picker || !qtyInput || !addButton) { return; }
+
+                    // The primary resource is line one, so a facility here means
+                    // no further facility may be added. The server re-checks both
+                    // rules and the database enforces them regardless.
+                    const primaryKind = <?php echo json_encode($primaryLineKind); ?>;
+                    let index = 0;
+
+                    const showError = function (text) {
+                        errorBox.textContent = text;
+                        errorBox.hidden = text === "";
+                    };
+
+                    const hasFacility = function () {
+                        if (primaryKind === "Facility") { return true; }
+                        return rows.querySelector('[data-kind="Facility"]') !== null;
+                    };
+
+                    addButton.addEventListener("click", function () {
+                        const option = picker.options[picker.selectedIndex];
+                        const resourceId = picker.value;
+                        if (!resourceId) { showError("Choose a resource to add."); return; }
+
+                        const kind = option.dataset.kind || "Equipment";
+                        if (kind === "Facility" && hasFacility()) {
+                            showError("A request may include only one facility.");
+                            return;
+                        }
+                        if (rows.querySelector('[data-resource-id="' + resourceId + '"]')) {
+                            showError("That resource is already on this request. Edit its quantity instead.");
+                            return;
+                        }
+
+                        const quantity = kind === "Facility" ? 1 : Math.max(1, Math.min(1000, parseInt(qtyInput.value, 10) || 1));
+                        const row = document.createElement("div");
+                        row.className = "request-line-row";
+                        row.dataset.kind = kind;
+                        row.dataset.resourceId = resourceId;
+
+                        const label = document.createElement("span");
+                        label.textContent = (option.dataset.name || "Resource")
+                            + (kind === "Facility" ? " (Facility)" : " x" + quantity);
+
+                        const idField = document.createElement("input");
+                        idField.type = "hidden";
+                        idField.name = "extra_lines[" + index + "][resource_id]";
+                        idField.value = resourceId;
+
+                        const qtyField = document.createElement("input");
+                        qtyField.type = "hidden";
+                        qtyField.name = "extra_lines[" + index + "][quantity]";
+                        qtyField.value = String(quantity);
+
+                        const remove = document.createElement("button");
+                        remove.type = "button";
+                        remove.className = "admin-btn";
+                        remove.textContent = "Remove";
+                        remove.addEventListener("click", function () { row.remove(); showError(""); });
+
+                        row.appendChild(label);
+                        row.appendChild(idField);
+                        row.appendChild(qtyField);
+                        row.appendChild(remove);
+                        rows.appendChild(row);
+
+                        index += 1;
+                        picker.selectedIndex = 0;
+                        qtyInput.value = "1";
+                        showError("");
+                    });
+                })();
+                </script>
 
                 <div class="form-row">
                     <label for="notes">Notes</label>

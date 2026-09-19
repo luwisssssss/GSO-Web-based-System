@@ -175,6 +175,8 @@ $listSql = "
         rr.return_date,
         rr.notes,
         rs.inspection_condition,
+        (SELECT GROUP_CONCAT(CONCAT(lr.resource_name, CASE WHEN li.line_kind = 'Facility' THEN '' ELSE CONCAT(' x', li.requested_quantity) END) ORDER BY FIELD(li.line_kind,'Facility','Equipment','Consumable'), lr.resource_name SEPARATOR ', ') FROM request_items li INNER JOIN resources lr ON lr.resource_id = li.resource_id WHERE li.request_id = rr.request_id) AS line_summary,
+        (SELECT COUNT(*) FROM request_items lc WHERE lc.request_id = rr.request_id) AS line_count,
         r.resource_name,
         r.resource_type,
         r.category,
@@ -302,7 +304,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                     <td>REQ-<?php echo str_pad($request["request_id"], 3, "0", STR_PAD_LEFT); ?></td>
 
                                     <td>
-                                        <strong><?php echo htmlspecialchars($request["resource_name"]); ?></strong><br>
+                                        <strong><?php echo htmlspecialchars((string) ($request["line_summary"] ?? $request["resource_name"])); ?></strong><?php if ((int) ($request["line_count"] ?? 1) > 1): ?> <span class="status-badge underreview"><?php echo (int) $request["line_count"]; ?> resources</span><?php endif; ?><br>
                                         <small>
                                             <?php echo htmlspecialchars($request["resource_type"]); ?>
                                             <?php if (!empty($request["category"])): ?>

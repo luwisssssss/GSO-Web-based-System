@@ -9,6 +9,7 @@ require_once dirname(__DIR__, 3) . "/includes/maintenance_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/facility_calendar_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/adviser_endorsement_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/director_approval_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/request_line_helper.php";
 
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
@@ -436,6 +437,36 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         if (gsoAdviserStateBlocksGso($lockedRequest)) { throw new Exception("Adviser endorsement must be completed before release."); }
         if (!gsoDirectorGateAllowsRelease($lockedRequest)) { throw new Exception("Campus Director approval must be completed before release."); }
 
+        // Phase 3.5A: serialized allocation, consumable issuance and per-line
+        // return inspection are Phase 3.5B. Rather than let those request
+        // shapes through the single-resource release path - which would deduct
+        // stock for one line and mishandle the rest - the whole release is
+        // refused before anything is mutated.
+        $fulfilmentBlocker = gsoRequestFulfilmentBlocker($pdo, $requestId);
+
+        if ($fulfilmentBlocker !== null) {
+            throw new Exception($fulfilmentBlocker);
+        }
+
+        // Lines are authoritative for what is actually handed over. Past this
+        // gate exactly one returnable line remains, so the deduction below
+        // operates on it rather than on the legacy header mirror.
+        $releaseLinesStmt = $pdo->prepare("
+            SELECT ri.request_item_id, ri.resource_id, ri.line_kind, ri.requested_quantity,
+                   r.resource_type, r.tracking_mode
+            FROM request_items ri
+            INNER JOIN resources r ON r.resource_id = ri.resource_id
+            WHERE ri.request_id = :request_id
+            ORDER BY ri.request_item_id
+            FOR UPDATE
+        ");
+        $releaseLinesStmt->execute([":request_id" => $requestId]);
+        $releaseLines = $releaseLinesStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        if ($releaseLines === []) {
+            throw new Exception("This request has no resource lines and cannot be released.");
+        }
+
         $releaseQueueBlocker = findEarlierFirstComeFirstServedRequest(
             $pdo,
             $lockedRequest,
@@ -496,6 +527,21 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $updateStockStmt->execute([
                 ":available_stock" => $availableStock - $quantity,
                 ":resource_id" => $requestRow["resource_id"]
+            ]);
+        }
+
+        // Record what each line actually handed over, inside the same
+        // transaction as the stock movement, so a failed release leaves no
+        // partial deduction and no partially-released line behind.
+        $markLineReleasedStmt = $pdo->prepare("
+            UPDATE request_items
+            SET released_quantity = requested_quantity
+            WHERE request_item_id = :request_item_id
+        ");
+
+        foreach ($releaseLines as $releaseLine) {
+            $markLineReleasedStmt->execute([
+                ":request_item_id" => (int) $releaseLine["request_item_id"],
             ]);
         }
 
@@ -637,6 +683,8 @@ $listStmt = $pdo->query("
         borrower.username AS borrower_username,
         borrower.account_type AS borrower_account_type,
         reviewer.full_name AS reviewed_by_name,
+        (SELECT GROUP_CONCAT(CONCAT(lr.resource_name, CASE WHEN li.line_kind = 'Facility' THEN '' ELSE CONCAT(' x', li.requested_quantity) END) ORDER BY FIELD(li.line_kind,'Facility','Equipment','Consumable'), lr.resource_name SEPARATOR ', ') FROM request_items li INNER JOIN resources lr ON lr.resource_id = li.resource_id WHERE li.request_id = rr.request_id) AS line_summary,
+        (SELECT COUNT(*) FROM request_items lc WHERE lc.request_id = rr.request_id) AS line_count,
         r.resource_name,
         r.resource_type,
         r.category,
@@ -884,7 +932,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                     </td>
 
                                     <td>
-                                        <strong><?php echo htmlspecialchars((string) $request["resource_name"]); ?></strong><br>
+                                        <strong><?php echo htmlspecialchars((string) ($request["line_summary"] ?? $request["resource_name"])); ?></strong><?php if ((int) ($request["line_count"] ?? 1) > 1): ?> <span class="status-badge underreview"><?php echo (int) $request["line_count"]; ?> resources</span><?php endif; ?><br>
                                         <small>
                                             <?php echo htmlspecialchars((string) $request["resource_type"]); ?>
                                             | Qty: <?php echo htmlspecialchars((string) ($request["quantity"] ?? "N/A")); ?>

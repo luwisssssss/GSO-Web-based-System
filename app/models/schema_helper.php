@@ -73,6 +73,27 @@ if (!function_exists("foreignKeyExists")) {
     }
 }
 
+if (!function_exists("constraintExists")) {
+    /** CHECK constraints are not foreign keys, so they need their own lookup. */
+    function constraintExists(PDO $pdo, string $tableName, string $constraintName): bool
+    {
+        $stmt = $pdo->prepare("
+            SELECT 1
+            FROM information_schema.TABLE_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+              AND TABLE_NAME = :table_name
+              AND CONSTRAINT_NAME = :constraint_name
+            LIMIT 1
+        ");
+        $stmt->execute([
+            ":table_name" => $tableName,
+            ":constraint_name" => $constraintName,
+        ]);
+
+        return (bool) $stmt->fetchColumn();
+    }
+}
+
 if (!function_exists("enumColumnHasValue")) {
     function enumColumnHasValue(PDO $pdo, string $tableName, string $columnName, string $value): bool
     {
@@ -629,6 +650,133 @@ if (!function_exists("ensureSystemSchema")) {
                             ON DELETE SET NULL
                     ");
                 }
+            }
+
+            // --- Legacy settings table (Phase 3.5-Prep) ----------------------
+            // system_settings predates ensureSystemSchema() and existed only in
+            // the live database. It is recreated here so a fresh install matches
+            // development. The guard helpers above remain the single migration
+            // mechanism: nothing reads schema_version, and adding a second
+            // version marker would create competing schema-version systems.
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS system_settings (
+                    setting_key VARCHAR(64) NOT NULL,
+                    setting_value VARCHAR(255) NULL,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (setting_key)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+            ");
+
+            // --- Combined borrowing request lines (Phase 3.5A) ---------------
+            // One request holds many resource lines: at most one facility plus
+            // any number of equipment and consumable lines. resource_requests
+            // stays the authoritative request header and keeps its adviser and
+            // director routing; request_items carries the resources.
+            if (tableExists($pdo, "resources")) {
+                if (!columnExists($pdo, "resources", "tracking_mode")) {
+                    $pdo->exec("
+                        ALTER TABLE resources
+                        ADD COLUMN tracking_mode
+                            ENUM('Facility','Serialized','Aggregate','Consumable')
+                            NOT NULL DEFAULT 'Aggregate'
+                            AFTER resource_type
+                    ");
+                }
+
+                // Existing facilities classify as Facility; every existing item
+                // stays aggregate. Serialized and Consumable are assigned by GSO
+                // once real units or stock are registered (Phase 3.5B).
+                $pdo->exec("
+                    UPDATE resources SET tracking_mode = 'Facility'
+                    WHERE resource_type = 'Facility' AND tracking_mode <> 'Facility'
+                ");
+                $pdo->exec("
+                    UPDATE resources SET tracking_mode = 'Aggregate'
+                    WHERE resource_type = 'Item' AND tracking_mode = 'Facility'
+                ");
+
+                if (!constraintExists($pdo, "resources", "chk_resources_tracking_mode")) {
+                    $pdo->exec("
+                        ALTER TABLE resources
+                        ADD CONSTRAINT chk_resources_tracking_mode CHECK (
+                            (resource_type = 'Facility' AND tracking_mode = 'Facility')
+                            OR (resource_type = 'Item' AND tracking_mode IN ('Serialized','Aggregate','Consumable'))
+                        )
+                    ");
+                }
+            }
+
+            // facility_guard is NULL on every non-facility line, so its UNIQUE
+            // index allows many equipment lines and at most one facility line
+            // per request. Server-side validation still rejects a second
+            // facility first; this index is the authoritative backstop.
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS request_items (
+                    request_item_id BIGINT NOT NULL AUTO_INCREMENT,
+                    request_id INT NOT NULL,
+                    resource_id INT NOT NULL,
+                    line_kind ENUM('Facility','Equipment','Consumable') NOT NULL,
+                    requested_quantity INT NOT NULL DEFAULT 1,
+                    released_quantity INT NOT NULL DEFAULT 0,
+                    returned_quantity INT NOT NULL DEFAULT 0,
+                    issued_quantity INT NOT NULL DEFAULT 0,
+                    line_notes VARCHAR(255) NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    facility_guard INT AS (CASE WHEN line_kind = 'Facility' THEN request_id END) STORED,
+                    PRIMARY KEY (request_item_id),
+                    UNIQUE KEY uq_request_items_resource (request_id, resource_id),
+                    UNIQUE KEY uq_request_items_one_facility (facility_guard),
+                    KEY idx_request_items_resource (resource_id, request_id),
+                    KEY idx_request_items_kind (request_id, line_kind),
+                    CONSTRAINT chk_request_items_quantities CHECK (
+                        requested_quantity >= 1
+                        AND released_quantity >= 0 AND released_quantity <= requested_quantity
+                        AND returned_quantity >= 0 AND returned_quantity <= released_quantity
+                        AND issued_quantity >= 0 AND issued_quantity <= requested_quantity
+                    )
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+
+            if (tableExists($pdo, "request_items")) {
+                if (!foreignKeyExists($pdo, "request_items", "fk_request_items_request")) {
+                    $pdo->exec("
+                        ALTER TABLE request_items
+                        ADD CONSTRAINT fk_request_items_request
+                            FOREIGN KEY (request_id) REFERENCES resource_requests (request_id)
+                            ON DELETE CASCADE
+                    ");
+                }
+                if (!foreignKeyExists($pdo, "request_items", "fk_request_items_resource")) {
+                    $pdo->exec("
+                        ALTER TABLE request_items
+                        ADD CONSTRAINT fk_request_items_resource
+                            FOREIGN KEY (resource_id) REFERENCES resources (resource_id)
+                            ON DELETE RESTRICT
+                    ");
+                }
+
+                // Historical backfill: exactly one line per legacy request. The
+                // NOT EXISTS guard makes a repeated run a no-op, and no
+                // `resources` row is written, so stock can never be recomputed,
+                // re-issued or double-deducted by this backfill.
+                $pdo->exec("
+                    INSERT INTO request_items
+                        (request_id, resource_id, line_kind, requested_quantity,
+                         released_quantity, returned_quantity, created_at)
+                    SELECT
+                        rr.request_id,
+                        rr.resource_id,
+                        CASE WHEN r.resource_type = 'Facility' THEN 'Facility' ELSE 'Equipment' END,
+                        GREATEST(1, COALESCE(rr.quantity, 1)),
+                        CASE WHEN rr.status IN ('Released','Returned') THEN GREATEST(1, COALESCE(rr.quantity, 1)) ELSE 0 END,
+                        CASE WHEN rr.status = 'Returned' THEN GREATEST(1, COALESCE(rr.quantity, 1)) ELSE 0 END,
+                        rr.request_date
+                    FROM resource_requests rr
+                    INNER JOIN resources r ON r.resource_id = rr.resource_id
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM request_items ri WHERE ri.request_id = rr.request_id
+                    )
+                ");
             }
 
             if (tableExists($pdo, "maintenance_schedules")) {

@@ -163,24 +163,24 @@ try {
     $itemName = "Step10 Widget {$marker}";
     $pdo->prepare("
         INSERT INTO resources (resource_name, resource_type, category, description, location,
-                               total_stock, available_stock, under_repair_stock, status, condition_status, is_archived)
-        VALUES (:name, 'Item', 'Equipment', 'Step 10 fixture', 'QA Room', 10, 8, 2, 'Available', 'Good', 0)
+                               tracking_mode, total_stock, available_stock, under_repair_stock, status, condition_status, is_archived)
+        VALUES (:name, 'Item', 'Equipment', 'Step 10 fixture', 'QA Room', 'Aggregate', 10, 8, 2, 'Available', 'Good', 0)
     ")->execute([":name" => $itemName]);
     $itemId = (int) $pdo->lastInsertId();
 
     $facilityName = "Step10 Hall {$marker}";
     $pdo->prepare("
         INSERT INTO resources (resource_name, resource_type, category, description, location,
-                               capacity, status, condition_status, is_archived)
-        VALUES (:name, 'Facility', 'Facility', 'Step 10 fixture', 'QA Wing', 50, 'Available', 'Good', 0)
+                               tracking_mode, capacity, status, condition_status, is_archived)
+        VALUES (:name, 'Facility', 'Facility', 'Step 10 fixture', 'QA Wing', 'Facility', 50, 'Available', 'Good', 0)
     ")->execute([":name" => $facilityName]);
     $facilityId = (int) $pdo->lastInsertId();
 
     $maintItemName = "Step10 Gadget {$marker}";
     $pdo->prepare("
         INSERT INTO resources (resource_name, resource_type, category, description, location,
-                               total_stock, available_stock, under_repair_stock, status, condition_status, is_archived)
-        VALUES (:name, 'Item', 'Equipment', 'Step 10 fixture', 'QA Room', 4, 4, 0, 'Available', 'Good', 0)
+                               tracking_mode, total_stock, available_stock, under_repair_stock, status, condition_status, is_archived)
+        VALUES (:name, 'Item', 'Equipment', 'Step 10 fixture', 'QA Room', 'Aggregate', 4, 4, 0, 'Available', 'Good', 0)
     ")->execute([":name" => $maintItemName]);
     $maintItemId = (int) $pdo->lastInsertId();
     $resourceIds = [$itemId, $facilityId, $maintItemId];
@@ -195,6 +195,11 @@ try {
         ":b" => $borrowerB, ":r" => $facilityId, ":d" => $conflictDate,
         ":admin" => $adminId, ":notes" => "Conflict fixture {$marker}",
     ]);
+    $conflictRequestId=(int)$pdo->lastInsertId();
+    // Phase 3.5A: the header needs its request line to be visible to the
+    // line-based availability and conflict service.
+    $pdo->prepare("INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity) SELECT :rid,:res,CASE WHEN r.resource_type='Facility' THEN 'Facility' ELSE 'Equipment' END,:qty FROM resources r WHERE r.resource_id=:res2")->execute([":rid"=>$conflictRequestId,":res"=>$facilityId,":qty"=>1,":res2"=>$facilityId]);
+
     $conflictRequestId = (int) $pdo->lastInsertId();
 
     // Borrower A owns this one; Borrower B must never see it.
@@ -209,6 +214,7 @@ try {
         ":notes" => "Owned request {$marker}",
     ]);
     $ownedRequestId = (int) $pdo->lastInsertId();
+    $pdo->prepare("INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity) VALUES(:rid,:res,'Equipment',2)")->execute([":rid"=>$ownedRequestId,":res"=>$itemId]);
     $requestIds = [$conflictRequestId, $ownedRequestId];
 
     // Borrower A's incident; Borrower B must never see it.
@@ -626,6 +632,8 @@ try {
         }
         if ($resourceIds !== []) {
             $placeholders = implode(",", array_fill(0, count($resourceIds), "?"));
+            $userPlaceholders = implode(",", array_fill(0, count($userIds), "?"));
+            $pdo->prepare("DELETE FROM resource_requests WHERE borrower_id IN ({$userPlaceholders}) AND request_id IN (SELECT request_id FROM request_items WHERE resource_id IN ({$placeholders}))")->execute(array_merge($userIds, $resourceIds));
             $pdo->prepare("DELETE FROM resource_requests WHERE resource_id IN ({$placeholders})")->execute($resourceIds);
             $pdo->prepare("DELETE FROM incident_reports WHERE resource_id IN ({$placeholders})")->execute($resourceIds);
             $pdo->prepare("DELETE FROM maintenance_schedules WHERE resource_id IN ({$placeholders})")->execute($resourceIds);

@@ -176,11 +176,12 @@ function step8CreateUser(PDO $pdo, array $values): int
 function step8CreateResource(PDO $pdo, string $name, string $type, int $stock = 0): int
 {
     $stmt = $pdo->prepare("INSERT INTO resources
-        (resource_name, resource_type, category, description, location, total_stock, available_stock, capacity, status, condition_status, is_archived)
-        VALUES (:name, :type, :category, :description, :location, :total_stock, :available_stock, :capacity, 'Available', 'Good', 0)");
+        (resource_name, resource_type, tracking_mode, category, description, location, total_stock, available_stock, capacity, status, condition_status, is_archived)
+        VALUES (:name, :type, :tracking_mode, :category, :description, :location, :total_stock, :available_stock, :capacity, 'Available', 'Good', 0)");
     $stmt->execute([
         ":name" => $name,
         ":type" => $type,
+        ":tracking_mode" => $type === "Facility" ? "Facility" : "Aggregate",
         ":category" => $type === "Item" ? "Equipment" : "Facility",
         ":description" => "Controlled Step 8 fixture",
         ":location" => "Step 8 QA Room",
@@ -872,6 +873,8 @@ try {
         }
         if ($resourceIds !== []) {
             $placeholders = implode(",", array_fill(0, count($resourceIds), "?"));
+            $userPlaceholders = implode(",", array_fill(0, count($userIds), "?"));
+            $pdo->prepare("DELETE FROM resource_requests WHERE borrower_id IN ({$userPlaceholders}) AND request_id IN (SELECT request_id FROM request_items WHERE resource_id IN ({$placeholders}))")->execute(array_merge($userIds, $resourceIds));
             $pdo->prepare("DELETE FROM resources WHERE resource_id IN ({$placeholders})")->execute($resourceIds);
         }
         if ($userIds !== []) {

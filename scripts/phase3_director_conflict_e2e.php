@@ -20,11 +20,11 @@ try{
  $spec=["admin"=>["Admin",null],"staff"=>["GSO Staff",null],"director"=>["Director",null],"director2"=>["Director",null],"student"=>["Borrower","Student"],"other"=>["Borrower","University Staff"],"third"=>["Borrower","University Staff"],"fourth"=>["Borrower","University Staff"],"faculty"=>["Borrower","Faculty"]];
  foreach($spec as $k=>$v)$ids[$k]=p3user($pdo,$mark,$k,$v[0],$v[1]);
 
- $mkResource=function(string $name,string $type)use($pdo):int{$s=$pdo->prepare("INSERT INTO resources(resource_name,resource_type,category,location,total_stock,available_stock,status,condition_status,is_archived)VALUES(:n,:t,'Equipment','QA',10,10,'Available','Good',0)");$s->execute([":n"=>$name,":t"=>$type]);return(int)$pdo->lastInsertId();};
+ $mkResource=function(string $name,string $type)use($pdo):int{$s=$pdo->prepare("INSERT INTO resources(resource_name,resource_type,tracking_mode,category,location,total_stock,available_stock,status,condition_status,is_archived)VALUES(:n,:t,:m,'Equipment','QA',10,10,'Available','Good',0)");$s->execute([":n"=>$name,":t"=>$type,":m"=>$type==="Facility"?"Facility":"Aggregate"]);return(int)$pdo->lastInsertId();};
  $itemId=$mkResource("{$mark} Item","Item");$facilityId=$mkResource("{$mark} Hall","Facility");$facilityId2=$mkResource("{$mark} Annex","Facility");
 
  $day=date("Y-m-d",strtotime("+9 days"));$day2=date("Y-m-d",strtotime("+10 days"));$day3=date("Y-m-d",strtotime("+11 days"));
- $newReq=function(int $uid,int $res,string $date,?string $start=null,?string $end=null,string $notes="Phase 3 activity")use($pdo):int{$s=$pdo->prepare("INSERT INTO resource_requests(borrower_id,resource_id,quantity,contact_number,date_needed,start_time,end_time,status,notes)VALUES(:u,:r,1,'09123456789',:d,:s,:e,'Pending',:n)");$s->execute([":u"=>$uid,":r"=>$res,":d"=>$date,":s"=>$start,":e"=>$end,":n"=>$notes]);return(int)$pdo->lastInsertId();};
+ $newReq=function(int $uid,int $res,string $date,?string $start=null,?string $end=null,string $notes="Phase 3 activity")use($pdo):int{$s=$pdo->prepare("INSERT INTO resource_requests(borrower_id,resource_id,quantity,contact_number,date_needed,start_time,end_time,status,notes)VALUES(:u,:r,1,'09123456789',:d,:s,:e,'Pending',:n)");$s->execute([":u"=>$uid,":r"=>$res,":d"=>$date,":s"=>$start,":e"=>$end,":n"=>$notes]);$id=(int)$pdo->lastInsertId();$pdo->prepare("INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity) SELECT :rid,:res,CASE WHEN r.resource_type='Facility' THEN 'Facility' WHEN r.tracking_mode='Consumable' THEN 'Consumable' ELSE 'Equipment' END,:qty FROM resources r WHERE r.resource_id=:res2")->execute([":rid"=>$id,":res"=>$res,":qty"=>1,":res2"=>$res]);return $id;};
 
  // Session bootstrap: loopback + secret header only, removed in finally.
  $people=[];foreach(["admin","staff","director","director2","student","other","third","fourth","faculty"] as $k)$people[$k]=[$ids[$k],$spec[$k][0]];
@@ -197,6 +197,7 @@ finally{
   foreach($reqIds->fetchAll(PDO::FETCH_COLUMN)?:[] as $cleanupId){$pdo->prepare("DELETE FROM notifications WHERE link LIKE :l")->execute([":l"=>"%request_id={$cleanupId}"]);}
   $pdo->prepare("DELETE FROM request_director_history WHERE request_id IN (SELECT request_id FROM resource_requests WHERE resource_id IN ({$marks}))")->execute($resourceIds);
   $pdo->prepare("DELETE FROM request_adviser_history WHERE request_id IN (SELECT request_id FROM resource_requests WHERE resource_id IN ({$marks}))")->execute($resourceIds);
+  $userMarks=implode(",",array_fill(0,count($ids),"?"));$pdo->prepare("DELETE FROM resource_requests WHERE borrower_id IN ({$userMarks}) AND request_id IN (SELECT request_id FROM request_items WHERE resource_id IN ({$marks}))")->execute(array_merge(array_values($ids),$resourceIds));
   $pdo->prepare("DELETE FROM resource_requests WHERE resource_id IN ({$marks})")->execute($resourceIds);
   $pdo->prepare("DELETE FROM resources WHERE resource_id IN ({$marks})")->execute($resourceIds);
  }

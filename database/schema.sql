@@ -129,6 +129,7 @@ CREATE TABLE `resources` (
   `resource_id` int(11) NOT NULL AUTO_INCREMENT,
   `resource_name` varchar(100) NOT NULL,
   `resource_type` enum('Item','Facility') NOT NULL,
+  `tracking_mode` enum('Facility','Serialized','Aggregate','Consumable') NOT NULL DEFAULT 'Aggregate',
   `category` varchar(50) DEFAULT NULL,
   `description` varchar(255) DEFAULT NULL,
   `resource_image` varchar(255) DEFAULT NULL,
@@ -142,7 +143,31 @@ CREATE TABLE `resources` (
   `condition_notes` varchar(500) DEFAULT NULL,
   `is_archived` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`resource_id`)
+  PRIMARY KEY (`resource_id`),
+  CONSTRAINT `chk_resources_tracking_mode` CHECK ((`resource_type` = 'Facility' AND `tracking_mode` = 'Facility') OR (`resource_type` = 'Item' AND `tracking_mode` IN ('Serialized','Aggregate','Consumable')))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Phase 3.5A: one request, many resource lines (at most one facility).
+CREATE TABLE `request_items` (
+  `request_item_id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `request_id` int(11) NOT NULL,
+  `resource_id` int(11) NOT NULL,
+  `line_kind` enum('Facility','Equipment','Consumable') NOT NULL,
+  `requested_quantity` int(11) NOT NULL DEFAULT 1,
+  `released_quantity` int(11) NOT NULL DEFAULT 0,
+  `returned_quantity` int(11) NOT NULL DEFAULT 0,
+  `issued_quantity` int(11) NOT NULL DEFAULT 0,
+  `line_notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `facility_guard` int(11) GENERATED ALWAYS AS (case when `line_kind` = 'Facility' then `request_id` end) STORED,
+  PRIMARY KEY (`request_item_id`),
+  UNIQUE KEY `uq_request_items_resource` (`request_id`,`resource_id`),
+  UNIQUE KEY `uq_request_items_one_facility` (`facility_guard`),
+  KEY `idx_request_items_resource` (`resource_id`,`request_id`),
+  KEY `idx_request_items_kind` (`request_id`,`line_kind`),
+  CONSTRAINT `fk_request_items_request` FOREIGN KEY (`request_id`) REFERENCES `resource_requests` (`request_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_request_items_resource` FOREIGN KEY (`resource_id`) REFERENCES `resources` (`resource_id`) ON DELETE RESTRICT,
+  CONSTRAINT `chk_request_items_quantities` CHECK (`requested_quantity` >= 1 AND `released_quantity` >= 0 AND `released_quantity` <= `requested_quantity` AND `returned_quantity` >= 0 AND `returned_quantity` <= `released_quantity` AND `issued_quantity` >= 0 AND `issued_quantity` <= `requested_quantity`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `return_submission_photos` (
@@ -286,6 +311,14 @@ ALTER TABLE `users`
   ADD CONSTRAINT `fk_users_approved_by` FOREIGN KEY (`approved_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL;
 
 SET FOREIGN_KEY_CHECKS = @OLD_FOREIGN_KEY_CHECKS;
+
+-- Legacy settings table, reproduced here so a fresh install matches development.
+CREATE TABLE IF NOT EXISTS `system_settings` (
+  `setting_key` varchar(64) NOT NULL,
+  `setting_value` varchar(255) DEFAULT NULL,
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE IF NOT EXISTS `ai_conversations` (
     `conversation_id` BIGINT(20) NOT NULL AUTO_INCREMENT,

@@ -4139,3 +4139,38 @@ textarea:focus {
         grid-template-columns: 1fr;
     }
 }
+
+/* Phase 3.5A: combined borrowing request lines. */
+.request-line-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: 8px;
+}
+
+.request-line-picker select {
+    flex: 1 1 240px;
+    min-width: 0;
+}
+
+.request-line-picker input[type="number"] {
+    width: 96px;
+}
+
+.request-line-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.request-line-table td:first-child {
+    white-space: nowrap;
+}

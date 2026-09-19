@@ -181,6 +181,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             (
                                 resource_name,
                                 resource_type,
+                                tracking_mode,
                                 category,
                                 description,
                                 resource_image,
@@ -196,6 +197,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             (
                                 :resource_name,
                                 :resource_type,
+                                :tracking_mode,
                                 :category,
                                 :description,
                                 :resource_image,
@@ -212,6 +214,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         $success = $insertStmt->execute([
                             ":resource_name"   => $formData["resource_name"],
                             ":resource_type"   => $formData["resource_type"],
+                            // Derived server-side, never from the form. Serialized and
+                            // Consumable classification is assigned in Phase 3.5B once
+                            // real units or stock are registered.
+                            ":tracking_mode"   => $formData["resource_type"] === "Facility" ? "Facility" : "Aggregate",
                             ":category"        => $formData["category"] !== "" ? $formData["category"] : null,
                             ":description"     => $formData["description"] !== "" ? $formData["description"] : null,
                             ":resource_image"  => $uploadedImageName,

@@ -232,6 +232,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         SET
                             resource_name = :resource_name,
                             resource_type = :resource_type,
+                            -- Keep classification coherent with the type: a facility is
+                            -- always Facility, and an item can never stay Facility.
+                            tracking_mode = CASE
+                                WHEN :tracking_type = 'Facility' THEN 'Facility'
+                                WHEN tracking_mode = 'Facility' THEN 'Aggregate'
+                                ELSE tracking_mode
+                            END,
                             category = :category,
                             description = :description,
                             resource_image = :resource_image,
@@ -249,6 +256,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     $success = $updateStmt->execute([
                         ":resource_name"   => $formData["resource_name"],
                         ":resource_type"   => $formData["resource_type"],
+                        ":tracking_type"   => $formData["resource_type"],
                         ":category"        => $formData["category"] !== "" ? $formData["category"] : null,
                         ":description"     => $formData["description"] !== "" ? $formData["description"] : null,
                         ":resource_image"  => $finalImageName,

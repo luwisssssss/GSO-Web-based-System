@@ -5,6 +5,7 @@ require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/adviser_endorsement_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/director_approval_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/request_line_helper.php";
 
 $pageTitle = "View Request";
 $activePage = "requests";
@@ -412,6 +413,43 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
             }
         ?></td><td><?php echo nl2br(htmlspecialchars((string)($event["remarks"]??"—"))); ?></td></tr><?php endforeach;?></tbody></table></div><?php endif; ?></div>
         <?php endif; ?>
+
+        <?php $requestLines = gsoRequestLines($pdo, (int) $request["request_id"]); ?>
+        <div class="card detail-block">
+            <h3 class="section-title">Requested Resources</h3>
+            <div class="table-wrapper">
+                <table class="request-table request-line-table">
+                    <thead>
+                        <tr>
+                            <th>Kind</th>
+                            <th>Resource</th>
+                            <th>Requested</th>
+                            <th>Released</th>
+                            <th>Returned</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (!$requestLines): ?>
+                            <tr><td colspan="5">No resource lines recorded for this request.</td></tr>
+                        <?php else: ?>
+                            <?php foreach ($requestLines as $line): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars((string) $line["line_kind"]); ?></td>
+                                    <td><?php echo htmlspecialchars((string) $line["resource_name"]); ?></td>
+                                    <td><?php echo $line["line_kind"] === "Facility" ? "&mdash;" : (int) $line["requested_quantity"]; ?></td>
+                                    <td><?php echo (int) $line["released_quantity"]; ?></td>
+                                    <td><?php echo (int) $line["returned_quantity"]; ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+            <p class="mini-muted mt-12">
+                All lines belong to this one request reference and share a single
+                approval, adviser and director workflow.
+            </p>
+        </div>
 
         <div class="card">
             <h3 class="section-title">Resource Description</h3>

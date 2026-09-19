@@ -66,7 +66,7 @@ $requestStmt = $pdo->query("
         borrower.username AS borrower_username,
         borrower.email AS borrower_email,
         reviewer.full_name AS reviewed_by_name,
-        r.resource_name,
+        COALESCE((SELECT GROUP_CONCAT(CONCAT(lr.resource_name, CASE WHEN li.line_kind = 'Facility' THEN '' ELSE CONCAT(' x', li.requested_quantity) END) ORDER BY FIELD(li.line_kind,'Facility','Equipment','Consumable'), lr.resource_name SEPARATOR ', ') FROM request_items li INNER JOIN resources lr ON lr.resource_id = li.resource_id WHERE li.request_id = rr.request_id), r.resource_name) AS resource_name,
         r.resource_type,
         r.category,
         r.location,

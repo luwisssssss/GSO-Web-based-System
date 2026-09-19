@@ -308,21 +308,29 @@ if (!function_exists("fetchActiveScheduleRequests")) {
         ?int $excludeRequestId = null,
         ?int $borrowerId = null
     ): array {
+        // Phase 3.5A: request lines are authoritative, so this reads the line
+        // that actually competes for the resource rather than the request
+        // header's legacy mirror. The returned shape is deliberately unchanged
+        // - request_id/quantity/schedule/status - so every consumer above
+        // (findScheduleConflicts, calculateReservedItemQuantity,
+        // checkResourceAvailability, the director conflict service and the
+        // maintenance overlap checks) keeps working without modification.
         $sql = "
             SELECT
-                request_id,
-                borrower_id,
-                resource_id,
-                quantity,
-                date_needed,
-                start_time,
-                end_time,
-                request_date,
-                due_date,
-                status
-            FROM resource_requests
-            WHERE resource_id = :resource_id
-              AND status IN ('Pending', 'Under Review', 'Approved', 'Released')
+                rr.request_id,
+                rr.borrower_id,
+                ri.resource_id,
+                ri.requested_quantity AS quantity,
+                rr.date_needed,
+                rr.start_time,
+                rr.end_time,
+                rr.request_date,
+                rr.due_date,
+                rr.status
+            FROM resource_requests rr
+            INNER JOIN request_items ri ON ri.request_id = rr.request_id
+            WHERE ri.resource_id = :resource_id
+              AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released')
         ";
 
         $params = [
@@ -330,16 +338,18 @@ if (!function_exists("fetchActiveScheduleRequests")) {
         ];
 
         if ($excludeRequestId !== null && $excludeRequestId > 0) {
-            $sql .= " AND request_id <> :exclude_request_id";
+            $sql .= " AND rr.request_id <> :exclude_request_id";
             $params[":exclude_request_id"] = $excludeRequestId;
         }
 
         if ($borrowerId !== null && $borrowerId > 0) {
-            $sql .= " AND borrower_id = :borrower_id";
+            $sql .= " AND rr.borrower_id = :borrower_id";
             $params[":borrower_id"] = $borrowerId;
         }
 
-        $sql .= " ORDER BY request_date ASC, request_id ASC";
+        // UNIQUE (request_id, resource_id) guarantees one line per resource per
+        // request, so no request can appear twice for the same resource here.
+        $sql .= " ORDER BY rr.request_date ASC, rr.request_id ASC";
 
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
@@ -726,8 +736,8 @@ if (!function_exists("getEarlierFirstComeFirstServedRequests")) {
             SELECT
                 rr.request_id,
                 rr.borrower_id,
-                rr.resource_id,
-                rr.quantity,
+                ri.resource_id,
+                ri.requested_quantity AS quantity,
                 rr.date_needed,
                 rr.start_time,
                 rr.end_time,
@@ -737,8 +747,9 @@ if (!function_exists("getEarlierFirstComeFirstServedRequests")) {
                 borrower.full_name AS borrower_name,
                 borrower.username AS borrower_username
             FROM resource_requests rr
+            INNER JOIN request_items ri ON ri.request_id = rr.request_id
             LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id
-            WHERE rr.resource_id = :resource_id
+            WHERE ri.resource_id = :resource_id
               AND rr.request_id <> :request_id
               AND rr.status IN (" . implode(", ", $statusPlaceholders) . ")
               AND (

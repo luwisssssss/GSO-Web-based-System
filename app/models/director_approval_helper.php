@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . "/request_helper.php";
 require_once __DIR__ . "/adviser_endorsement_helper.php";
+require_once __DIR__ . "/request_line_helper.php";
 require_once __DIR__ . "/notification_helper.php";
 require_once __DIR__ . "/activity_log_helper.php";
 
@@ -75,13 +76,18 @@ if (!function_exists("gsoDirectorHistory")) {
 if (!function_exists("gsoFacilityConflictsForRequest")) {
     function gsoFacilityConflictsForRequest(PDO $pdo, array $request): array
     {
-        if ((string) ($request["resource_type"] ?? "") !== "Facility") {
+        // Phase 3.5A: the facility is a request line, not the request header.
+        // An equipment-only request has no facility line and therefore never
+        // enters facility conflict prioritisation.
+        $facilityLine = gsoRequestFacilityLine($pdo, (int) ($request["request_id"] ?? 0));
+
+        if ($facilityLine === null) {
             return [];
         }
 
         return findScheduleConflicts(
             $pdo,
-            (int) ($request["resource_id"] ?? 0),
+            (int) $facilityLine["resource_id"],
             "Facility",
             $request["date_needed"] ?? null,
             $request["start_time"] ?? null,

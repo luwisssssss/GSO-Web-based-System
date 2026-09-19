@@ -57,6 +57,27 @@ if (!$requestRow) {
     redirectWithFlash("my_borrowed.php", "Borrowed request not found or not eligible for return.");
 }
 
+// Phase 3.5A safety net. This form records one condition for the whole
+// request, so a request covering several returnable resources must not pass
+// through it - one header condition would silently mark every resource Good,
+// Damaged or Lost alike. Release already refuses those shapes; this is the
+// second gate in case one ever reaches Released by another route.
+$returnableLineCount = (int) (function () use ($pdo, $requestId): int {
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) FROM request_items
+        WHERE request_id = :request_id AND line_kind <> 'Consumable'
+    ");
+    $stmt->execute([":request_id" => $requestId]);
+    return (int) $stmt->fetchColumn();
+})();
+
+if ($returnableLineCount > 1) {
+    redirectWithFlash(
+        "my_borrowed.php",
+        "This request covers several resources. Per-resource return inspection is not available yet - please coordinate with the GSO office."
+    );
+}
+
 if ((string) ($requestRow["resource_type"] ?? "") === "Facility") {
     $facilityRange = buildRequestDateRange(
         "Facility",

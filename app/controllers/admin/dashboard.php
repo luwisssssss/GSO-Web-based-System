@@ -135,9 +135,10 @@ $mostBorrowed = $pdo->query("
     SELECT
         r.resource_name,
         r.resource_type,
-        COUNT(*) AS borrow_count
+        COUNT(DISTINCT rr.request_id) AS borrow_count
     FROM resource_requests rr
-    INNER JOIN resources r ON rr.resource_id = r.resource_id
+    INNER JOIN request_items ri ON ri.request_id = rr.request_id
+    INNER JOIN resources r ON r.resource_id = ri.resource_id
     WHERE rr.status = 'Released'
       AND rr.return_date IS NULL
     GROUP BY r.resource_id, r.resource_name, r.resource_type
