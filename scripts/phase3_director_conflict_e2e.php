@@ -131,7 +131,7 @@ try{
  $noOverlap=$newReq($ids["other"],$facilityId,$day,"14:00:00","16:00:00","Late session");
  $otherFacility=$newReq($ids["third"],$facilityId2,$day,"08:00:00","10:00:00","Different hall");
  $cancelled=$newReq($ids["fourth"],$facilityId,$day,"08:30:00","09:30:00","Cancelled session");$pdo->prepare("UPDATE resource_requests SET status='Cancelled' WHERE request_id=?")->execute([$cancelled]);
- $rowA=$pdo->query("SELECT rr.*,r.resource_type FROM resource_requests rr JOIN resources r ON r.resource_id=rr.resource_id WHERE rr.request_id={$cA}")->fetch(PDO::FETCH_ASSOC);
+ $rowA=$pdo->query("SELECT rr.*,r.resource_type FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id JOIN resources r ON r.resource_id=ri.resource_id WHERE rr.request_id={$cA} AND ri.line_kind='Facility'")->fetch(PDO::FETCH_ASSOC);
  $conf=array_map(static fn(array $r):int=>(int)$r["request_id"],findScheduleConflicts($pdo,$facilityId,"Facility",$rowA["date_needed"],$rowA["start_time"],$rowA["end_time"],$rowA["due_date"],$cA));
  sort($conf);$expect=[$cB,$cC];sort($expect);
  p3a($conf===$expect,"Conflict set wrong: got ".implode(",",$conf)." expected ".implode(",",$expect));
@@ -193,12 +193,12 @@ finally{
  $resourceIds=array_values(array_filter([$itemId,$facilityId,$facilityId2]));
  if($resourceIds){
   $marks=implode(",",array_fill(0,count($resourceIds),"?"));
-  $reqIds=$pdo->prepare("SELECT request_id FROM resource_requests WHERE resource_id IN ({$marks})");$reqIds->execute($resourceIds);
+  $reqIds=$pdo->prepare("SELECT DISTINCT request_id FROM request_items WHERE resource_id IN ({$marks})");$reqIds->execute($resourceIds);
   foreach($reqIds->fetchAll(PDO::FETCH_COLUMN)?:[] as $cleanupId){$pdo->prepare("DELETE FROM notifications WHERE link LIKE :l")->execute([":l"=>"%request_id={$cleanupId}"]);}
-  $pdo->prepare("DELETE FROM request_director_history WHERE request_id IN (SELECT request_id FROM resource_requests WHERE resource_id IN ({$marks}))")->execute($resourceIds);
-  $pdo->prepare("DELETE FROM request_adviser_history WHERE request_id IN (SELECT request_id FROM resource_requests WHERE resource_id IN ({$marks}))")->execute($resourceIds);
+  $pdo->prepare("DELETE FROM request_director_history WHERE request_id IN (SELECT request_id FROM request_items WHERE resource_id IN ({$marks}))")->execute($resourceIds);
+  $pdo->prepare("DELETE FROM request_adviser_history WHERE request_id IN (SELECT request_id FROM request_items WHERE resource_id IN ({$marks}))")->execute($resourceIds);
   $userMarks=implode(",",array_fill(0,count($ids),"?"));$pdo->prepare("DELETE FROM resource_requests WHERE borrower_id IN ({$userMarks}) AND request_id IN (SELECT request_id FROM request_items WHERE resource_id IN ({$marks}))")->execute(array_merge(array_values($ids),$resourceIds));
-  $pdo->prepare("DELETE FROM resource_requests WHERE resource_id IN ({$marks})")->execute($resourceIds);
+  $pdo->prepare("DELETE rr FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE ri.resource_id IN ({$marks})")->execute($resourceIds);
   $pdo->prepare("DELETE FROM resources WHERE resource_id IN ({$marks})")->execute($resourceIds);
  }
  foreach($ids as $id){$pdo->prepare("DELETE FROM notifications WHERE user_id=:i")->execute([":i"=>$id]);$pdo->prepare("DELETE FROM activity_logs WHERE user_id=:i")->execute([":i"=>$id]);}

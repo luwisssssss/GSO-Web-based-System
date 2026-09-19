@@ -21,8 +21,7 @@ $stmt = $pdo->prepare("
     SELECT
         rr.request_id,
         rr.borrower_id,
-        rr.resource_id,
-        rr.quantity,
+        r.quantity,
         rr.contact_number,
         rr.date_needed,
         rr.start_time,
@@ -74,7 +73,7 @@ $stmt = $pdo->prepare("
         r.is_archived
     FROM resource_requests rr
     INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
-    INNER JOIN resources r ON rr.resource_id = r.resource_id
+    INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN users approver ON rr.approved_by = approver.user_id
     LEFT JOIN users releaser ON rr.released_by = releaser.user_id

@@ -338,11 +338,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             }
 
             $activeRequestLockStmt = $pdo->prepare("
-                SELECT request_id, status, return_date
-                FROM resource_requests
-                WHERE resource_id = :resource_id
-                  AND status IN ('Pending', 'Under Review', 'Approved', 'Released')
-                  AND (status <> 'Released' OR return_date IS NULL)
+                SELECT rr.request_id, rr.status, rr.return_date
+                FROM resource_requests rr
+                INNER JOIN request_items ri ON ri.request_id = rr.request_id
+                WHERE ri.resource_id = :resource_id
+                  AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released')
+                  AND (rr.status <> 'Released' OR rr.return_date IS NULL)
                 FOR UPDATE
             ");
             $activeRequestLockStmt->execute([":resource_id" => $resourceId]);

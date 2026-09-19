@@ -634,7 +634,7 @@ try {
             $placeholders = implode(",", array_fill(0, count($resourceIds), "?"));
             $userPlaceholders = implode(",", array_fill(0, count($userIds), "?"));
             $pdo->prepare("DELETE FROM resource_requests WHERE borrower_id IN ({$userPlaceholders}) AND request_id IN (SELECT request_id FROM request_items WHERE resource_id IN ({$placeholders}))")->execute(array_merge($userIds, $resourceIds));
-            $pdo->prepare("DELETE FROM resource_requests WHERE resource_id IN ({$placeholders})")->execute($resourceIds);
+            $pdo->prepare("DELETE rr FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE ri.resource_id IN ({$placeholders})")->execute($resourceIds);
             $pdo->prepare("DELETE FROM incident_reports WHERE resource_id IN ({$placeholders})")->execute($resourceIds);
             $pdo->prepare("DELETE FROM maintenance_schedules WHERE resource_id IN ({$placeholders})")->execute($resourceIds);
             $pdo->prepare("DELETE FROM resources WHERE resource_id IN ({$placeholders})")->execute($resourceIds);

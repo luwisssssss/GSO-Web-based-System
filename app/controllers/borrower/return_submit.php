@@ -28,8 +28,7 @@ if ($borrowerId <= 0 || $requestId <= 0) {
 $reqStmt = $pdo->prepare("
     SELECT
         rr.request_id,
-        rr.resource_id,
-        rr.quantity,
+        r.quantity,
         rr.status,
         rr.date_needed,
         rr.start_time,
@@ -41,7 +40,7 @@ $reqStmt = $pdo->prepare("
         r.category,
         r.location
     FROM resource_requests rr
-    INNER JOIN resources r ON rr.resource_id = r.resource_id
+    INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     WHERE rr.request_id = :request_id
       AND rr.borrower_id = :borrower_id
       AND rr.status = 'Released'

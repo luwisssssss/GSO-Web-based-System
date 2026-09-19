@@ -317,12 +317,12 @@ if (!function_exists("gsoChatGetRequestStatus")) {
             return gsoChatListOwnRequests($pdo, $authUser);
         }
 
-        $sql = "SELECT rr.request_id, rr.status, rr.quantity, rr.date_needed, rr.due_date,
+        $sql = "SELECT rr.request_id, rr.status, r.quantity, rr.date_needed, rr.due_date,
                        rr.return_date, rr.request_date, rr.borrower_id,
                        COALESCE((SELECT GROUP_CONCAT(CONCAT(lr.resource_name, CASE WHEN li.line_kind = 'Facility' THEN '' ELSE CONCAT(' x', li.requested_quantity) END) ORDER BY FIELD(li.line_kind,'Facility','Equipment','Consumable'), lr.resource_name SEPARATOR ', ') FROM request_items li INNER JOIN resources lr ON lr.resource_id = li.resource_id WHERE li.request_id = rr.request_id), r.resource_name) AS resource_name, r.resource_type,
                        rs.inspection_condition
                 FROM resource_requests rr
-                INNER JOIN resources r ON r.resource_id = rr.resource_id
+                INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
                 LEFT JOIN return_submissions rs
                     ON rs.request_id = rr.request_id AND rs.status = 'Approved'
                 WHERE rr.request_id = :request_id";
@@ -397,9 +397,9 @@ if (!function_exists("gsoChatListOwnRequests")) {
 
         $stmt = $pdo->prepare("
             SELECT rr.request_id, rr.status, rr.due_date,
-                   COALESCE((SELECT GROUP_CONCAT(CONCAT(lr.resource_name, CASE WHEN li.line_kind = 'Facility' THEN '' ELSE CONCAT(' x', li.requested_quantity) END) ORDER BY FIELD(li.line_kind,'Facility','Equipment','Consumable'), lr.resource_name SEPARATOR ', ') FROM request_items li INNER JOIN resources lr ON lr.resource_id = li.resource_id WHERE li.request_id = rr.request_id), r.resource_name) AS resource_name
+                   r.resource_name AS resource_name
             FROM resource_requests rr
-            INNER JOIN resources r ON r.resource_id = rr.resource_id
+            INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
             WHERE rr.borrower_id = :borrower_id
               AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released')
             ORDER BY rr.request_id DESC

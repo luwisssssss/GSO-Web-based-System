@@ -150,7 +150,11 @@ try{
  p35a(gsoFacilityConflictsForRequest($pdo,$rowA)===[],"Equipment-only request entered facility prioritisation.");
  $rowC=$pdo->query("SELECT * FROM resource_requests WHERE request_id={$reqC}")->fetch(PDO::FETCH_ASSOC);
  p35a(gsoRequestFacilityLine($pdo,$reqC)!==null,"Facility line not resolvable for a combined request.");
- $checks+=2;
+ $fcfs=findEarlierFirstComeFirstServedRequest($pdo,$rowC,["Pending","Under Review"]);
+ p35a((int)($fcfs["request_id"]??0)===$reqA,"FCFS did not detect the older request competing on a secondary equipment line.");
+ $rollup=$pdo->query("SELECT resource_name FROM ".gsoRequestResourceRollupSql()." x WHERE request_id={$reqC}")->fetchColumn();
+ p35a(str_contains((string)$rollup,"{$mark} Hall B")&&str_contains((string)$rollup,"{$mark} Item A")&&str_contains((string)$rollup,"{$mark} Item B"),"Request rollup omitted a secondary resource line.");
+ $checks+=4;
 
  // ---- Adviser and Director stay request-level --------------------------
  p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqE,"action"=>"require_adviser"]);

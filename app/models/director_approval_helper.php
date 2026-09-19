@@ -141,7 +141,7 @@ if (!function_exists("gsoSendDirectorAssignmentEmails")) {
             SELECT d.full_name,d.email,r.resource_name,b.full_name AS borrower_name
             FROM users d
             JOIN resource_requests rr ON rr.request_id=:request_id
-            JOIN resources r ON r.resource_id=rr.resource_id
+            JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id=rr.request_id
             JOIN users b ON b.user_id=rr.borrower_id
             WHERE d.role='Director' AND d.account_status='Approved' AND d.email_verified=1
         ");

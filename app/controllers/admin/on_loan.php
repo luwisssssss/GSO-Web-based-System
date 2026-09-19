@@ -47,7 +47,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             r.resource_name
         FROM resource_requests rr
         INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
-        INNER JOIN resources r ON rr.resource_id = r.resource_id
+        INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
         WHERE rr.request_id = :request_id
           AND rr.status = 'Released'
           AND rr.return_date IS NULL
@@ -134,8 +134,7 @@ $sql = "
     SELECT
         rr.request_id,
         rr.borrower_id,
-        rr.resource_id,
-        rr.quantity,
+        r.quantity,
         rr.request_date,
         rr.date_needed,
         rr.start_time,
@@ -166,7 +165,7 @@ $sql = "
         rs.status AS return_status
     FROM resource_requests rr
     INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
-    INNER JOIN resources r ON rr.resource_id = r.resource_id
+    INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     LEFT JOIN users releaser ON rr.released_by = releaser.user_id
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
     WHERE rr.status = 'Released'

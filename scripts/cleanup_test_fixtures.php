@@ -166,14 +166,14 @@ try {
         // Dependency order: photos -> returns -> requests, then the rest.
         $pdo->prepare("DELETE p FROM return_submission_photos p
                        INNER JOIN return_submissions rs ON rs.return_id = p.return_id
-                       INNER JOIN resource_requests rr ON rr.request_id = rs.request_id
-                       WHERE rr.resource_id IN ({$placeholders})")->execute($ids);
+                       INNER JOIN request_items ri ON ri.request_id = rs.request_id
+                       WHERE ri.resource_id IN ({$placeholders})")->execute($ids);
         $pdo->prepare("DELETE rs FROM return_submissions rs
-                       INNER JOIN resource_requests rr ON rr.request_id = rs.request_id
-                       WHERE rr.resource_id IN ({$placeholders})")->execute($ids);
+                       INNER JOIN request_items ri ON ri.request_id = rs.request_id
+                       WHERE ri.resource_id IN ({$placeholders})")->execute($ids);
         $pdo->prepare("DELETE FROM maintenance_schedules WHERE resource_id IN ({$placeholders})")->execute($ids);
         $pdo->prepare("DELETE FROM incident_reports WHERE resource_id IN ({$placeholders})")->execute($ids);
-        $pdo->prepare("DELETE FROM resource_requests WHERE resource_id IN ({$placeholders})")->execute($ids);
+        $pdo->prepare("DELETE rr FROM resource_requests rr INNER JOIN request_items ri ON ri.request_id=rr.request_id WHERE ri.resource_id IN ({$placeholders})")->execute($ids);
         $stmt = $pdo->prepare("DELETE FROM resources WHERE resource_id IN ({$placeholders})");
         $stmt->execute($ids);
         $removed["resources"] = $stmt->rowCount();

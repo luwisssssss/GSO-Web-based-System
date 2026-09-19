@@ -18,7 +18,7 @@ $offset = ($page - 1) * $perPage;
 
 $baseWhereSql = "
     FROM resource_requests rr
-    INNER JOIN resources r ON rr.resource_id = r.resource_id
+    INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
     WHERE rr.borrower_id = :borrower_id
@@ -74,8 +74,7 @@ $listSql = "
     SELECT
         rr.request_id,
         rr.borrower_id,
-        rr.resource_id,
-        rr.quantity,
+        r.quantity,
         rr.date_needed,
         rr.start_time,
         rr.end_time,

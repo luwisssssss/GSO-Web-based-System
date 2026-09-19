@@ -23,7 +23,7 @@ ensureBorrowerOverdueNotifications($pdo, $borrower_id);
 
 $baseWhereSql = "
     FROM resource_requests rr
-    INNER JOIN resources r ON rr.resource_id = r.resource_id
+    INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     LEFT JOIN users releaser ON rr.released_by = releaser.user_id
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
     WHERE rr.borrower_id = :borrower_id
@@ -65,7 +65,7 @@ if ($page > $totalPages) {
 $listSql = "
     SELECT
         rr.request_id,
-        rr.quantity,
+        r.quantity,
         rr.request_date,
         rr.date_needed,
         rr.start_time,

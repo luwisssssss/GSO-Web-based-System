@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . "/role_helper.php";
+require_once __DIR__ . "/request_helper.php";
 
 if (!function_exists("gsoIsApprovedFaculty")) {
     function gsoIsApprovedFaculty(PDO $pdo, int $userId): bool
@@ -46,7 +47,7 @@ if (!function_exists("gsoSendAdviserAssignmentEmail")) {
     function gsoSendAdviserAssignmentEmail(PDO $pdo,int $requestId,int $adviserId,int $studentId): bool
     {
         require_once dirname(__DIR__,2)."/includes/mail_helper.php";
-        $s=$pdo->prepare("SELECT a.full_name,a.email,b.full_name AS student_name,r.resource_name,rr.notes FROM resource_requests rr JOIN users a ON a.user_id=:aid JOIN users b ON b.user_id=rr.borrower_id JOIN resources r ON r.resource_id=rr.resource_id WHERE rr.request_id=:rid AND rr.borrower_id=:sid LIMIT 1");
+        $s=$pdo->prepare("SELECT a.full_name,a.email,b.full_name AS student_name,r.resource_name,rr.notes FROM resource_requests rr JOIN users a ON a.user_id=:aid JOIN users b ON b.user_id=rr.borrower_id JOIN ".gsoRequestResourceRollupSql()." r ON r.request_id=rr.request_id WHERE rr.request_id=:rid AND rr.borrower_id=:sid LIMIT 1");
         $s->execute([":aid"=>$adviserId,":rid"=>$requestId,":sid"=>$studentId]);$row=$s->fetch(PDO::FETCH_ASSOC);
         if(!$row)return false;
         $ref="REQ-".str_pad((string)$requestId,3,"0",STR_PAD_LEFT);$url=gsoBuildAppUrl("borrower/endorsement_detail.php?request_id={$requestId}");

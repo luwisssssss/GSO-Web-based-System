@@ -125,6 +125,94 @@ if (!function_exists("gsoRequestFacilityLine")) {
     }
 }
 
+if (!function_exists("gsoRequestLineAvailabilityError")) {
+    /** Validate every normalized line against schedule, stock and maintenance. */
+    function gsoRequestLineAvailabilityError(PDO $pdo, array $requestRow): ?string
+    {
+        $lines = gsoRequestLines($pdo, (int) ($requestRow["request_id"] ?? 0));
+
+        if ($lines === []) {
+            return "This request has no resource lines.";
+        }
+
+        foreach ($lines as $line) {
+            $resource = gsoFetchRequestableResource($pdo, (int) $line["resource_id"]);
+
+            if ($resource === null) {
+                return "A requested resource is no longer available.";
+            }
+
+            $quantity = (string) $line["line_kind"] === "Facility"
+                ? 1
+                : max(1, (int) $line["requested_quantity"]);
+            $validationErrors = validateBorrowScheduleInputs(
+                (string) $resource["resource_type"],
+                $quantity,
+                $requestRow["date_needed"] ?? null,
+                $requestRow["start_time"] ?? null,
+                $requestRow["end_time"] ?? null,
+                null
+            );
+
+            if ($validationErrors !== []) {
+                return (string) $resource["resource_name"] . ": " . implode(" ", $validationErrors);
+            }
+
+            $availability = checkResourceAvailability(
+                $pdo,
+                $resource,
+                $quantity,
+                $requestRow["date_needed"] ?? null,
+                $requestRow["start_time"] ?? null,
+                $requestRow["end_time"] ?? null,
+                null,
+                (int) $requestRow["request_id"]
+            );
+
+            if (!($availability["ok"] ?? false)) {
+                return (string) $resource["resource_name"] . ": "
+                    . (string) ($availability["message"] ?? "This resource is unavailable.");
+            }
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists("gsoSyncRequestLegacyMirror")) {
+    /** Keep the temporary header mirror aligned after an authoritative line edit. */
+    function gsoSyncRequestLegacyMirror(PDO $pdo, int $requestId): void
+    {
+        $lines = gsoRequestLines($pdo, $requestId);
+        $candidates = [];
+
+        foreach ($lines as $line) {
+            $candidates[] = [
+                "resource_id" => (int) $line["resource_id"],
+                "line_kind" => (string) $line["line_kind"],
+                "quantity" => (int) $line["requested_quantity"],
+            ];
+        }
+
+        $primary = gsoPrimaryMirrorLine($candidates);
+
+        if ($primary === null) {
+            throw new DomainException("This request has no resource lines.");
+        }
+
+        $stmt = $pdo->prepare("
+            UPDATE resource_requests
+            SET resource_id = :resource_id, quantity = :quantity
+            WHERE request_id = :request_id
+        ");
+        $stmt->execute([
+            ":resource_id" => (int) $primary["resource_id"],
+            ":quantity" => (int) $primary["quantity"],
+            ":request_id" => $requestId,
+        ]);
+    }
+}
+
 if (!function_exists("gsoNormalizeRequestedLines")) {
     /**
      * Validate and normalize submitted lines into insertable rows.

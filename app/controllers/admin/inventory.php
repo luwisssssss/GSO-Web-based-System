@@ -122,7 +122,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     if ($action === "delete") {
         $refStmt = $pdo->prepare("
             SELECT COUNT(*) AS total_refs
-            FROM resource_requests
+            FROM request_items
             WHERE resource_id = :resource_id
         ");
         $refStmt->execute([

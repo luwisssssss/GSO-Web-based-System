@@ -38,8 +38,7 @@ $infoStmt = $pdo->prepare("
 
         rr.request_id,
         rr.borrower_id,
-        rr.resource_id,
-        rr.quantity,
+        r.quantity,
         rr.status AS request_status,
         rr.released_at,
         rr.due_date,
@@ -61,7 +60,7 @@ $infoStmt = $pdo->prepare("
     FROM return_submissions rs
     INNER JOIN resource_requests rr ON rs.request_id = rr.request_id
     INNER JOIN users b ON rr.borrower_id = b.user_id
-    INNER JOIN resources r ON rr.resource_id = r.resource_id
+    INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     WHERE rr.request_id = :request_id
     LIMIT 1
 ");
@@ -123,8 +122,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             SELECT
                 rr.request_id,
                 rr.borrower_id,
-                rr.resource_id,
-                rr.quantity,
                 rr.status AS request_status,
                 rr.return_date,
                 rs.return_id,
@@ -136,7 +133,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 r.condition_status
             FROM resource_requests rr
             INNER JOIN return_submissions rs ON rs.request_id = rr.request_id
-            INNER JOIN resources r ON rr.resource_id = r.resource_id
+            INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
             WHERE rr.request_id = :request_id
             FOR UPDATE
         ");
@@ -154,9 +151,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
 
         $borrowerId = (int) $locked["borrower_id"];
-        $resourceId = (int) $locked["resource_id"];
-        $resourceType = (string) ($locked["resource_type"] ?? "");
-        $returnedQty = max(0, (int) ($locked["quantity"] ?? 0));
         $borrowNo = "BRW-" . str_pad((string) $requestId, 3, "0", STR_PAD_LEFT);
 
         if ($action === "approve") {

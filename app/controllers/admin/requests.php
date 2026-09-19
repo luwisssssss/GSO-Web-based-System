@@ -48,8 +48,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         SELECT
             rr.request_id,
             rr.borrower_id,
-            rr.resource_id,
-            rr.quantity,
             rr.contact_number,
             rr.date_needed,
             rr.start_time,
@@ -64,18 +62,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             rr.due_date,
             rr.return_date,
             rr.notes,
-            r.resource_name,
-            r.resource_type,
-            r.category,
-            r.status AS resource_status,
-            r.total_stock,
-            r.available_stock,
-            r.condition_status,
-            r.is_archived
-            , borrower.account_type AS borrower_account_type
+            " . gsoRequestLineSummarySql("rr") . " AS line_summary,
+            borrower.account_type AS borrower_account_type
         FROM resource_requests rr
         INNER JOIN users borrower ON borrower.user_id = rr.borrower_id
-        INNER JOIN resources r ON rr.resource_id = r.resource_id
         WHERE rr.request_id = :request_id
         LIMIT 1
     ");
@@ -89,6 +79,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $_SESSION["flash_type"] = "error";
         redirectRequestsPage();
     }
+    $requestSummary = (string) ($requestRow["line_summary"] ?? "requested resources");
 
     if ($action === "require_adviser") {
         $isAdmin=(string)($_SESSION["role"]??"")==="Admin";
@@ -154,8 +145,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         redirectRequestsPage();
     }
 
-    $quantity = max(1, (int) ($requestRow["quantity"] ?? 0));
-    $resourceType = (string) ($requestRow["resource_type"] ?? "Item");
     $dateNeeded = $requestRow["date_needed"] ?? null;
     $startTime = $requestRow["start_time"] ?? null;
     $endTime = $requestRow["end_time"] ?? null;
@@ -190,14 +179,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $pdo,
                 $adminUserId,
                 "Request Under Review",
-                "Admin started reviewing request #{$requestId} for resource: " . ($requestRow["resource_name"] ?? "Unknown")
+                "Admin started reviewing request #{$requestId} for: {$requestSummary}"
             );
             createNotification(
                 $pdo,
                 (int) $requestRow["borrower_id"],
                 "request_review",
                 "Request Under Review",
-                "Your request for " . ($requestRow["resource_name"] ?? "resource") . " is now under GSO review.",
+                "Your request for {$requestSummary} is now under GSO review.",
                 "my_requests.php"
             );
         }
@@ -239,7 +228,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $pdo,
                 $adminUserId,
                 "Request Rejected",
-                "Admin rejected request #{$requestId} for resource: " . ($requestRow["resource_name"] ?? "Unknown")
+                "Admin rejected request #{$requestId} for: {$requestSummary}"
             );
 
             createNotification(
@@ -247,7 +236,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 (int) $requestRow["borrower_id"],
                 "rejected",
                 "Request Rejected",
-                "Your request for " . ($requestRow["resource_name"] ?? "resource") . " has been rejected.",
+                "Your request for {$requestSummary} has been rejected.",
                 "my_requests.php"
             );
         }
@@ -258,17 +247,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     }
 
     if ($action === "approve") {
-        $validationErrors = validateBorrowScheduleInputs(
-            $resourceType,
-            $quantity,
-            $dateNeeded,
-            $startTime,
-            $endTime,
-            $scheduleDueDate
-        );
+        $lineError = gsoRequestLineAvailabilityError($pdo, $requestRow);
 
-        if (!empty($validationErrors)) {
-            $_SESSION["flash_message"] = implode(" ", $validationErrors);
+        if ($lineError !== null) {
+            $_SESSION["flash_message"] = $lineError;
             $_SESSION["flash_type"] = "error";
             redirectRequestsPage();
         }
@@ -289,23 +271,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         if ($queueBlocker) {
             $_SESSION["flash_message"] = buildFirstComeFirstServedMessage($queueBlocker);
-            $_SESSION["flash_type"] = "error";
-            redirectRequestsPage();
-        }
-
-        $availability = checkResourceAvailability(
-            $pdo,
-            $requestRow,
-            $quantity,
-            $dateNeeded,
-            $startTime,
-            $endTime,
-            $scheduleDueDate,
-            $requestId
-        );
-
-        if (!($availability["ok"] ?? false)) {
-            $_SESSION["flash_message"] = (string) ($availability["message"] ?? "This request is no longer available.");
             $_SESSION["flash_type"] = "error";
             redirectRequestsPage();
         }
@@ -336,7 +301,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $pdo,
                 $adminUserId,
                 "Request Approved",
-                "Admin approved request #{$requestId} for resource: " . ($requestRow["resource_name"] ?? "Unknown")
+                "Admin approved request #{$requestId} for: {$requestSummary}"
             );
 
             createNotification(
@@ -344,7 +309,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 (int) $requestRow["borrower_id"],
                 "approved",
                 "Request Approved",
-                "Your request for " . ($requestRow["resource_name"] ?? "resource") . " has been approved.",
+                "Your request for {$requestSummary} has been approved.",
                 "my_requests.php"
             );
         }
@@ -372,19 +337,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         redirectRequestsPage();
     }
 
-    $availability = checkResourceAvailability(
-        $pdo,
-        $requestRow,
-        $quantity,
-        $dateNeeded,
-        $startTime,
-        $endTime,
-        $scheduleDueDate,
-        $requestId
-    );
-
-    if (!($availability["ok"] ?? false)) {
-        $_SESSION["flash_message"] = (string) ($availability["message"] ?? "This request is no longer available.");
+    $lineError = gsoRequestLineAvailabilityError($pdo, $requestRow);
+    if ($lineError !== null) {
+        $_SESSION["flash_message"] = $lineError;
         $_SESSION["flash_type"] = "error";
         redirectRequestsPage();
     }
@@ -396,8 +351,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             SELECT
                 rr.request_id,
                 rr.borrower_id,
-                rr.resource_id,
-                rr.quantity,
                 rr.contact_number,
                 rr.date_needed,
                 rr.start_time,
@@ -409,16 +362,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 rr.due_date,
                 rr.return_date,
                 rr.notes,
-                r.resource_name,
-                r.resource_type,
-                r.category,
-                r.status AS resource_status,
-                r.total_stock,
-                r.available_stock,
-                r.condition_status,
-                r.is_archived
+                " . gsoRequestLineSummarySql("rr") . " AS line_summary
             FROM resource_requests rr
-            INNER JOIN resources r ON rr.resource_id = r.resource_id
             WHERE rr.request_id = :request_id
             LIMIT 1
             FOR UPDATE
@@ -677,7 +622,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         // The loan window follows the facility when one is present, otherwise
         // the equipment default, preserving the existing due-date behaviour.
         $resourceType = $lineIsFacility ? "Facility" : "Item";
-        $quantity = max(1, (int) ($requestRow["quantity"] ?? 1));
         $releasedAt = date("Y-m-d H:i:s");
         $generatedDueDate = generateLoanDueDate(
             $resourceType,
@@ -739,11 +683,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $pdo,
             $adminUserId,
             "Request Released",
-            "Admin released request #{$requestId} for resource: " . ($requestRow["resource_name"] ?? "Unknown")
+            "Admin released request #{$requestId} for: " . ($requestRow["line_summary"] ?? "requested resources")
         );
 
         $releaseMessage = substr(
-            "Your approved request for " . ($requestRow["resource_name"] ?? "resource") . " has been released. Due date: " . formatDateTimeDisplay($generatedDueDate) . ".",
+            "Your approved request for " . ($requestRow["line_summary"] ?? "requested resources") . " has been released. Due date: " . formatDateTimeDisplay($generatedDueDate) . ".",
             0,
             255
         );
@@ -757,18 +701,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             "my_borrowed.php"
         );
 
-        $currentResourceStmt = $pdo->prepare("
-            SELECT available_stock
-            FROM resources
-            WHERE resource_id = :resource_id
-            LIMIT 1
-        ");
-        $currentResourceStmt->execute([
-            ":resource_id" => $requestRow["resource_id"]
-        ]);
-        $remainingStock = (int) $currentResourceStmt->fetchColumn();
+        $lowStockLines = [];
+        $stockStmt = $pdo->prepare("SELECT resource_name, available_stock FROM resources WHERE resource_id = :resource_id");
+        foreach ($releaseLines as $releaseLine) {
+            if ((string) $releaseLine["resource_type"] === "Facility") {
+                continue;
+            }
+            $stockStmt->execute([":resource_id" => (int) $releaseLine["resource_id"]]);
+            $stockRow = $stockStmt->fetch(PDO::FETCH_ASSOC);
+            if ($stockRow && (int) $stockRow["available_stock"] <= 2) {
+                $lowStockLines[] = $stockRow;
+            }
+        }
 
-        if ($resourceType === "Item" && $remainingStock <= 2) {
+        if ($lowStockLines !== []) {
             $adminRows = $pdo->query("
                 SELECT user_id
                 FROM users
@@ -776,15 +722,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                   AND account_status = 'Approved'
             ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-            foreach ($adminRows as $adminRow) {
-                createNotification(
-                    $pdo,
-                    (int) $adminRow["user_id"],
-                    "system",
-                    "Low Stock Alert",
-                    "Resource stock is running low for " . ($requestRow["resource_name"] ?? "resource") . ".",
-                    "inventory.php"
-                );
+            foreach ($lowStockLines as $lowStockLine) {
+                foreach ($adminRows as $adminRow) {
+                    createNotification(
+                        $pdo,
+                        (int) $adminRow["user_id"],
+                        "system",
+                        "Low Stock Alert",
+                        "Resource stock is running low for " . $lowStockLine["resource_name"] . ".",
+                        "inventory.php"
+                    );
+                }
             }
         }
 
@@ -813,8 +761,6 @@ $listStmt = $pdo->query("
     SELECT
         rr.request_id,
         rr.borrower_id,
-        rr.resource_id,
-        rr.quantity,
         rr.contact_number,
         rr.date_needed,
         rr.start_time,
@@ -838,18 +784,12 @@ $listStmt = $pdo->query("
         reviewer.full_name AS reviewed_by_name,
         (SELECT GROUP_CONCAT(CONCAT(lr.resource_name, CASE WHEN li.line_kind = 'Facility' THEN '' ELSE CONCAT(' x', li.requested_quantity) END) ORDER BY FIELD(li.line_kind,'Facility','Equipment','Consumable'), lr.resource_name SEPARATOR ', ') FROM request_items li INNER JOIN resources lr ON lr.resource_id = li.resource_id WHERE li.request_id = rr.request_id) AS line_summary,
         (SELECT COUNT(*) FROM request_items lc WHERE lc.request_id = rr.request_id) AS line_count,
-        r.resource_name,
-        r.resource_type,
-        r.category,
-        r.status AS resource_status,
-        r.available_stock,
-        r.total_stock,
-        r.condition_status,
+        (SELECT GROUP_CONCAT(DISTINCT lr.category ORDER BY lr.category SEPARATOR ', ') FROM request_items li INNER JOIN resources lr ON lr.resource_id=li.resource_id WHERE li.request_id=rr.request_id) AS category,
+        CASE WHEN EXISTS(SELECT 1 FROM request_items fi WHERE fi.request_id=rr.request_id AND fi.line_kind='Facility') THEN 'Facility' ELSE 'Item' END AS resource_type,
         rs.inspection_condition,
         rs.status AS return_submission_status
     FROM resource_requests rr
     INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
-    INNER JOIN resources r ON rr.resource_id = r.resource_id
     LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN return_submissions rs ON rr.request_id = rs.request_id
     ORDER BY rr.request_date DESC, rr.request_id DESC
@@ -878,7 +818,7 @@ foreach ($rows as $row) {
             (string) ($row["borrower_name"] ?? ""),
             (string) ($row["borrower_email"] ?? ""),
             (string) ($row["borrower_username"] ?? ""),
-            (string) ($row["resource_name"] ?? ""),
+            (string) ($row["line_summary"] ?? ""),
             (string) ($row["category"] ?? "")
         ]);
 
@@ -1085,7 +1025,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                     </td>
 
                                     <td>
-                                        <strong><?php echo htmlspecialchars((string) ($request["line_summary"] ?? $request["resource_name"])); ?></strong><?php if ((int) ($request["line_count"] ?? 1) > 1): ?> <span class="status-badge underreview"><?php echo (int) $request["line_count"]; ?> resources</span><?php endif; ?><br>
+                                        <strong><?php echo htmlspecialchars((string) ($request["line_summary"] ?? "Requested resources")); ?></strong><?php if ((int) ($request["line_count"] ?? 1) > 1): ?> <span class="status-badge underreview"><?php echo (int) $request["line_count"]; ?> resources</span><?php endif; ?><br>
                                         <small>
                                             <?php echo htmlspecialchars((string) $request["resource_type"]); ?>
                                             | Qty: <?php echo htmlspecialchars((string) ($request["quantity"] ?? "N/A")); ?>

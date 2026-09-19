@@ -159,7 +159,7 @@ $recentRequestsStmt = $pdo->query("
         rs.inspection_condition
     FROM resource_requests rr
     INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
-    INNER JOIN resources r ON rr.resource_id = r.resource_id
+    INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     LEFT JOIN return_submissions rs ON rr.request_id = rs.request_id
     WHERE {$activeRequestWhereForAlias}
     ORDER BY rr.request_date DESC, rr.request_id DESC

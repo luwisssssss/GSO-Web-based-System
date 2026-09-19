@@ -69,8 +69,8 @@ if (!function_exists("fetchFacilityCalendarEvents")) {
             SELECT
                 rr.request_id,
                 rr.borrower_id,
-                rr.resource_id,
-                rr.quantity,
+                ri.resource_id,
+                ri.requested_quantity AS quantity,
                 rr.date_needed,
                 rr.start_time,
                 rr.end_time,
@@ -80,7 +80,8 @@ if (!function_exists("fetchFacilityCalendarEvents")) {
                 r.resource_name,
                 r.location
             FROM resource_requests rr
-            INNER JOIN resources r ON rr.resource_id = r.resource_id
+            INNER JOIN request_items ri ON ri.request_id = rr.request_id AND ri.line_kind = 'Facility'
+            INNER JOIN resources r ON ri.resource_id = r.resource_id
             LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id
             WHERE r.resource_type = 'Facility'
               AND r.is_archived = 0
@@ -94,7 +95,7 @@ if (!function_exists("fetchFacilityCalendarEvents")) {
         ];
 
         if ($resourceId !== null && $resourceId > 0) {
-            $sql .= " AND rr.resource_id = :resource_id";
+            $sql .= " AND ri.resource_id = :resource_id";
             $params[":resource_id"] = $resourceId;
         }
 

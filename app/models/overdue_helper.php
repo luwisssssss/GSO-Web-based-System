@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . "/request_helper.php";
 /**
  * File: /includes/overdue_helper.php
  *
@@ -22,7 +23,7 @@ if (!function_exists("ensureBorrowerOverdueNotifications")) {
                 rr.due_date,
                 r.resource_name
             FROM resource_requests rr
-            INNER JOIN resources r ON rr.resource_id = r.resource_id
+            INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
             WHERE rr.borrower_id = :borrower_id
               AND rr.status = 'Released'
               AND rr.return_date IS NULL

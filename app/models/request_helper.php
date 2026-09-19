@@ -2,6 +2,33 @@
 
 require_once __DIR__ . "/maintenance_helper.php";
 
+if (!function_exists("gsoRequestResourceRollupSql")) {
+    /** Request-level display projection built exclusively from request_items. */
+    function gsoRequestResourceRollupSql(): string
+    {
+        return "(
+            SELECT ri.request_id,
+                   MIN(ri.resource_id) AS resource_id,
+                   SUM(ri.requested_quantity) AS quantity,
+                   GROUP_CONCAT(CONCAT(r.resource_name, CASE WHEN ri.line_kind='Facility' THEN '' ELSE CONCAT(' x',ri.requested_quantity) END) ORDER BY FIELD(ri.line_kind,'Facility','Equipment','Consumable'),r.resource_name SEPARATOR ', ') AS resource_name,
+                   CASE WHEN SUM(ri.line_kind='Facility')>0 THEN 'Facility' ELSE 'Item' END AS resource_type,
+                   GROUP_CONCAT(DISTINCT r.category ORDER BY r.category SEPARATOR ', ') AS category,
+                   GROUP_CONCAT(DISTINCT r.description ORDER BY r.resource_name SEPARATOR '; ') AS description,
+                   GROUP_CONCAT(DISTINCT r.location ORDER BY r.location SEPARATOR ', ') AS location,
+                   MAX(r.capacity) AS capacity,
+                   MIN(r.status) AS status,
+                   SUM(COALESCE(r.available_stock,0)) AS available_stock,
+                   SUM(COALESCE(r.total_stock,0)) AS total_stock,
+                   MIN(r.condition_status) AS condition_status,
+                   GROUP_CONCAT(DISTINCT r.condition_notes ORDER BY r.resource_name SEPARATOR '; ') AS condition_notes,
+                   MAX(r.is_archived) AS is_archived
+            FROM request_items ri
+            INNER JOIN resources r ON r.resource_id=ri.resource_id
+            GROUP BY ri.request_id
+        )";
+    }
+}
+
 if (!function_exists("normalizeDateTimeInput")) {
     function normalizeDateTimeInput(?string $value): ?string
     {
@@ -695,31 +722,32 @@ if (!function_exists("getEarlierFirstComeFirstServedRequests")) {
         array $requestRow,
         array $statuses
     ): array {
-        $resourceId = (int) ($requestRow["resource_id"] ?? 0);
         $requestId = (int) ($requestRow["request_id"] ?? 0);
         $requestDate = (string) ($requestRow["request_date"] ?? "");
-        $resourceType = (string) ($requestRow["resource_type"] ?? "Item");
 
-        if ($resourceId <= 0 || $requestId <= 0 || $requestDate === "" || empty($statuses)) {
+        if ($requestId <= 0 || $requestDate === "" || empty($statuses)) {
             return [];
         }
 
-        $targetRange = buildRequestDateRange(
-            $resourceType,
-            $requestRow["date_needed"] ?? null,
-            $requestRow["start_time"] ?? null,
-            $requestRow["end_time"] ?? null,
-            $requestRow["due_date"] ?? null,
-            $requestRow["status"] ?? null
-        );
+        // Fairness is evaluated for every authoritative line. A combined
+        // request must not jump an older request merely because the shared
+        // resource happens not to be mirrored on resource_requests.
+        $lineStmt = $pdo->prepare("
+            SELECT ri.resource_id, r.resource_type
+            FROM request_items ri
+            INNER JOIN resources r ON r.resource_id = ri.resource_id
+            WHERE ri.request_id = :request_id
+            ORDER BY ri.request_item_id
+        ");
+        $lineStmt->execute([":request_id" => $requestId]);
+        $targetLines = $lineStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-        if ($targetRange === null) {
+        if ($targetLines === []) {
             return [];
         }
 
         $statusPlaceholders = [];
         $params = [
-            ":resource_id" => $resourceId,
             ":request_id" => $requestId,
             ":request_date_before" => $requestDate,
             ":request_date_same" => $requestDate,
@@ -745,9 +773,11 @@ if (!function_exists("getEarlierFirstComeFirstServedRequests")) {
                 rr.status,
                 rr.due_date,
                 borrower.full_name AS borrower_name,
-                borrower.username AS borrower_username
+                borrower.username AS borrower_username,
+                r.resource_type
             FROM resource_requests rr
             INNER JOIN request_items ri ON ri.request_id = rr.request_id
+            INNER JOIN resources r ON r.resource_id = ri.resource_id
             LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id
             WHERE ri.resource_id = :resource_id
               AND rr.request_id <> :request_id
@@ -758,31 +788,49 @@ if (!function_exists("getEarlierFirstComeFirstServedRequests")) {
               )
             ORDER BY rr.request_date ASC, rr.request_id ASC
         ");
-        $stmt->execute($params);
-
-        $earlierRows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         $competingRows = [];
 
-        foreach ($earlierRows as $row) {
-            $rowRange = buildRequestDateRange(
+        foreach ($targetLines as $targetLine) {
+            $resourceType = (string) $targetLine["resource_type"];
+            $targetRange = buildRequestDateRange(
                 $resourceType,
-                $row["date_needed"] ?? null,
-                $row["start_time"] ?? null,
-                $row["end_time"] ?? null,
-                $row["due_date"] ?? null,
-                $row["status"] ?? null
+                $requestRow["date_needed"] ?? null,
+                $requestRow["start_time"] ?? null,
+                $requestRow["end_time"] ?? null,
+                $requestRow["due_date"] ?? null,
+                $requestRow["status"] ?? null
             );
 
-            if ($rowRange === null) {
+            if ($targetRange === null) {
                 continue;
             }
 
-            if (intervalsOverlap($targetRange["start"], $targetRange["end"], $rowRange["start"], $rowRange["end"])) {
-                $competingRows[] = $row;
+            $lineParams = $params;
+            $lineParams[":resource_id"] = (int) $targetLine["resource_id"];
+            $stmt->execute($lineParams);
+
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+                $rowRange = buildRequestDateRange(
+                    $resourceType,
+                    $row["date_needed"] ?? null,
+                    $row["start_time"] ?? null,
+                    $row["end_time"] ?? null,
+                    $row["due_date"] ?? null,
+                    $row["status"] ?? null
+                );
+
+                if ($rowRange !== null && intervalsOverlap($targetRange["start"], $targetRange["end"], $rowRange["start"], $rowRange["end"])) {
+                    $competingRows[(int) $row["request_id"]] = $row;
+                }
             }
         }
 
-        return $competingRows;
+        usort($competingRows, static function (array $a, array $b): int {
+            return [(string) $a["request_date"], (int) $a["request_id"]]
+                <=> [(string) $b["request_date"], (int) $b["request_id"]];
+        });
+
+        return array_values($competingRows);
     }
 }
 

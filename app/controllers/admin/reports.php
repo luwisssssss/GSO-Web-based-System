@@ -49,7 +49,7 @@ if ($export !== "" && $filterErrors !== []) {
 $requestStmt = $pdo->query("
     SELECT
         rr.request_id,
-        rr.quantity,
+        r.quantity,
         rr.request_date,
         rr.date_needed,
         rr.start_time,
@@ -73,7 +73,7 @@ $requestStmt = $pdo->query("
         rs.inspection_condition
     FROM resource_requests rr
     INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
-    INNER JOIN resources r ON rr.resource_id = r.resource_id
+    INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN return_submissions rs ON rr.request_id = rs.request_id
     ORDER BY rr.request_date DESC, rr.request_id DESC

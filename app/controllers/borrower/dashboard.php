@@ -90,7 +90,7 @@ $trendRows = $trendStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 $recentStmt = $pdo->prepare("
     SELECT
         rr.request_id,
-        rr.quantity,
+        r.quantity,
         rr.request_date,
         rr.date_needed,
         rr.start_time,
@@ -102,7 +102,7 @@ $recentStmt = $pdo->prepare("
         r.category,
         rs.inspection_condition
     FROM resource_requests rr
-    INNER JOIN resources r ON rr.resource_id = r.resource_id
+    INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
     WHERE rr.borrower_id = :borrower_id
     ORDER BY rr.request_date DESC, rr.request_id DESC
@@ -120,7 +120,7 @@ $dueStmt = $pdo->prepare("
         r.resource_type,
         r.category
     FROM resource_requests rr
-    INNER JOIN resources r ON rr.resource_id = r.resource_id
+    INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     WHERE rr.borrower_id = :borrower_id
       AND rr.status = 'Released'
       AND rr.due_date IS NOT NULL

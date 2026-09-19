@@ -3,6 +3,7 @@ require_once dirname(__DIR__,3)."/includes/auth_check.php";
 require_once dirname(__DIR__,3)."/includes/role_helper.php";
 require_once dirname(__DIR__,3)."/config/db.php";
 require_once dirname(__DIR__,3)."/includes/activity_log_helper.php";
+require_once dirname(__DIR__,3)."/includes/request_helper.php";
 require_once dirname(__DIR__,3)."/includes/director_approval_helper.php";
 // Role-exact gate first: the Admin wildcard permission must not reach the
 // Director workspace. Permission checks then apply on top of it.
@@ -15,7 +16,7 @@ $requestId=(int)($_POST["request_id"]??$_GET["request_id"]??0);
 if($requestId<=0)redirectWithFlash("dashboard.php","A valid request is required.");
 
 $fetchRequest=static function(PDO $pdo,int $id,bool $lock=false):?array{
-    $sql="SELECT rr.*,r.resource_name,r.resource_type,r.category,r.location,r.capacity,b.full_name AS borrower_name,b.account_type,b.department,a.full_name AS adviser_name,req.full_name AS director_required_by_name FROM resource_requests rr JOIN resources r ON r.resource_id=rr.resource_id JOIN users b ON b.user_id=rr.borrower_id LEFT JOIN users a ON a.user_id=rr.adviser_user_id LEFT JOIN users req ON req.user_id=rr.director_required_by WHERE rr.request_id=:id LIMIT 1".($lock?" FOR UPDATE":"");
+    $sql="SELECT rr.*,r.resource_name,r.resource_type,r.category,r.location,r.capacity,b.full_name AS borrower_name,b.account_type,b.department,a.full_name AS adviser_name,req.full_name AS director_required_by_name FROM resource_requests rr JOIN ".gsoRequestResourceRollupSql()." r ON r.request_id=rr.request_id JOIN users b ON b.user_id=rr.borrower_id LEFT JOIN users a ON a.user_id=rr.adviser_user_id LEFT JOIN users req ON req.user_id=rr.director_required_by WHERE rr.request_id=:id LIMIT 1".($lock?" FOR UPDATE":"");
     $s=$pdo->prepare($sql);$s->execute([":id"=>$id]);$row=$s->fetch(PDO::FETCH_ASSOC);return is_array($row)?$row:null;
 };
 
@@ -34,7 +35,7 @@ if($_SERVER["REQUEST_METHOD"]==="POST"){
         $target=$fetchRequest($pdo,$requestId,true);
         if(!$target||(string)$target["director_state"]!=="Pending"||!in_array((string)$target["status"],["Pending","Under Review"],true))throw new DomainException("This Director decision is no longer pending.");
         if(gsoAdviserStateBlocksGso($target))throw new DomainException("Adviser endorsement must be completed before a Director decision.");
-        if((string)$target["resource_type"]==="Facility"){$resourceLock=$pdo->prepare("SELECT request_id FROM resource_requests WHERE resource_id=:resource_id AND status IN ('Pending','Under Review','Approved','Released') ORDER BY request_id FOR UPDATE");$resourceLock->execute([":resource_id"=>(int)$target["resource_id"]]);$resourceLock->fetchAll(PDO::FETCH_COLUMN);}
+        $facility=$pdo->prepare("SELECT resource_id FROM request_items WHERE request_id=:id AND line_kind='Facility' LIMIT 1");$facility->execute([":id"=>$requestId]);$facilityId=(int)$facility->fetchColumn();if($facilityId>0){$resourceLock=$pdo->prepare("SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE ri.resource_id=:resource_id AND rr.status IN ('Pending','Under Review','Approved','Released') ORDER BY rr.request_id FOR UPDATE");$resourceLock->execute([":resource_id"=>$facilityId]);$resourceLock->fetchAll(PDO::FETCH_COLUMN);}
         $conflicts=gsoFacilityConflictsForRequest($pdo,$target);
         if($action==="approve"&&$conflicts)throw new DomainException("An active facility conflict exists. Review and prioritize the competing requests instead.");
         if($action==="prioritize"&&((string)$target["resource_type"]!=="Facility"||!$conflicts))throw new DomainException("The facility conflict changed or no longer exists. Refresh before deciding.");
@@ -60,7 +61,7 @@ if($_SERVER["REQUEST_METHOD"]==="POST"){
 
 $request=$fetchRequest($pdo,$requestId,false);if(!$request||(string)$request["director_state"]==="Not Required")redirectWithFlash("dashboard.php","This request is outside the Director decision workspace.");
 $history=gsoDirectorHistory($pdo,$requestId);$conflicts=gsoFacilityConflictsForRequest($pdo,$request);$conflictDetails=[];
-if($conflicts){$ids=array_map(static fn(array $r):int=>(int)$r["request_id"],$conflicts);$marks=implode(",",array_fill(0,count($ids),"?"));$s=$pdo->prepare("SELECT rr.*,b.full_name AS borrower_name,b.account_type,b.department,r.resource_name FROM resource_requests rr JOIN users b ON b.user_id=rr.borrower_id JOIN resources r ON r.resource_id=rr.resource_id WHERE rr.request_id IN ({$marks}) ORDER BY rr.request_date,rr.request_id");$s->execute($ids);$conflictDetails=$s->fetchAll(PDO::FETCH_ASSOC)?:[];}
+if($conflicts){$ids=array_map(static fn(array $r):int=>(int)$r["request_id"],$conflicts);$marks=implode(",",array_fill(0,count($ids),"?"));$s=$pdo->prepare("SELECT rr.*,b.full_name AS borrower_name,b.account_type,b.department,r.resource_name FROM resource_requests rr JOIN users b ON b.user_id=rr.borrower_id JOIN ".gsoRequestResourceRollupSql()." r ON r.request_id=rr.request_id WHERE rr.request_id IN ({$marks}) ORDER BY rr.request_date,rr.request_id");$s->execute($ids);$conflictDetails=$s->fetchAll(PDO::FETCH_ASSOC)?:[];}
 $flash=$_SESSION["flash_message"]??"";$flashType=$_SESSION["flash_type"]??"";unset($_SESSION["flash_message"],$_SESSION["flash_type"]);$pageTitle="Director Request Review";$activePage="director-request";$cssFile="../public/assets/css/pages/admin.css";require_once dirname(__DIR__,3)."/includes/header.php";
 ?>
 <div class="main-content"><main class="page-content"><?php if($flash):?><div class="flash-message <?php echo $flashType==='success'?'flash-success':'flash-error';?>"><?php echo htmlspecialchars($flash);?></div><?php endif;?>
