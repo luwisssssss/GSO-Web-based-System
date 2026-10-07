@@ -85,7 +85,7 @@ if (!function_exists("fetchFacilityCalendarEvents")) {
             LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id
             WHERE r.resource_type = 'Facility'
               AND r.is_archived = 0
-              AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released')
+              AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released', 'Return')
               AND DATE(rr.date_needed) BETWEEN :month_start AND :month_end
         ";
 

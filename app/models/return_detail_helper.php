@@ -96,7 +96,11 @@ if (!function_exists("gsoValidateBorrowerReturnRows")) {
         foreach ($lines as $line) {
             $lineId = (int) $line["request_item_id"];
             $name = (string) $line["resource_name"];
-            $released = max(1, (int) $line["released_quantity"]);
+            $released = (int) $line["released_quantity"];
+            if ($released < 1 || (int) $line["returned_quantity"] !== 0) {
+                $errors[] = "The released quantities for {$name} are not eligible for submission.";
+                continue;
+            }
             $payload = (array) ($submitted[$lineId] ?? []);
 
             if ((string) $line["tracking_mode"] === "Serialized") {
@@ -105,11 +109,15 @@ if (!function_exists("gsoValidateBorrowerReturnRows")) {
                     static fn(array $u): bool => $u["returned_at"] === null
                 ));
 
-                if ($openUnits === []) {
+                if (count($openUnits) !== $released) {
+                    $errors[] = "The allocated units for {$name} do not match the released quantity.";
                     continue;
                 }
 
                 $unitPayload = (array) ($payload["units"] ?? []);
+                if (array_diff(array_map("intval", array_keys($unitPayload)), array_column($openUnits, "unit_id")) !== []) {
+                    $errors[] = "Only the exact allocated units of {$name} may be returned.";
+                }
 
                 foreach ($openUnits as $unit) {
                     $unitId = (int) $unit["unit_id"];
@@ -238,6 +246,39 @@ if (!function_exists("gsoApplyReturnInspection")) {
             return ["ok" => false, "message" => "This return has no resource details to inspect."];
         }
 
+        // Validate the complete submission before touching any stock. The
+        // caller holds the request lock and the inspection transaction.
+        $requestStmt = $pdo->prepare("SELECT request_id FROM return_submissions WHERE return_id = ?");
+        $requestStmt->execute([$returnId]);
+        $lines = gsoReturnableLines($pdo, (int) $requestStmt->fetchColumn());
+        $byLine = [];
+        foreach ($details as $detail) {
+            $byLine[(int) $detail["request_item_id"]][] = $detail;
+            if ((int) $detail["stock_applied"] !== 0 || !in_array((string) ($inspection[(int) $detail["return_item_id"]]["condition"] ?? ""), $conditions, true)) {
+                return ["ok" => false, "message" => "Every return detail must be unprocessed and have an inspection condition."];
+            }
+        }
+        if ($lines === [] || array_diff(array_keys($byLine), array_column($lines, "request_item_id")) !== []) {
+            return ["ok" => false, "message" => "The return details do not match this request's returnable lines."];
+        }
+        foreach ($lines as $line) {
+            $rows = $byLine[(int) $line["request_item_id"]] ?? [];
+            $accounted = array_sum(array_column($rows, "returned_quantity")) + array_sum(array_column($rows, "lost_quantity"));
+            if ($rows === [] || $accounted !== (int) $line["released_quantity"] || (int) $line["returned_quantity"] !== 0) {
+                return ["ok" => false, "message" => "Inspection must account for every released quantity exactly once."];
+            }
+            if ((string) $line["tracking_mode"] === "Serialized") {
+                $expected = array_map("intval", array_column(array_filter($line["units"], static fn(array $u): bool => $u["returned_at"] === null), "unit_id"));
+                $actual = array_map("intval", array_column($rows, "unit_id"));
+                sort($expected); sort($actual);
+                if ($expected !== $actual || count($actual) !== (int) $line["released_quantity"]) {
+                    return ["ok" => false, "message" => "Inspection must cover the exact allocated units."];
+                }
+            } elseif (array_filter($rows, static fn(array $r): bool => $r["unit_id"] !== null) !== []) {
+                return ["ok" => false, "message" => "Aggregate and facility returns cannot contain serialized units."];
+            }
+        }
+
         foreach ($details as $detail) {
             $detailId = (int) $detail["return_item_id"];
             $resourceId = (int) $detail["resource_id"];
@@ -259,6 +300,13 @@ if (!function_exists("gsoApplyReturnInspection")) {
 
             $lostQty = (int) $detail["lost_quantity"];
             $returnedQty = (int) $detail["returned_quantity"];
+
+            if ($chosen === "Lost" && $lineKind !== "Facility") {
+                $lostQty += $returnedQty;
+                $returnedQty = 0;
+            } elseif ($lostQty > 0) {
+                return ["ok" => false, "message" => "A lost quantity must be inspected as Lost."];
+            }
 
             if ($lineKind === "Facility") {
                 // A room has no stock to move; the inspection is the record.
@@ -341,13 +389,17 @@ if (!function_exists("gsoApplyReturnInspection")) {
                     inspection_remarks = :remarks,
                     inspected_by = :inspector,
                     inspected_at = NOW(),
-                    stock_applied = 1
+                    stock_applied = 1,
+                    returned_quantity = :returned_qty,
+                    lost_quantity = :lost_qty
                 WHERE return_item_id = :id AND stock_applied = 0
             ")->execute([
                 ":condition" => $chosen,
                 ":remarks" => $remarks !== "" ? mb_substr($remarks, 0, 500) : null,
                 ":inspector" => $inspectorId,
                 ":id" => $detailId,
+                ":returned_qty" => $returnedQty,
+                ":lost_qty" => $lostQty,
             ]);
 
             $pdo->prepare("

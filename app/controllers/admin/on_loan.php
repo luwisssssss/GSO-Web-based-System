@@ -34,6 +34,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         exit();
     }
 
+    // Serialize a reminder with return submission: once Return commits, a
+    // stale reminder action must not ask the borrower to submit again.
+    $pdo->beginTransaction();
     $reminderStmt = $pdo->prepare("
         SELECT
             rr.request_id,
@@ -51,7 +54,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         WHERE rr.request_id = :request_id
           AND rr.status = 'Released'
           AND rr.return_date IS NULL
-        LIMIT 1
+        LIMIT 1 FOR UPDATE
     ");
     $reminderStmt->execute([":request_id" => $requestId]);
     $reminderRow = $reminderStmt->fetch(PDO::FETCH_ASSOC);
@@ -116,6 +119,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             . "."
     );
 
+    $pdo->commit();
+
     $_SESSION["flash_message"] = $contactNumber !== ""
         ? "Reminder sent. Borrower contact number: {$contactNumber}."
         : "Reminder sent. No contact number was recorded for this request.";
@@ -168,7 +173,7 @@ $sql = "
     INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     LEFT JOIN users releaser ON rr.released_by = releaser.user_id
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
-    WHERE rr.status = 'Released'
+    WHERE rr.status IN ('Released', 'Return')
       AND rr.return_date IS NULL
 ";
 
@@ -190,9 +195,11 @@ if ($search !== "") {
 }
 
 if ($loanStateFilter === "Overdue") {
-    $sql .= " AND rr.due_date IS NOT NULL AND rr.due_date <= NOW()";
+    $sql .= " AND rr.status = 'Released' AND rr.due_date IS NOT NULL AND rr.due_date <= NOW()";
+} elseif ($loanStateFilter === "Return") {
+    $sql .= " AND rr.status = 'Return'";
 } elseif ($loanStateFilter === "Borrowed") {
-    $sql .= " AND (rr.due_date IS NULL OR rr.due_date > NOW())";
+    $sql .= " AND rr.status = 'Released' AND (rr.due_date IS NULL OR rr.due_date > NOW())";
 }
 
 $sql .= " ORDER BY
@@ -278,6 +285,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                 <select name="loan_state">
                     <option value="All" <?php echo $loanStateFilter === "All" ? "selected" : ""; ?>>All Loan States</option>
                     <option value="Borrowed" <?php echo $loanStateFilter === "Borrowed" ? "selected" : ""; ?>>Borrowed</option>
+                    <option value="Return" <?php echo $loanStateFilter === "Return" ? "selected" : ""; ?>>Return ? awaiting inspection</option>
                     <option value="Overdue" <?php echo $loanStateFilter === "Overdue" ? "selected" : ""; ?>>Overdue</option>
                 </select>
 
@@ -306,8 +314,8 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                             <?php foreach ($loanRows as $row): ?>
                                 <?php
                                 $displayStatus = getRequestLifecycleStatus($row);
-                                $loanStateLabel = $displayStatus === "Overdue" ? "Overdue" : "Borrowed";
-                                $loanStateClass = $displayStatus === "Overdue" ? "overdue" : "borrowed";
+                                $loanStateLabel = $displayStatus === "Return" ? "Return" : ($displayStatus === "Overdue" ? "Overdue" : "Borrowed");
+                                $loanStateClass = $displayStatus === "Return" ? "return" : ($displayStatus === "Overdue" ? "overdue" : "borrowed");
                                 $contactNumber = trim((string) ($row["contact_number"] ?? ""));
                                 $phoneHref = buildPhoneCallHref($contactNumber);
 

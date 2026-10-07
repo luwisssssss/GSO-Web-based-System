@@ -307,7 +307,7 @@ if (!function_exists("gsoCurrentReleasedQuantity")) {
             FROM request_items ri
             INNER JOIN resource_requests rr ON rr.request_id = ri.request_id
             WHERE ri.resource_id = :resource_id
-              AND rr.status = 'Released'
+              AND rr.status IN ('Released', 'Return')
         ");
         $stmt->execute([":resource_id" => $resourceId]);
 

@@ -85,7 +85,7 @@ CREATE TABLE `resource_requests` (
   `start_time` time DEFAULT NULL,
   `end_time` time DEFAULT NULL,
   `request_date` datetime NOT NULL DEFAULT current_timestamp(),
-  `status` enum('Pending','Under Review','Approved','Rejected','Cancelled','Released','Returned','Completed') NOT NULL DEFAULT 'Pending',
+  `status` enum('Pending','Under Review','Approved','Rejected','Cancelled','Released','Return','Returned','Completed') NOT NULL DEFAULT 'Pending',
   `adviser_state` enum('Not Required','Selection Required','Pending Adviser','Revision Required','Endorsed') NOT NULL DEFAULT 'Not Required',
   `adviser_user_id` int(11) DEFAULT NULL,
   `adviser_required_by` int(11) DEFAULT NULL,

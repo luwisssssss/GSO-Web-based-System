@@ -708,11 +708,13 @@ try {
             && str_contains($adminFacilityLoan["body"], $facilityBorrowCode),
         "Past facility usage disappeared before explicit completion review."
     );
-    step8Http($baseUrl, "borrower/return_submit.php?request_id={$facilityApprovedId}", "POST", $cookies["a"], [
+    step8Multipart($baseUrl, "borrower/return_submit.php?request_id={$facilityApprovedId}", $cookies["a"], [
         "csrf_token" => $aSession["csrf_token"], "condition_notes" => "Post-use facility check {$marker}",
-    ] + step8ReturnLines($pdo, $facilityApprovedId));
+    ] + step8ReturnLines($pdo, $facilityApprovedId), "proof_photos[]", $pngPath, "facility.png");
     $facilityReturnId = (int) step8Value($pdo, "SELECT return_id FROM return_submissions WHERE request_id=:id", [":id" => $facilityApprovedId]);
     step8Assert($facilityReturnId > 0, "Post-use facility completion submission was not created.");
+    $facilityPhotos = step8Rows($pdo, "SELECT filename FROM return_submission_photos WHERE return_id=:id", [":id" => $facilityReturnId]);
+    foreach ($facilityPhotos as $photo) $returnPhotoNames[] = (string) $photo["filename"];
     $returnIds[] = $facilityReturnId;
     step8Http($baseUrl, "admin/review_return.php?request_id={$facilityApprovedId}", "POST", $cookies["admin"], [
         "csrf_token" => $adminSession["csrf_token"], "action" => "approve", "inspection_condition" => "Good", "inspection_remarks" => "Facility verified {$marker}",

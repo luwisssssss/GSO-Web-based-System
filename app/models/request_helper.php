@@ -142,7 +142,7 @@ if (!function_exists("buildRequestDateRange")) {
         }
 
         $shouldUseLoanDueDate = !empty($dueDate)
-            && ($requestStatus === "Released" || $requestStatus === null);
+            && (in_array($requestStatus, ["Released", "Return"], true) || $requestStatus === null);
 
         $rangeEnd = $shouldUseLoanDueDate ? normalizeDateTimeInput($dueDate) : null;
 
@@ -357,7 +357,7 @@ if (!function_exists("fetchActiveScheduleRequests")) {
             FROM resource_requests rr
             INNER JOIN request_items ri ON ri.request_id = rr.request_id
             WHERE ri.resource_id = :resource_id
-              AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released')
+              AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released', 'Return')
         ";
 
         $params = [
@@ -712,7 +712,7 @@ if (!function_exists("buildPhoneCallHref")) {
 if (!function_exists("getFirstComeFirstServedStatuses")) {
     function getFirstComeFirstServedStatuses(): array
     {
-        return ["Pending", "Under Review", "Approved", "Released"];
+        return ["Pending", "Under Review", "Approved", "Released", "Return"];
     }
 }
 

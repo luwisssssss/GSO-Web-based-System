@@ -18,7 +18,7 @@ if (!isApprovedAdminAccount($pdo, $adminUserId)) {
 $statusFilter = trim((string) ($_GET["status"] ?? "All"));
 $typeFilter = trim((string) ($_GET["resource_type"] ?? "All"));
 $export = trim((string) ($_GET["export"] ?? ""));
-$requestStatusOptions = ["Pending", "Approved", "Released", "Overdue", "Returned", "Damaged", "Rejected", "Cancelled"];
+$requestStatusOptions = ["Pending", "Under Review", "Approved", "Released", "Return", "Overdue", "Returned", "Completed", "Damaged", "Rejected", "Cancelled"];
 $resourceTypeOptions = ["Item", "Facility"];
 $filterValidation = validateIncidentAnalyticsFilters($_GET);
 $incidentFilters = $filterValidation["filters"];

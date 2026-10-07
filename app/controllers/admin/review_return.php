@@ -149,15 +149,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         if (($locked["return_status"] ?? "") !== "Pending") {
             throw new Exception("Only pending submissions can be reviewed.");
         }
+        if (($locked["request_status"] ?? "") !== "Return") {
+            throw new Exception("Request is not awaiting return inspection.");
+        }
 
         $borrowerId = (int) $locked["borrower_id"];
         $borrowNo = "BRW-" . str_pad((string) $requestId, 3, "0", STR_PAD_LEFT);
 
         if ($action === "approve") {
-            if (($locked["request_status"] ?? "") !== "Released") {
-                throw new Exception("Request is not in Released state.");
-            }
-
             // Phase 3.5B: each returned resource line, and each physical unit,
             // carries its own inspection outcome. A damaged laptop parks only
             // that laptop; a lost chair reduces only chair stock. The helper
@@ -185,17 +184,21 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $detailConditions->fetchAll(PDO::FETCH_COLUMN) ?: ["Good"]
             );
 
-            $pdo->prepare("
+            $transition = $pdo->prepare("
                 UPDATE resource_requests
                 SET
                     status = 'Returned',
                     return_date = NOW()
                 WHERE request_id = :request_id
-                  AND status = 'Released'
+                  AND status = 'Return'
                 LIMIT 1
-            ")->execute([
+            ");
+            $transition->execute([
                 ":request_id" => $requestId
             ]);
+            if ($transition->rowCount() !== 1) {
+                throw new DomainException("The request changed during inspection.");
+            }
 
             $pdo->prepare("
                 UPDATE return_submissions
@@ -235,6 +238,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $_SESSION["flash_message"] = "Return approved and inventory status updated.";
             $_SESSION["flash_type"] = "success";
         } else {
+            $pdo->prepare("UPDATE resource_requests SET status = 'Released' WHERE request_id = ? AND status = 'Return'")
+                ->execute([$requestId]);
             $pdo->prepare("
                 UPDATE return_submissions
                 SET
@@ -267,6 +272,16 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 "Return Rejected",
                 "Rejected return proof for {$borrowNo}."
             );
+
+            // Keep the complete rejection reason after the header is reused
+            // for a corrected submission (activity details are VARCHAR(255)).
+            $reason = $inspectionRemarks === "" ? "Please resubmit with clearer proof." : $inspectionRemarks;
+            for ($offset = 0; $offset < mb_strlen($reason); $offset += 190) {
+                if (!addActivityLog($pdo, $adminId, "Return Rejection Reason",
+                    "{$borrowNo} part " . (1 + intdiv($offset, 190)) . ": " . mb_substr($reason, $offset, 190))) {
+                    throw new RuntimeException("The rejection audit could not be saved.");
+                }
+            }
 
             $_SESSION["flash_message"] = "Return rejected. Borrower notified to resubmit.";
             $_SESSION["flash_type"] = "success";

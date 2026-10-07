@@ -342,14 +342,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 FROM resource_requests rr
                 INNER JOIN request_items ri ON ri.request_id = rr.request_id
                 WHERE ri.resource_id = :resource_id
-                  AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released')
-                  AND (rr.status <> 'Released' OR rr.return_date IS NULL)
+                  AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released', 'Return')
+                  AND (rr.status NOT IN ('Released', 'Return') OR rr.return_date IS NULL)
                 FOR UPDATE
             ");
             $activeRequestLockStmt->execute([":resource_id" => $resourceId]);
             $lockedActiveRequests = $activeRequestLockStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
             foreach ($lockedActiveRequests as $lockedActiveRequest) {
-                if ((string) ($lockedActiveRequest["status"] ?? "") === "Released"
+                if (in_array((string) ($lockedActiveRequest["status"] ?? ""), ["Released", "Return"], true)
                     && empty($lockedActiveRequest["return_date"])
                 ) {
                     throw new IncidentAdminActionException(

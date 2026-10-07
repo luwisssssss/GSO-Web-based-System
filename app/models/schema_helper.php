@@ -264,10 +264,12 @@ if (!function_exists("ensureSystemSchema")) {
                 ");
             }
             if (tableExists($pdo, "resource_requests")) {
-                if (!enumColumnHasValue($pdo, "resource_requests", "status", "Under Review")) {
+                if (!enumColumnHasValue($pdo, "resource_requests", "status", "Under Review")
+                    || !enumColumnHasValue($pdo, "resource_requests", "status", "Return")
+                    || !enumColumnHasValue($pdo, "resource_requests", "status", "Completed")) {
                     $pdo->exec("
                         ALTER TABLE resource_requests
-                        MODIFY status ENUM('Pending', 'Under Review', 'Approved', 'Rejected', 'Cancelled', 'Released', 'Returned')
+                        MODIFY status ENUM('Pending', 'Under Review', 'Approved', 'Rejected', 'Cancelled', 'Released', 'Return', 'Returned', 'Completed')
                             NOT NULL DEFAULT 'Pending'
                     ");
                 }
@@ -317,7 +319,7 @@ if (!function_exists("ensureSystemSchema")) {
                     SET
                         reviewed_by = COALESCE(reviewed_by, approved_by),
                         reviewed_at = COALESCE(reviewed_at, approved_at)
-                    WHERE status IN ('Approved', 'Rejected', 'Released', 'Returned')
+                    WHERE status IN ('Approved', 'Rejected', 'Released', 'Return', 'Returned', 'Completed')
                       AND (reviewed_by IS NULL OR reviewed_at IS NULL)
                 ");
                 $pdo->exec("
@@ -325,7 +327,7 @@ if (!function_exists("ensureSystemSchema")) {
                     SET
                         released_by = COALESCE(released_by, approved_by),
                         released_at = COALESCE(released_at, approved_at)
-                    WHERE status IN ('Released', 'Returned')
+                    WHERE status IN ('Released', 'Return', 'Returned', 'Completed')
                       AND (released_by IS NULL OR released_at IS NULL)
                 ");
             }
@@ -783,7 +785,7 @@ if (!function_exists("ensureSystemSchema")) {
                         rr.resource_id,
                         CASE WHEN r.resource_type = 'Facility' THEN 'Facility' ELSE 'Equipment' END,
                         GREATEST(1, COALESCE(rr.quantity, 1)),
-                        CASE WHEN rr.status IN ('Released','Returned') THEN GREATEST(1, COALESCE(rr.quantity, 1)) ELSE 0 END,
+                        CASE WHEN rr.status IN ('Released','Return','Returned','Completed') THEN GREATEST(1, COALESCE(rr.quantity, 1)) ELSE 0 END,
                         CASE WHEN rr.status = 'Returned' THEN GREATEST(1, COALESCE(rr.quantity, 1)) ELSE 0 END,
                         rr.request_date
                     FROM resource_requests rr
@@ -903,7 +905,7 @@ if (!function_exists("ensureSystemSchema")) {
                 $pdo->exec("
                     ALTER TABLE resource_requests
                     MODIFY COLUMN status
-                        ENUM('Pending','Under Review','Approved','Rejected','Cancelled','Released','Returned','Completed')
+                        ENUM('Pending','Under Review','Approved','Rejected','Cancelled','Released','Return','Returned','Completed')
                         NOT NULL DEFAULT 'Pending'
                 ");
             }

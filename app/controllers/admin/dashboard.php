@@ -32,12 +32,12 @@ function chartWidth(int $value, int $maxValue): string
 }
 
 $activeRequestWhere = "
-    status IN ('Pending', 'Under Review', 'Approved', 'Released')
-    AND (status <> 'Released' OR return_date IS NULL)
+    status IN ('Pending', 'Under Review', 'Approved', 'Released', 'Return')
+    AND (status NOT IN ('Released', 'Return') OR return_date IS NULL)
 ";
 $activeRequestWhereForAlias = "
-    rr.status IN ('Pending', 'Under Review', 'Approved', 'Released')
-    AND (rr.status <> 'Released' OR rr.return_date IS NULL)
+    rr.status IN ('Pending', 'Under Review', 'Approved', 'Released', 'Return')
+    AND (rr.status NOT IN ('Released', 'Return') OR rr.return_date IS NULL)
 ";
 
 $inventoryState = $pdo->query("
@@ -57,7 +57,8 @@ $requestPipeline = $pdo->query("
         SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) AS pending_count,
         SUM(CASE WHEN status = 'Under Review' THEN 1 ELSE 0 END) AS under_review_count,
         SUM(CASE WHEN status = 'Approved' THEN 1 ELSE 0 END) AS approved_count,
-        SUM(CASE WHEN status = 'Released' THEN 1 ELSE 0 END) AS released_count
+        SUM(CASE WHEN status = 'Released' THEN 1 ELSE 0 END) AS released_count,
+        SUM(CASE WHEN status = 'Return' THEN 1 ELSE 0 END) AS return_count
     FROM resource_requests
     WHERE {$activeRequestWhere}
 ")->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -78,7 +79,7 @@ $urgent = [
         FROM return_submissions rs
         INNER JOIN resource_requests rr ON rs.request_id = rr.request_id
         WHERE rs.status = 'Pending'
-          AND rr.status = 'Released'
+          AND rr.status = 'Return'
           AND rr.return_date IS NULL
     ")->fetchColumn(),
     "maintenance" => (int) ($inventoryState["maintenance_count"] ?? 0),
@@ -139,7 +140,7 @@ $mostBorrowed = $pdo->query("
     FROM resource_requests rr
     INNER JOIN request_items ri ON ri.request_id = rr.request_id
     INNER JOIN resources r ON r.resource_id = ri.resource_id
-    WHERE rr.status = 'Released'
+    WHERE rr.status IN ('Released', 'Return')
       AND rr.return_date IS NULL
     GROUP BY r.resource_id, r.resource_name, r.resource_type
     ORDER BY borrow_count DESC, r.resource_name ASC
@@ -193,13 +194,15 @@ $pendingPct = pct((int) ($requestPipeline["pending_count"] ?? 0), $requestTotal)
 $underReviewPct = pct((int) ($requestPipeline["under_review_count"] ?? 0), $requestTotal);
 $approvedPct = pct((int) ($requestPipeline["approved_count"] ?? 0), $requestTotal);
 $releasedPct = pct((int) ($requestPipeline["released_count"] ?? 0), $requestTotal);
+$returnPct = pct((int) ($requestPipeline["return_count"] ?? 0), $requestTotal);
 
 $pipelineMax = max(
     1,
     (int) ($requestPipeline["pending_count"] ?? 0),
     (int) ($requestPipeline["under_review_count"] ?? 0),
     (int) ($requestPipeline["approved_count"] ?? 0),
-    (int) ($requestPipeline["released_count"] ?? 0)
+    (int) ($requestPipeline["released_count"] ?? 0),
+    (int) ($requestPipeline["return_count"] ?? 0)
 );
 
 require_once dirname(__DIR__, 3) . "/includes/header.php";
@@ -275,7 +278,8 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                         #0ea5e9 <?php echo $pendingPct; ?>% <?php echo $pendingPct + $underReviewPct; ?>%,
                         #2563eb <?php echo $pendingPct + $underReviewPct; ?>% <?php echo $pendingPct + $underReviewPct + $approvedPct; ?>%,
                         #1d4ed8 <?php echo $pendingPct + $underReviewPct + $approvedPct; ?>% <?php echo $pendingPct + $underReviewPct + $approvedPct + $releasedPct; ?>%,
-                        #e2e8f0 <?php echo $pendingPct + $underReviewPct + $approvedPct + $releasedPct; ?>% 100%
+                        #f59e0b <?php echo $pendingPct + $underReviewPct + $approvedPct + $releasedPct; ?>% <?php echo $pendingPct + $underReviewPct + $approvedPct + $releasedPct + $returnPct; ?>%,
+                        #e2e8f0 <?php echo $pendingPct + $underReviewPct + $approvedPct + $releasedPct + $returnPct; ?>% 100%
                     );"
                 >
                     <div>
@@ -289,6 +293,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                     <span><i class="legend-color-review"></i> Under Review <?php echo (int) ($requestPipeline["under_review_count"] ?? 0); ?></span>
                     <span><i class="legend-color-approved"></i> Approved <?php echo (int) ($requestPipeline["approved_count"] ?? 0); ?></span>
                     <span><i class="legend-color-released"></i> Released <?php echo (int) ($requestPipeline["released_count"] ?? 0); ?></span>
+                    <span><i class="legend-color-return-pending"></i> Return <?php echo (int) ($requestPipeline["return_count"] ?? 0); ?></span>
                 </div>
             </div>
 
@@ -352,7 +357,8 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                         ["Pending", (int) ($requestPipeline["pending_count"] ?? 0), "orange"],
                         ["Under Review", (int) ($requestPipeline["under_review_count"] ?? 0), "cyan"],
                         ["Approved", (int) ($requestPipeline["approved_count"] ?? 0), "blue"],
-                        ["Released", (int) ($requestPipeline["released_count"] ?? 0), "light"]
+                        ["Released", (int) ($requestPipeline["released_count"] ?? 0), "light"],
+                        ["Return", (int) ($requestPipeline["return_count"] ?? 0), "orange"]
                     ];
                     ?>
                     <?php foreach ($pipelineRows as $row): ?>

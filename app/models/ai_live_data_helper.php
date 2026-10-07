@@ -362,6 +362,8 @@ if (!function_exists("gsoChatGetRequestStatus")) {
 
         if ($lifecycle === "Overdue") {
             $text .= " It was due " . formatDateTimeDisplay($row["due_date"]) . ". Please submit the return from My Borrowed.";
+        } elseif ((string) $row["status"] === "Return") {
+            $text .= " Return submitted and awaiting GSO inspection.";
         } elseif ((string) $row["status"] === "Released") {
             $text .= " Return it by " . formatDateTimeDisplay($row["due_date"]) . ".";
         } elseif ((string) $row["status"] === "Approved") {
@@ -401,7 +403,7 @@ if (!function_exists("gsoChatListOwnRequests")) {
             FROM resource_requests rr
             INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
             WHERE rr.borrower_id = :borrower_id
-              AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released')
+              AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released', 'Return')
             ORDER BY rr.request_id DESC
             LIMIT 5
         ");
@@ -421,7 +423,8 @@ if (!function_exists("gsoChatListOwnRequests")) {
         foreach ($rows as $row) {
             $lines[] = formatRequestCode((int) $row["request_id"])
                 . " (" . (string) $row["resource_name"] . "): "
-                . getRequestLifecycleStatus($row);
+                . getRequestLifecycleStatus($row)
+                . ($row["status"] === "Return" ? " (return submitted and awaiting GSO inspection)" : "");
         }
 
         return gsoChatLiveResult(

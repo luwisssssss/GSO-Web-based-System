@@ -801,8 +801,8 @@ $filteredRows = [];
 foreach ($rows as $row) {
     $isPastFacilityUnavailable = isPastFacilityRequest($row);
     $displayStatus = $isPastFacilityUnavailable ? "Unavailable" : getRequestLifecycleStatus($row);
-    if (!$isPastFacilityUnavailable && (string)($row["adviser_state"]??"Not Required")!=="Not Required") $displayStatus=(string)$row["adviser_state"];
-    if (!$isPastFacilityUnavailable && (string)($row["director_state"]??"Not Required")==="Pending") $displayStatus="Pending Director";
+    if (!$isPastFacilityUnavailable && in_array((string)$row["status"], ["Pending", "Under Review"], true) && (string)($row["adviser_state"]??"Not Required")!=="Not Required") $displayStatus=(string)$row["adviser_state"];
+    if (!$isPastFacilityUnavailable && in_array((string)$row["status"], ["Pending", "Under Review"], true) && (string)($row["director_state"]??"Not Required")==="Pending") $displayStatus="Pending Director";
     $row["display_status"] = $displayStatus;
     $row["display_status_class"] = getStatusCssClass($displayStatus);
     $row["is_past_facility_unavailable"] = $isPastFacilityUnavailable;
@@ -836,6 +836,8 @@ usort($filteredRows, function (array $left, array $right): int {
         "Under Review" => 2,
         "Approved" => 3,
         "Released" => 4,
+        "Return" => 5,
+        "Completed" => 7,
         "Unavailable" => 5,
         "Overdue" => 6,
         "Returned" => 7,
@@ -932,7 +934,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
         </div>
 
         <div class="status-tabs" aria-label="Request status filters">
-            <?php foreach (["All", "Pending", "Under Review", "Pending Director", "Approved", "Released", "Unavailable", "Overdue", "Returned", "Rejected", "Cancelled"] as $statusTab): ?>
+            <?php foreach (["All", "Pending", "Under Review", "Pending Director", "Approved", "Released", "Return", "Completed", "Unavailable", "Overdue", "Returned", "Rejected", "Cancelled"] as $statusTab): ?>
                 <a
                     href="requests.php?<?php echo htmlspecialchars(http_build_query(array_merge($queryBase, ["status" => $statusTab, "page" => 1]))); ?>"
                     class="<?php echo strcasecmp($statusFilter, $statusTab) === 0 ? "active" : ""; ?>"
@@ -958,6 +960,8 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                     <option value="Pending Director" <?php echo $statusFilter === "Pending Director" ? "selected" : ""; ?>>Pending Director</option>
                     <option value="Approved" <?php echo $statusFilter === "Approved" ? "selected" : ""; ?>>Approved</option>
                     <option value="Released" <?php echo $statusFilter === "Released" ? "selected" : ""; ?>>Released</option>
+                    <option value="Return" <?php echo $statusFilter === "Return" ? "selected" : ""; ?>>Return</option>
+                    <option value="Completed" <?php echo $statusFilter === "Completed" ? "selected" : ""; ?>>Completed</option>
                     <option value="Unavailable" <?php echo $statusFilter === "Unavailable" ? "selected" : ""; ?>>Unavailable</option>
                     <option value="Overdue" <?php echo $statusFilter === "Overdue" ? "selected" : ""; ?>>Overdue</option>
                     <option value="Returned" <?php echo $statusFilter === "Returned" ? "selected" : ""; ?>>Returned</option>
@@ -1182,7 +1186,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                     </form>
                                                 <?php elseif (($request["status"] ?? "") === "Approved" && $isPastFacilityUnavailable): ?>
                                                     <span class="row-action-note">Release blocked for past schedule</span>
-                                                <?php elseif (in_array((string) ($request["display_status"] ?? ""), ["Released", "Overdue"], true)): ?>
+                                                <?php elseif (in_array((string) ($request["display_status"] ?? ""), ["Released", "Return", "Overdue"], true)): ?>
                                                     <a href="on_loan.php" class="row-action-item" role="menuitem">
                                                         <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
                                                         <span>Monitor borrowed</span>

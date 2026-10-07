@@ -435,6 +435,7 @@ button:disabled {
     border-color: #bad0ff;
 }
 
+.status-badge.return,
 .status-badge.released,
 .status-badge.borrowed {
     background: var(--color-info-soft);
@@ -1537,6 +1538,7 @@ button:disabled {
 }
 
 .facility-calendar-event.status-approved,
+.facility-calendar-event.status-return,
 .facility-calendar-event.status-released {
     border-left-color: #2563eb;
     background: #eff6ff;
@@ -3014,6 +3016,7 @@ textarea:focus {
     border-color: var(--status-green-border);
 }
 
+.status-badge.return,
 .status-badge.released,
 .status-badge.borrowed,
 .status-badge.returning {

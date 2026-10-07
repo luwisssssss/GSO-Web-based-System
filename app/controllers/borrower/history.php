@@ -22,7 +22,7 @@ $baseWhereSql = "
     LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
     WHERE rr.borrower_id = :borrower_id
-      AND rr.status IN ('Rejected', 'Cancelled', 'Returned')
+      AND rr.status IN ('Rejected', 'Cancelled', 'Returned', 'Completed')
 ";
 
 $params = [
@@ -139,6 +139,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                     <option value="All" <?php echo $statusFilter === "All" ? "selected" : ""; ?>>All Records</option>
                     <option value="Rejected" <?php echo $statusFilter === "Rejected" ? "selected" : ""; ?>>Rejected</option>
                     <option value="Cancelled" <?php echo $statusFilter === "Cancelled" ? "selected" : ""; ?>>Cancelled</option>
+                    <option value="Completed" <?php echo $statusFilter === "Completed" ? "selected" : ""; ?>>Completed</option>
                     <option value="Returned" <?php echo $statusFilter === "Returned" ? "selected" : ""; ?>>Returned</option>
                 </select>
 

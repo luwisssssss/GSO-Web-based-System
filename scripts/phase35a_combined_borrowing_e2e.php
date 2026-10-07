@@ -216,7 +216,8 @@ try{
  $hist=p35h($base,"borrower/history.php",$cookies["student"]);
  p35a(substr_count($hist["body"],"<td>REQ-".str_pad((string)$reqA,3,"0",STR_PAD_LEFT)."</td>")<=1,"Borrower history duplicated a combined request.");
  $adminList=p35h($base,"admin/requests.php?status=".urlencode("Pending Director"),$cookies["admin"]);
- p35a(substr_count($adminList["body"],">REQ-".str_pad((string)$reqC,3,"0",STR_PAD_LEFT)."<")===1,"Admin queue duplicated a combined request.");
+ // Count table cells; the same reference can appear in the facility calendar.
+ p35a(substr_count($adminList["body"],"<td>REQ-".str_pad((string)$reqC,3,"0",STR_PAD_LEFT)."</td>")===1,"Admin queue must show exactly one combined request row.");
  $adminDetail=p35h($base,"admin/view_request.php?request_id={$reqC}",$cookies["admin"]);
  foreach(["Hall B","Item A","Item B"] as $label)p35a(str_contains($adminDetail["body"],htmlspecialchars("{$mark} {$label}")),"GSO detail omitted line {$label}.");
  $checks+=7;

@@ -146,6 +146,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $message = "Max 3 photos only.";
         }
 
+        if ($message === "" && $facilityReturnLine !== null && $photos === []) {
+            $message = "A proof photo is required for facility post-use submission.";
+        }
+
         if ($message === "" && !in_array($reportedCondition, $allowedConditions, true)) {
             $message = "Invalid return condition selected.";
         }
@@ -156,6 +160,32 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             try {
                 $pdo->beginTransaction();
+
+                // Recheck ownership and eligibility under the request lock.
+                // A concurrent submission must not overwrite pending evidence.
+                $lock = $pdo->prepare("SELECT status, return_date FROM resource_requests WHERE request_id = ? AND borrower_id = ? FOR UPDATE");
+                $lock->execute([$requestId, $borrowerId]);
+                $locked = $lock->fetch(PDO::FETCH_ASSOC);
+                if (!$locked || $locked["status"] !== "Released" || $locked["return_date"] !== null) {
+                    throw new DomainException("This request is no longer eligible for return submission.");
+                }
+                $subStmt->execute([":request_id" => $requestId]);
+                $existing = $subStmt->fetch(PDO::FETCH_ASSOC);
+                if ($existing && $existing["status"] !== "Rejected") {
+                    throw new DomainException("Your return is already submitted.");
+                }
+                $detailResult = gsoValidateBorrowerReturnRows($pdo, $requestId, (array) ($_POST["lines"] ?? []));
+                if ($detailResult["errors"] !== []) {
+                    throw new DomainException(implode(" ", $detailResult["errors"]));
+                }
+                $detailRows = $detailResult["rows"];
+
+                // The single submission header is reused. Preserve the previous
+                // rejection remarks in the existing append-only activity log.
+                if ($existing) {
+                    addActivityLog($pdo, $borrowerId, "Rejected Return Resubmitted",
+                        "Request #{$requestId}; previous rejection: " . mb_substr((string) ($existing["admin_notes"] ?? ""), 0, 170));
+                }
 
                 if ($existing) {
                     $returnId = (int)$existing["return_id"];
@@ -248,6 +278,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         ":filename" => (string)$up["filename"],
                         ":mime_type" => (string)$up["mime"],
                     ]);
+                }
+
+                $transition = $pdo->prepare("UPDATE resource_requests SET status = 'Return' WHERE request_id = ? AND borrower_id = ? AND status = 'Released' AND return_date IS NULL");
+                $transition->execute([$requestId, $borrowerId]);
+                if ($transition->rowCount() !== 1) {
+                    throw new DomainException("The request changed. Refresh and try again.");
                 }
 
                 $admins = $pdo->query("
@@ -420,7 +456,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
 
                 <div class="mt-14">
                     <label><strong>Proof Photos (max 3)</strong></label>
-                    <input type="file" name="proof_photos[]" accept="image/*" multiple>
+                    <input type="file" name="proof_photos[]" accept="image/*" multiple <?php echo $facilityReturnLine !== null ? "required" : ""; ?>>
                     <small class="help-text-block">
                         JPG/PNG/GIF/WEBP, 5MB max each.
                     </small>

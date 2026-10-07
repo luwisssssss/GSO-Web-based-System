@@ -230,7 +230,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
         <?php endif; ?>
 
         <div class="status-tabs" aria-label="Request status filters">
-            <?php foreach (["All", "Pending", "Under Review", "Approved", "Released", "Returned", "Rejected", "Cancelled"] as $statusTab): ?>
+            <?php foreach (["All", "Pending", "Under Review", "Approved", "Released", "Return", "Returned", "Completed", "Rejected", "Cancelled"] as $statusTab): ?>
                 <a
                     href="my_requests.php?<?php echo htmlspecialchars(http_build_query(array_merge($queryBase, ["status" => $statusTab, "page" => 1]))); ?>"
                     class="<?php echo strcasecmp($statusFilter, $statusTab) === 0 ? "active" : ""; ?>"
@@ -255,6 +255,8 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                     <option value="Under Review" <?php echo $statusFilter === "Under Review" ? "selected" : ""; ?>>Under Review</option>
                     <option value="Approved" <?php echo $statusFilter === "Approved" ? "selected" : ""; ?>>Approved</option>
                     <option value="Released" <?php echo $statusFilter === "Released" ? "selected" : ""; ?>>Released</option>
+                    <option value="Return" <?php echo $statusFilter === "Return" ? "selected" : ""; ?>>Return</option>
+                    <option value="Completed" <?php echo $statusFilter === "Completed" ? "selected" : ""; ?>>Completed</option>
                     <option value="Returned" <?php echo $statusFilter === "Returned" ? "selected" : ""; ?>>Returned</option>
                     <option value="Rejected" <?php echo $statusFilter === "Rejected" ? "selected" : ""; ?>>Rejected</option>
                     <option value="Cancelled" <?php echo $statusFilter === "Cancelled" ? "selected" : ""; ?>>Cancelled</option>
@@ -327,9 +329,10 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                         </span>
                                         <div class="ui-timeline" aria-label="Request progress">
                                             <span class="ui-timeline-step done">Submitted</span>
-                                            <span class="ui-timeline-step <?php echo in_array((string) $request["status"], ["Approved", "Released", "Returned", "Rejected"], true) ? "done" : ""; ?>">Reviewed</span>
-                                            <span class="ui-timeline-step <?php echo in_array((string) $request["status"], ["Released", "Returned"], true) ? "done" : ""; ?>">Released</span>
-                                            <span class="ui-timeline-step <?php echo (string) $request["status"] === "Returned" ? "done" : ""; ?>">Closed</span>
+                                            <span class="ui-timeline-step <?php echo in_array((string) $request["status"], ["Approved", "Released", "Return", "Returned", "Completed", "Rejected"], true) ? "done" : ""; ?>">Reviewed</span>
+                                            <span class="ui-timeline-step <?php echo in_array((string) $request["status"], ["Released", "Return", "Returned", "Completed"], true) ? "done" : ""; ?>">Released</span>
+                                            <span class="ui-timeline-step <?php echo in_array((string) $request["status"], ["Return", "Returned"], true) ? "done" : ""; ?>">Return submitted</span>
+                                            <span class="ui-timeline-step <?php echo in_array((string) $request["status"], ["Returned", "Completed"], true) ? "done" : ""; ?>">Finished</span>
                                         </div>
                                     </td>
 

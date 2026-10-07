@@ -39,6 +39,7 @@ $requestStmt = $pdo->prepare("
         SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) AS pending_count,
         SUM(CASE WHEN status = 'Approved' THEN 1 ELSE 0 END) AS approved_count,
         SUM(CASE WHEN status = 'Released' THEN 1 ELSE 0 END) AS released_count,
+        SUM(CASE WHEN status = 'Return' THEN 1 ELSE 0 END) AS return_count,
         SUM(CASE WHEN status = 'Returned' THEN 1 ELSE 0 END) AS returned_count,
         SUM(CASE WHEN status = 'Rejected' THEN 1 ELSE 0 END) AS rejected_count,
         SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END) AS cancelled_count
@@ -50,10 +51,10 @@ $requestPipeline = $requestStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
 $loanStmt = $pdo->prepare("
     SELECT
-        COUNT(DISTINCT CASE WHEN rr.status = 'Released' THEN rr.request_id END) AS active_count,
+        COUNT(DISTINCT CASE WHEN rr.status IN ('Released', 'Return') THEN rr.request_id END) AS active_count,
         COUNT(DISTINCT CASE WHEN rr.status = 'Released' AND rr.due_date IS NOT NULL AND rr.due_date < NOW() THEN rr.request_id END) AS overdue_count,
         COUNT(DISTINCT CASE WHEN rr.status = 'Released' AND rr.due_date IS NOT NULL AND rr.due_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY) THEN rr.request_id END) AS due_soon_count,
-        COUNT(DISTINCT CASE WHEN rs.status = 'Pending' THEN rr.request_id END) AS return_pending_count
+        COUNT(DISTINCT CASE WHEN rr.status = 'Return' AND rs.status = 'Pending' THEN rr.request_id END) AS return_pending_count
     FROM resource_requests rr
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
     WHERE rr.borrower_id = :borrower_id
@@ -122,7 +123,7 @@ $dueStmt = $pdo->prepare("
     FROM resource_requests rr
     INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     WHERE rr.borrower_id = :borrower_id
-      AND rr.status = 'Released'
+      AND rr.status IN ('Released', 'Return')
       AND rr.due_date IS NOT NULL
     ORDER BY
         CASE WHEN rr.due_date < NOW() THEN 0 ELSE 1 END,
@@ -137,11 +138,12 @@ $requestTotal = (int) ($requestPipeline["total_count"] ?? 0);
 $pendingPct = borrowerDashboardPct((int) ($requestPipeline["pending_count"] ?? 0), $requestTotal);
 $approvedPct = borrowerDashboardPct((int) ($requestPipeline["approved_count"] ?? 0), $requestTotal);
 $releasedPct = borrowerDashboardPct((int) ($requestPipeline["released_count"] ?? 0), $requestTotal);
+$returnPct = borrowerDashboardPct((int) ($requestPipeline["return_count"] ?? 0), $requestTotal);
 $returnedPct = borrowerDashboardPct((int) ($requestPipeline["returned_count"] ?? 0), $requestTotal);
 $rejectedPct = borrowerDashboardPct((int) ($requestPipeline["rejected_count"] ?? 0), $requestTotal);
 
-$loanTotal = max(1, (int) ($loanState["active_count"] ?? 0) + (int) ($loanState["return_pending_count"] ?? 0));
-$activePct = borrowerDashboardPct((int) ($loanState["active_count"] ?? 0), $loanTotal);
+$loanTotal = max(1, (int) ($loanState["active_count"] ?? 0));
+$activePct = borrowerDashboardPct(max(0, (int) ($loanState["active_count"] ?? 0) - (int) ($loanState["return_pending_count"] ?? 0) - (int) ($loanState["overdue_count"] ?? 0) - (int) ($loanState["due_soon_count"] ?? 0)), $loanTotal);
 $dueSoonPct = borrowerDashboardPct((int) ($loanState["due_soon_count"] ?? 0), $loanTotal);
 $overduePct = borrowerDashboardPct((int) ($loanState["overdue_count"] ?? 0), $loanTotal);
 $returnPendingPct = borrowerDashboardPct((int) ($loanState["return_pending_count"] ?? 0), $loanTotal);
@@ -195,9 +197,10 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                             #f59e0b 0 <?php echo $pendingPct; ?>%,
                             #2563eb <?php echo $pendingPct; ?>% <?php echo $pendingPct + $approvedPct; ?>%,
                             #1d4ed8 <?php echo $pendingPct + $approvedPct; ?>% <?php echo $pendingPct + $approvedPct + $releasedPct; ?>%,
-                            #16a34a <?php echo $pendingPct + $approvedPct + $releasedPct; ?>% <?php echo $pendingPct + $approvedPct + $releasedPct + $returnedPct; ?>%,
-                            #dc2626 <?php echo $pendingPct + $approvedPct + $releasedPct + $returnedPct; ?>% <?php echo $pendingPct + $approvedPct + $releasedPct + $returnedPct + $rejectedPct; ?>%,
-                            #64748b <?php echo $pendingPct + $approvedPct + $releasedPct + $returnedPct + $rejectedPct; ?>% 100%
+                            #f59e0b <?php echo $pendingPct + $approvedPct + $releasedPct; ?>% <?php echo $pendingPct + $approvedPct + $releasedPct + $returnPct; ?>%,
+                            #16a34a <?php echo $pendingPct + $approvedPct + $releasedPct + $returnPct; ?>% <?php echo $pendingPct + $approvedPct + $releasedPct + $returnPct + $returnedPct; ?>%,
+                            #dc2626 <?php echo $pendingPct + $approvedPct + $releasedPct + $returnPct + $returnedPct; ?>% <?php echo $pendingPct + $approvedPct + $releasedPct + $returnPct + $returnedPct + $rejectedPct; ?>%,
+                            #64748b <?php echo $pendingPct + $approvedPct + $releasedPct + $returnPct + $returnedPct + $rejectedPct; ?>% 100%
                         );"
                     >
                         <div>
@@ -210,6 +213,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                         <span><i class="legend-color-pending"></i> Pending: <?php echo (int) ($requestPipeline["pending_count"] ?? 0); ?></span>
                         <span><i class="legend-color-approved"></i> Approved: <?php echo (int) ($requestPipeline["approved_count"] ?? 0); ?></span>
                         <span><i class="legend-color-released"></i> Borrowed: <?php echo (int) ($requestPipeline["released_count"] ?? 0); ?></span>
+                        <span><i class="legend-color-return-pending"></i> Return: <?php echo (int) ($requestPipeline["return_count"] ?? 0); ?></span>
                         <span><i class="legend-color-returned"></i> Returned: <?php echo (int) ($requestPipeline["returned_count"] ?? 0); ?></span>
                     </div>
                 </div>

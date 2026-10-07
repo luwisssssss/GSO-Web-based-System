@@ -27,7 +27,7 @@ $baseWhereSql = "
     LEFT JOIN users releaser ON rr.released_by = releaser.user_id
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
     WHERE rr.borrower_id = :borrower_id
-      AND rr.status = 'Released'
+      AND rr.status IN ('Released', 'Return')
 ";
 
 $params = [
@@ -47,9 +47,11 @@ if ($search !== "") {
 }
 
 if ($loanStateFilter === "Overdue") {
-    $baseWhereSql .= " AND rr.due_date IS NOT NULL AND rr.due_date < NOW()";
+    $baseWhereSql .= " AND rr.status = 'Released' AND rr.due_date IS NOT NULL AND rr.due_date < NOW()";
+} elseif ($loanStateFilter === "Return") {
+    $baseWhereSql .= " AND rr.status = 'Return'";
 } elseif ($loanStateFilter === "Borrowed") {
-    $baseWhereSql .= " AND (rr.due_date IS NULL OR rr.due_date >= NOW())";
+    $baseWhereSql .= " AND rr.status = 'Released' AND (rr.due_date IS NULL OR rr.due_date >= NOW())";
 }
 
 $countSql = "SELECT COUNT(*) " . $baseWhereSql;
@@ -172,6 +174,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                 <select name="loan_state">
                     <option value="All" <?php echo $loanStateFilter === "All" ? "selected" : ""; ?>>All Loan States</option>
                     <option value="Borrowed" <?php echo $loanStateFilter === "Borrowed" ? "selected" : ""; ?>>Borrowed</option>
+                    <option value="Return" <?php echo $loanStateFilter === "Return" ? "selected" : ""; ?>>Return ? awaiting inspection</option>
                     <option value="Overdue" <?php echo $loanStateFilter === "Overdue" ? "selected" : ""; ?>>Overdue</option>
                 </select>
 
@@ -198,8 +201,8 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                 <?php
                                 $rid = (int) $row["request_id"];
                                 $displayStatus = getRequestLifecycleStatus($row);
-                                $loanStateLabel = $displayStatus === "Overdue" ? "Overdue" : "Borrowed";
-                                $loanStateClass = $displayStatus === "Overdue" ? "overdue" : "borrowed";
+                                $loanStateLabel = $displayStatus === "Return" ? "Return" : ($displayStatus === "Overdue" ? "Overdue" : "Borrowed");
+                                $loanStateClass = $displayStatus === "Return" ? "return" : ($displayStatus === "Overdue" ? "overdue" : "borrowed");
 
                                 $returnStatus = (string) ($row["return_status"] ?? "");
                                 $rowClass = ($focusRequestId === $rid) ? "row-focus" : "";
@@ -247,8 +250,8 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                             </button>
 
                                             <div class="row-actions-menu" role="menu">
-                                                <?php if ($returnStatus === "Pending"): ?>
-                                                    <span class="row-action-note">Return proof submitted</span>
+                                                <?php if ($displayStatus === "Return" || $returnStatus === "Pending"): ?>
+                                                    <span class="row-action-note">Return submitted — awaiting GSO inspection</span>
                                                 <?php else: ?>
                                                     <a class="row-action-item" href="return_submit.php?request_id=<?php echo $rid; ?>" role="menuitem">
                                                         <i class="fa-solid fa-rotate-left" aria-hidden="true"></i>

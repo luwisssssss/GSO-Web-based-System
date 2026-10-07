@@ -15,7 +15,8 @@ require_once $root."/includes/equipment_unit_helper.php";require_once $root."/in
 final class P35bFail extends RuntimeException{}
 function p5a(bool $v,string $m):void{if(!$v)throw new P35bFail($m);}
 function p5v(PDO $p,string $q,array $a=[]):mixed{$s=$p->prepare($q);$s->execute($a);return $s->fetchColumn();}
-function p5h(string $b,string $p,string $c,string $m="GET",array $d=[],array $heads=[]):array{$x=curl_init(rtrim($b,"/")."/".ltrim($p,"/"));curl_setopt_array($x,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HEADER=>true,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_COOKIEJAR=>$c,CURLOPT_COOKIEFILE=>$c,CURLOPT_TIMEOUT=>30,CURLOPT_HTTPHEADER=>$heads]);if($m==="POST"){curl_setopt($x,CURLOPT_POST,true);curl_setopt($x,CURLOPT_POSTFIELDS,http_build_query($d));}$r=curl_exec($x);p5a(is_string($r),"HTTP failed: ".curl_error($x));$n=(int)curl_getinfo($x,CURLINFO_HEADER_SIZE);$s=(int)curl_getinfo($x,CURLINFO_RESPONSE_CODE);curl_close($x);return["status"=>$s,"body"=>substr($r,$n)];}
+function p5multipart(array $d,string $prefix=""):array{$out=[];foreach($d as $k=>$v){$name=$prefix===""?(string)$k:$prefix."[{$k}]";if(is_array($v))$out+=p5multipart($v,$name);else $out[$name]=$v;}return $out;}
+function p5h(string $b,string $p,string $c,string $m="GET",array $d=[],array $heads=[]):array{$x=curl_init(rtrim($b,"/")."/".ltrim($p,"/"));curl_setopt_array($x,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HEADER=>true,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_COOKIEJAR=>$c,CURLOPT_COOKIEFILE=>$c,CURLOPT_TIMEOUT=>30,CURLOPT_HTTPHEADER=>$heads]);if($m==="POST"){curl_setopt($x,CURLOPT_POST,true);curl_setopt($x,CURLOPT_POSTFIELDS,p5multipart($d));}$r=curl_exec($x);p5a(is_string($r),"HTTP failed: ".curl_error($x));$n=(int)curl_getinfo($x,CURLINFO_HEADER_SIZE);$s=(int)curl_getinfo($x,CURLINFO_RESPONSE_CODE);curl_close($x);return["status"=>$s,"body"=>substr($r,$n)];}
 function p5user(PDO $p,string $mark,string $key,string $role,?string $type):int{$u="p5_{$key}_".strtolower(substr($mark,5));$s=$p->prepare("INSERT INTO users(full_name,department,university_id,email,role,account_type,username,password_hash,account_status,email_verified)VALUES(:n,'Phase 3.5B QA',:uid,:e,:r,:t,:u,:pw,'Approved',1)");$s->execute([":n"=>"{$mark} {$key}",":uid"=>strtoupper(substr(md5($key),0,4)).substr($mark,5),":e"=>"{$u}@example.invalid",":r"=>$role,":t"=>$type,":u"=>$u,":pw"=>password_hash("P5!{$mark}",PASSWORD_DEFAULT)]);return(int)$p->lastInsertId();}
 
 $base=(string)(getenv("GSO_PHASE35B_BASE_URL")?:"http://127.0.0.1/GSO_WebSystem");
@@ -187,6 +188,11 @@ try{
  $submitReturn=function(string $who,int $rid,array $lines,?string $token=null)use($base,&$cookies,&$csrf):array{
    $d=["csrf_token"=>$token??$csrf[$who],"condition_notes"=>"QA"];
    foreach($lines as $lid=>$payload)$d["lines"][$lid]=$payload;
+   if(gsoRequestFacilityLine($GLOBALS['pdo'],$rid)!==null){
+    $photo=tempnam(sys_get_temp_dir(),"p5_proof_");file_put_contents($photo,base64_decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWZkAAAAASUVORK5CYII="));
+    $d['proof_photos'][0]=new CURLFile($photo,'image/png','proof.png');
+    try{return p5h($base,"borrower/return_submit.php?request_id={$rid}",$cookies[$who],"POST",$d);}finally{@unlink($photo);}
+   }
    return p5h($base,"borrower/return_submit.php?request_id={$rid}",$cookies[$who],"POST",$d);};
  // A borrower may not return someone else's request.
  $submitReturn("other",$rMixed,[$chairLine=>["returned_quantity"=>5,"lost_quantity"=>0,"condition"=>"Good"],$hallLine=>["condition"=>"Good"]]);
@@ -267,6 +273,7 @@ finally{
   $reqStmt=$pdo->prepare("SELECT DISTINCT ri.request_id FROM request_items ri JOIN resource_requests rr ON rr.request_id=ri.request_id WHERE ri.resource_id IN ({$marks}) AND rr.borrower_id IN ({$userMarks})");
   $reqStmt->execute(array_merge($resourceIds,array_values($ids)));
   foreach($reqStmt->fetchAll(PDO::FETCH_COLUMN)?:[] as $rid){
+   require_once $root.'/includes/return_upload_helper.php';$photos=$pdo->prepare('SELECT p.filename FROM return_submission_photos p JOIN return_submissions s ON s.return_id=p.return_id WHERE s.request_id=?');$photos->execute([$rid]);foreach($photos->fetchAll(PDO::FETCH_COLUMN) as $filename)deleteReturnPhotoFile($filename);
    $pdo->prepare("DELETE FROM notifications WHERE link LIKE :l")->execute([":l"=>"%request_id={$rid}"]);
    $pdo->prepare("DELETE FROM return_submission_items WHERE return_id IN (SELECT return_id FROM return_submissions WHERE request_id=:r)")->execute([":r"=>$rid]);
    $pdo->prepare("DELETE FROM return_submissions WHERE request_id=:r")->execute([":r"=>$rid]);
