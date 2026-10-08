@@ -3,13 +3,14 @@ declare(strict_types=1);
 /** R2A regression: isolated database and matching loopback Apache only. */
 $root = dirname(__DIR__);
 require_once $root . '/config/bootstrap.php';
-if (!preg_match('/^gso_r2a_test_[a-zA-Z0-9_]+$/', (string) gsoEnv('GSO_DB_NAME', ''))) {
+if (!preg_match('/^gso_r2[ab]_test_[a-zA-Z0-9_]+$/', (string) gsoEnv('GSO_DB_NAME', ''))) {
     throw new RuntimeException('R2A fixtures require an explicitly isolated gso_r2a_test_* database.');
 }
 $base = (string) gsoEnv('GSO_R2A_BASE_URL', 'http://127.0.0.1:8093/GSO_WebSystem');
 if (!in_array(parse_url($base, PHP_URL_HOST), ['127.0.0.1','localhost','::1'], true)) throw new RuntimeException('Loopback only.');
 require_once $root . '/config/db.php';
 require_once $root . '/includes/role_helper.php';
+require_once __DIR__ . '/request_letter_test_helper.php';
 require_once $root . '/includes/director_approval_helper.php';
 require_once $root . '/includes/facility_calendar_helper.php';
 $checks = 0;
@@ -70,6 +71,7 @@ try {
         r2aExec("INSERT INTO resource_requests(borrower_id,resource_id,quantity,date_needed,start_time,end_time,status,director_state,notes) VALUES(?,?,?,DATE_ADD(CURDATE(),INTERVAL 3 DAY),'08:00:00','10:00:00','Pending',?,'Private borrower purpose')",[$users['borrower'],$lines[0][0],$lines[0][1],$state]);
         $id=(int)$pdo->lastInsertId();$requests[]=$id;
         foreach($lines as [$resource,$qty])r2aExec("INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity) SELECT ?,resource_id,CASE WHEN resource_type='Facility' THEN 'Facility' ELSE 'Equipment' END,? FROM resources WHERE resource_id=?",[$id,$qty,$resource]);
+        gsoTestVerifiedLetter($pdo,$id,$users['admin']);
         return $id;
     };
     // Facility is deliberately not the legacy mirrored resource.
@@ -160,7 +162,7 @@ try {
 }catch(Throwable $e){$failed=$e;fwrite(STDERR,'FAIL: '.$e->getMessage()."\n".$e->getTraceAsString()."\n");}
 finally{
     if($pdo->inTransaction())$pdo->rollBack();
-    foreach($requests as $id){r2aExec('DELETE FROM notifications WHERE link IN (?,?)',['review_return.php?request_id='.$id,'view_request.php?request_id='.$id]);r2aExec('DELETE FROM request_director_history WHERE request_id=?',[$id]);r2aExec('DELETE FROM resource_requests WHERE request_id=? AND borrower_id=?',[$id,$users['borrower']]);}
+    foreach($requests as $id){gsoTestDeleteLetters($pdo,$id);r2aExec('DELETE FROM notifications WHERE link IN (?,?)',['review_return.php?request_id='.$id,'view_request.php?request_id='.$id]);r2aExec('DELETE FROM request_director_history WHERE request_id=?',[$id]);r2aExec('DELETE FROM resource_requests WHERE request_id=? AND borrower_id=?',[$id,$users['borrower']]);}
     foreach($resources as $id)r2aExec('DELETE FROM resources WHERE resource_id=?',[$id]);
     // Delete MIS-created accounts first; actor IDs on other fixture rows remain
     // valid until their dependent records have been removed.

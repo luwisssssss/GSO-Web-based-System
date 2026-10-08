@@ -167,17 +167,19 @@ try{
  p5a((int)p5v($pdo,"SELECT COALESCE(SUM(released_quantity),0) FROM request_items WHERE request_id=?",[$rFail])===0,"Rollback left lines marked released.");
  $checks+=4;
 
- // ---- Adviser gate remains; historical Director state no longer gates ---
+ // ---- Historical Adviser/Director states no longer gate GSO release ---
  $rGate=$newReq($ids["other"],[[$chair,1]],date("Y-m-d",strtotime("+29 days")));
  $pdo->prepare("UPDATE resource_requests SET adviser_state='Pending Adviser' WHERE request_id=?")->execute([$rGate]);
- $release("admin",$rGate);p5a($status($rGate)==="Approved","Adviser gate bypassed at release.");$checks++;
- $pdo->prepare("UPDATE resource_requests SET adviser_state='Not Required',director_state='Pending' WHERE request_id=?")->execute([$rGate]);
+ $release("borrower",$rGate);p5a($status($rGate)==="Approved","Borrower gained release authority.");$checks++;
+ $pdo->prepare("UPDATE resource_requests SET director_state='Pending' WHERE request_id=?")->execute([$rGate]);
  $release("director",$rGate);p5a($status($rGate)==="Approved","Director gained release authority.");$checks++;
  foreach(["borrower","other","director"] as $who){$release($who,$rGate);p5a($status($rGate)==="Approved","{$who} released a request.");$checks++;}
  p5h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>"forged","request_id"=>$rGate,"action"=>"release"]);
  p5a($status($rGate)==="Approved","Release CSRF bypassed.");$checks++;
  $release("staff",$rGate);p5a($status($rGate)==="Released","GSO Staff could not release an ordinary request.");$checks++;
  p5a((string)p5v($pdo,"SELECT director_state FROM resource_requests WHERE request_id=?",[$rGate])==="Pending","Release rewrote historical Director state.");$checks++;
+
+ p5a((string)p5v($pdo,"SELECT adviser_state FROM resource_requests WHERE request_id=?",[$rGate])==="Pending Adviser","Release rewrote historical Adviser state.");$checks++;
 
  // ---- Aggregate mixed-condition return ---------------------------------
  $chairLine=$lineId($rMixed,$chair);$hallLine=$lineId($rMixed,$hall);

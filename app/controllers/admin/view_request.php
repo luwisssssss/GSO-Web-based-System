@@ -6,6 +6,9 @@ require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/adviser_endorsement_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/director_approval_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_line_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/request_attachment_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/notification_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
 
 $pageTitle = "View Request";
 $activePage = "requests";
@@ -16,6 +19,31 @@ if (!isset($_GET["request_id"]) || empty($_GET["request_id"])) {
 }
 
 $requestId = (int) $_GET["request_id"];
+
+if (empty($_SESSION["csrf_token"])) $_SESSION["csrf_token"]=bin2hex(random_bytes(32));
+if (($_SERVER["REQUEST_METHOD"]??"GET")==="POST") {
+    try {
+        ensureAuthenticatedPermission("request.documents.verify");
+        if (!hash_equals((string)$_SESSION["csrf_token"],(string)($_POST["csrf_token"]??""))) throw new DomainException("Invalid request token.");
+        $action=(string)($_POST["action"]??"");
+        $next=$action==="verify_letter"?"Verified":($action==="reject_letter"?"Rejected":"");
+        $remarks=trim((string)($_POST["verification_remarks"]??""));
+        if ($next==="" || mb_strlen($remarks)>1000 || ($next==="Rejected" && $remarks==="")) throw new DomainException("Select a document verification action and provide remarks when rejecting (up to 1,000 characters).");
+        $pdo->beginTransaction();
+        $lock=$pdo->prepare("SELECT status,borrower_id FROM resource_requests WHERE request_id=? FOR UPDATE");$lock->execute([$requestId]);$locked=$lock->fetch(PDO::FETCH_ASSOC);
+        $letter=gsoRequestLetters($pdo,$requestId)[0]??null;
+        if (!$locked || !in_array($locked["status"],["Pending","Under Review"],true) || !$letter || (int)$letter["attachment_id"]!==(int)($_POST["attachment_id"]??0) || $letter["verification_status"]!=="Pending") throw new DomainException("Only the current pending letter on an unapproved request can be verified. Refresh this page.");
+        if (!is_file(gsoRequestLetterPath($letter["stored_file_name"]))) throw new DomainException("The request-letter file is unavailable.");
+        $update=$pdo->prepare("UPDATE request_attachments SET verification_status=?,verified_by=?,verified_at=NOW(),verification_remarks=? WHERE attachment_id=? AND verification_status='Pending'");
+        $update->execute([$next,(int)$_SESSION["user_id"],$remarks!==""?$remarks:null,$letter["attachment_id"]]);
+        addActivityLog($pdo,(int)$_SESSION["user_id"],"Request Letter ".$next,"Document verification for request #".$requestId);
+        createNotification($pdo,(int)$locked["borrower_id"],"request_letter_".strtolower($next),"Request Letter ".$next,$next==="Rejected"?"Your facility request letter was rejected. Upload a corrected letter: ".mb_substr($remarks,0,140):"Your manually signed facility request letter was verified for GSO processing. Request approval remains a separate action.","request_letter.php?request_id=".$requestId);
+        $pdo->commit();redirectWithFlash("view_request.php?request_id=".$requestId,"Request letter ".strtolower($next).".","success");
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        redirectWithFlash("view_request.php?request_id=".$requestId,$e instanceof DomainException?$e->getMessage():"Document verification could not be saved.");
+    }
+}
 
 $stmt = $pdo->prepare("
     SELECT
@@ -115,6 +143,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
     <?php require_once dirname(__DIR__, 3) . "/includes/admin_topbar.php"; ?>
 
     <main class="page-content">
+        <?php if(!empty($_SESSION["flash_message"])): ?><div class="note-box" role="status"><?php echo htmlspecialchars((string)$_SESSION["flash_message"]);unset($_SESSION["flash_message"],$_SESSION["flash_type"]);?></div><?php endif; ?>
         <div class="card">
             <h2>View Request</h2>
             <p>Full details for request <strong>REQ-<?php echo str_pad($request["request_id"], 3, "0", STR_PAD_LEFT); ?></strong>.</p>
@@ -326,13 +355,11 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
         <?php
         $adviserState = (string) ($request["adviser_state"] ?? "Not Required");
-        $adviserHistory = $adviserState === "Not Required"
-            ? []
-            : gsoAdviserHistory($pdo, (int) $request["request_id"]);
+        $adviserHistory = gsoAdviserHistory($pdo, (int) $request["request_id"]);
         ?>
         <?php if ($adviserState !== "Not Required" || $adviserHistory): ?>
             <div class="card detail-block">
-                <h3 class="section-title">Adviser Endorsement</h3>
+                <h3 class="section-title">Historical Adviser Workflow</h3>
                 <div class="detail-list">
                     <div class="detail-row">
                         <span>Endorsement State</span>
@@ -341,7 +368,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
                     <div class="detail-row">
                         <span>Assigned Adviser</span>
-                        <strong><?php echo !empty($request["adviser_name"]) ? htmlspecialchars((string) $request["adviser_name"]) : "Awaiting student selection"; ?></strong>
+                        <strong><?php echo !empty($request["adviser_name"]) ? htmlspecialchars((string) $request["adviser_name"]) : "No historical assignment"; ?></strong>
                     </div>
 
                     <div class="detail-row">
@@ -362,7 +389,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
                 <h4 class="section-title mt-12">Endorsement History</h4>
                 <?php if (!$adviserHistory): ?>
-                    <div class="note-box">No endorsement events recorded yet.</div>
+                    <div class="note-box">No historical endorsement events recorded.</div>
                 <?php else: ?>
                     <div class="table-wrapper">
                         <table class="request-table">
@@ -390,10 +417,20 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                     </div>
                 <?php endif; ?>
                 <p class="mini-muted mt-12">
-                    An adviser rejection is a hard stop. The request can only continue after the student revises it and the same adviser endorses it.
+                    The online Adviser workflow is retired. These historical records do not gate GSO processing.
                 </p>
             </div>
         <?php endif; ?>
+
+        <?php if(gsoRequestHasFacility($pdo,$requestId)): $letters=gsoRequestLetters($pdo,$requestId);$currentLetter=$letters[0]??null;?>
+        <section class="card"><h3>Manually Signed Facility Request Letter</h3>
+        <p>Verification confirms the submitted document is acceptable for processing. Manual signatures happen outside the system; request approval is a separate action.</p>
+        <?php require dirname(__DIR__,2)."/views/partials/request_letters.php";?>
+        <?php if($currentLetter && $currentLetter["verification_status"]==="Pending" && in_array($request["status"],["Pending","Under Review"],true) && gsoUserHasPermission((string)$_SESSION["role"],"request.documents.verify")):?>
+        <form method="post"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']);?>"><input type="hidden" name="attachment_id" value="<?php echo (int)$currentLetter['attachment_id'];?>">
+        <label>Verification remarks<textarea name="verification_remarks" maxlength="1000"></textarea></label>
+        <button name="action" value="verify_letter" class="admin-btn primary-btn">Mark Document Verified</button><button name="action" value="reject_letter" class="admin-btn">Reject Document (remarks required)</button></form>
+        <?php endif;?></section><?php endif;?>
 
         <?php $directorHistory=gsoDirectorHistory($pdo,(int)$request["request_id"]); $directorState=(string)($request["director_state"]??"Not Required"); ?>
         <?php if($directorState!=="Not Required"||$directorHistory): ?>
@@ -446,7 +483,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
             </div>
             <p class="mini-muted mt-12">
                 All lines belong to this one request reference and share a single
-                approval and adviser workflow. Director workflow records are historical.
+                approval workflow and one request-level facility letter when required. Adviser and Director workflow records are historical.
             </p>
         </div>
 

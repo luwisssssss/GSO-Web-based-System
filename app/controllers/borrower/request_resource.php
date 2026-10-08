@@ -6,6 +6,7 @@ require_once dirname(__DIR__, 3) . "/includes/notification_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/facility_calendar_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_line_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/request_attachment_helper.php";
 
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
@@ -139,6 +140,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             null
         ));
 
+        $validatedLetter = null;
+        if ($scheduleType === "Facility") {
+            try { $validatedLetter=gsoValidateRequestLetter($_FILES["request_letter"]??[]); }
+            catch (DomainException $e) { $errors[]=$e->getMessage(); }
+        }
+
         // Per-line duplicate and availability checks. Availability runs through
         // the unchanged shared service, which now reads request lines.
         if (empty($errors)) {
@@ -225,6 +232,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             // request - request_items is authoritative for every decision.
             $mirrorLine = gsoPrimaryMirrorLine($requestLines);
 
+            $storedLetter=null;
             try {
             $pdo->beginTransaction();
 
@@ -259,6 +267,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         ":line_kind" => $line["line_kind"],
                         ":requested_quantity" => (int) $line["quantity"],
                     ]);
+                }
+
+                if ($validatedLetter !== null) {
+                    $storedLetter=gsoStoreRequestLetter($validatedLetter);
+                    gsoInsertRequestLetter($pdo,$newRequestId,$borrowerId,$storedLetter);
                 }
 
                 // One request, one reference, one notification per recipient -
@@ -327,6 +340,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     $pdo->rollBack();
                 }
 
+                if ($storedLetter) @unlink($storedLetter["path"]);
                 error_log("Combined request submission failed: " . $submissionError->getMessage());
                 $message = "The request could not be submitted. Please review your selected resources and try again.";
                 $messageType = "error";
@@ -449,6 +463,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
         <div class="card request-form-card <?php echo $initialPastFacilitySchedule ? "schedule-unavailable" : ""; ?>">
             <form
                 method="POST"
+                enctype="multipart/form-data"
                 class="request-form"
                 id="requestForm"
                 data-resource-type="<?php echo htmlspecialchars($resourceType); ?>"
@@ -662,6 +677,18 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                     </div>
                 <?php endif; ?>
 
+                <div class="form-row" id="requestLetterRow">
+                    <label for="requestLetter">Signed facility request letter</label>
+                    <input type="file" id="requestLetter" name="request_letter" accept=".pdf,.jpg,.jpeg,.png" <?php echo $isFacility ? "required" : ""; ?>>
+                    <small class="form-help">Required when any selected resource is a facility. Prepare the letter and obtain required manual signatures outside the system, then upload one PDF, JPG or PNG for the whole request (up to <?php echo htmlspecialchars(gsoFormatBytesLabel(gsoEffectiveUploadLimitBytes(5*1024*1024))); ?>). GSO verifies the document before processing; the system does not sign the letter.</small>
+                </div>
+                <script>
+                document.addEventListener('DOMContentLoaded',function(){
+                    const form=document.getElementById('requestForm'), input=document.getElementById('requestLetter'), row=document.getElementById('requestLetterRow');
+                    const sync=function(){const required=form.dataset.resourceType==='Facility'||form.querySelector('[data-kind="Facility"]')!==null;input.required=required;row.hidden=!required;};
+                    new MutationObserver(sync).observe(form,{childList:true,subtree:true});sync();
+                });
+                </script>
                 <div class="profile-actions">
                     <button
                         type="submit"

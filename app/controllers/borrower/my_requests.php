@@ -3,6 +3,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/request_attachment_helper.php";
 
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
@@ -286,7 +287,6 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                             <?php foreach ($requests as $request): ?>
                                 <?php
                                 $displayStatus = getRequestLifecycleStatus($request);
-                                if(in_array((string)$request["status"],["Pending","Under Review"],true) && (string)($request["adviser_state"]??"Not Required")!=="Not Required")$displayStatus=(string)$request["adviser_state"];
                                 $statusClass = getStatusCssClass($displayStatus);
                                 $canCancelRequest = in_array((string) ($request["status"] ?? ""), $cancelableRequestStatuses, true);
                                 ?>
@@ -345,7 +345,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                             </button>
 
                                             <div class="row-actions-menu" role="menu">
-                                                <?php if(in_array((string)($request["adviser_state"]??""),["Selection Required","Revision Required","Pending Adviser","Endorsed"],true)): ?><a class="row-action-item" role="menuitem" href="adviser_request.php?request_id=<?php echo (int)$request['request_id']; ?>"><i class="fa-solid fa-user-check"></i><span>Adviser workflow / history</span></a><?php endif; ?>
+                                                <?php if(gsoRequestHasFacility($pdo,(int)$request["request_id"])): ?><a class="row-action-item" role="menuitem" href="request_letter.php?request_id=<?php echo (int)$request["request_id"]; ?>">Facility request letter</a><?php endif; ?>
                                                 <?php if ($canCancelRequest): ?>
                                                     <form method="POST" class="inline-form" onsubmit="return confirm('Cancel this request?');">
                                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>">

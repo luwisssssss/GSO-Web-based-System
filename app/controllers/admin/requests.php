@@ -7,7 +7,7 @@ require_once dirname(__DIR__, 3) . "/includes/notification_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/maintenance_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/facility_calendar_helper.php";
-require_once dirname(__DIR__, 3) . "/includes/adviser_endorsement_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/request_attachment_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/director_approval_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_line_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/equipment_unit_helper.php";
@@ -22,6 +22,8 @@ $cssFile = "../public/assets/css/pages/admin.css";
 
 function redirectRequestsPage(): void
 {
+    global $pdo;
+    if ($pdo->inTransaction()) $pdo->rollBack();
     header("Location: requests.php");
     exit();
 }
@@ -38,7 +40,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         redirectRequestsPage();
     }
 
-    if ($requestId <= 0 || !in_array($action, ["review", "approve", "reject", "release", "require_adviser"], true)) {
+    if ($requestId <= 0 || !in_array($action, ["review", "approve", "reject", "release"], true)) {
         $_SESSION["flash_message"] = "Invalid request action.";
         $_SESSION["flash_type"] = "error";
         redirectRequestsPage();
@@ -81,27 +83,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     }
     $requestSummary = (string) ($requestRow["line_summary"] ?? "requested resources");
 
-    if ($action === "require_adviser") {
-        $isAdmin=(string)($_SESSION["role"]??"")==="Admin";
-        $eligible=$isAdmin && (string)($requestRow["borrower_account_type"]??"")==="Student"
-            && in_array((string)$requestRow["status"],["Pending","Under Review"],true)
-            && (string)($requestRow["adviser_state"]??"Not Required")==="Not Required";
-        if(!$eligible){ $_SESSION["flash_message"]="Only the GSO Head may route an eligible Student request for Adviser endorsement.";$_SESSION["flash_type"]="error";redirectRequestsPage(); }
-        $stmt=$pdo->prepare("UPDATE resource_requests SET adviser_state='Selection Required',adviser_required_by=:required_by,adviser_required_at=NOW(),reviewed_by=:reviewed_by,reviewed_at=NOW(),status='Under Review',approved_by=NULL,approved_at=NULL WHERE request_id=:id AND status IN ('Pending','Under Review') AND adviser_state='Not Required' AND adviser_user_id IS NULL");
-        $ok=$stmt->execute([":required_by"=>$adminUserId,":reviewed_by"=>$adminUserId,":id"=>$requestId])&&$stmt->rowCount()===1;
-        if($ok){
-            addActivityLog($pdo,$adminUserId,"Adviser Endorsement Required","GSO Head required Adviser endorsement for request #{$requestId}.");
-            createNotification($pdo,(int)$requestRow["borrower_id"],"adviser_required","Adviser Endorsement Required","Select your Adviser / Subject Teacher to continue request REQ-".str_pad((string)$requestId,3,"0",STR_PAD_LEFT).".","adviser_request.php?request_id={$requestId}");
-        }
-        $_SESSION["flash_message"]=$ok?"Request returned to the Student for Adviser selection.":"The request changed before it could be routed.";$_SESSION["flash_type"]=$ok?"success":"error";redirectRequestsPage();
-    }
-
-    if (gsoAdviserStateBlocksGso($requestRow)) {
-        $_SESSION["flash_message"]="This request is stopped in the Adviser endorsement workflow.";$_SESSION["flash_type"]="error";redirectRequestsPage();
-    }
-    if ((string)($requestRow["adviser_state"]??"")==="Endorsed" && (string)($_SESSION["role"]??"")!=="Admin" && in_array($action,["review","approve","reject"],true)) {
-        $_SESSION["flash_message"]="An endorsed request must return to the GSO Head for review.";$_SESSION["flash_type"]="error";redirectRequestsPage();
-    }
     $dateNeeded = $requestRow["date_needed"] ?? null;
     $startTime = $requestRow["start_time"] ?? null;
     $endTime = $requestRow["end_time"] ?? null;
@@ -122,7 +103,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 reviewed_at = NOW()
             WHERE request_id = :request_id
               AND status = 'Pending'
-              AND adviser_state IN ('Not Required','Endorsed')
             LIMIT 1
         ");
         $success = $updateStmt->execute([
@@ -169,7 +149,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 approved_at = NULL
             WHERE request_id = :request_id
               AND status IN ('Pending', 'Under Review')
-              AND adviser_state IN ('Not Required','Endorsed')
             LIMIT 1
         ");
 
@@ -202,6 +181,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     }
 
     if ($action === "approve") {
+        $pdo->beginTransaction();
+        $lock=$pdo->prepare("SELECT status FROM resource_requests WHERE request_id=? FOR UPDATE");$lock->execute([$requestId]);
+        $requestRow["status"]=$lock->fetchColumn();
+        if (!gsoRequestLetterAllowsApproval($pdo,$requestId)) {
+            $_SESSION["flash_message"]="GSO must verify the current signed facility request letter before approving this request.";
+            $_SESSION["flash_type"]="error";redirectRequestsPage();
+        }
         $lineError = gsoRequestLineAvailabilityError($pdo, $requestRow);
 
         if ($lineError !== null) {
@@ -240,7 +226,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 approved_at = NOW()
             WHERE request_id = :request_id
               AND status IN ('Pending', 'Under Review')
-              AND adviser_state IN ('Not Required','Endorsed')
             LIMIT 1
         ");
 
@@ -268,6 +253,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             );
         }
 
+        $pdo->commit();
         $_SESSION["flash_message"] = $success ? "Request approved successfully." : "Failed to approve request.";
         $_SESSION["flash_type"] = $success ? "success" : "error";
         redirectRequestsPage();
@@ -334,7 +320,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         if (($lockedRequest["status"] ?? "") !== "Approved") {
             throw new Exception("Only approved requests can be released.");
         }
-        if (gsoAdviserStateBlocksGso($lockedRequest)) { throw new Exception("Adviser endorsement must be completed before release."); }
 
         // Phase 3.5A: serialized allocation, consumable issuance and per-line
         // return inspection are Phase 3.5B. Rather than let those request
@@ -609,7 +594,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 reminder_count = 0
             WHERE request_id = :request_id
               AND status = 'Approved'
-              AND adviser_state IN ('Not Required','Endorsed')
             LIMIT 1
         ");
         $updateRequestStmt->execute([
@@ -753,7 +737,6 @@ $filteredRows = [];
 foreach ($rows as $row) {
     $isPastFacilityUnavailable = isPastFacilityRequest($row);
     $displayStatus = $isPastFacilityUnavailable ? "Unavailable" : getRequestLifecycleStatus($row);
-    if (!$isPastFacilityUnavailable && in_array((string)$row["status"], ["Pending", "Under Review"], true) && (string)($row["adviser_state"]??"Not Required")!=="Not Required") $displayStatus=(string)$row["adviser_state"];
     $row["display_status"] = $displayStatus;
     $row["display_status_class"] = getStatusCssClass($displayStatus);
     $row["is_past_facility_unavailable"] = $isPastFacilityUnavailable;
@@ -948,10 +931,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                 $canRejectRequest = in_array((string) ($request["status"] ?? ""), ["Pending", "Under Review"], true);
                                 $canReleaseRequest = ((string) ($request["status"] ?? "") === "Approved")
                                     && !$isPastFacilityUnavailable;
-                                $adviserBlocks=in_array((string)($request["adviser_state"]??"Not Required"),["Selection Required","Pending Adviser","Revision Required"],true);
-                                if($adviserBlocks){$canReviewRequest=$canApproveRequest=$canRejectRequest=$canReleaseRequest=false;}
-                                if((string)($request["adviser_state"]??"")==="Endorsed" && (string)($_SESSION["role"]??"")!=="Admin"){$canReviewRequest=$canApproveRequest=$canRejectRequest=false;}
-                                $canRequireAdviser=(string)($_SESSION["role"]??"")==="Admin" && (string)($request["borrower_account_type"]??"")==="Student" && in_array((string)$request["status"],["Pending","Under Review"],true) && (string)($request["adviser_state"]??"Not Required")==="Not Required";
+                                if ($canApproveRequest && !gsoRequestLetterAllowsApproval($pdo,(int)$request["request_id"])) $canApproveRequest=false;
                                 ?>
                                 <tr class="<?php echo $isPastFacilityUnavailable ? "request-row-unavailable" : ""; ?>">
                                     <td>REQ-<?php echo str_pad((string) $request["request_id"], 3, "0", STR_PAD_LEFT); ?></td>
@@ -1057,7 +1037,6 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                     </form>
                                                 <?php endif; ?>
 
-                                                <?php if ($canRequireAdviser): ?><form method="POST" class="inline-form" onsubmit="return confirm('Require this Student to obtain Adviser endorsement?');"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']); ?>"><input type="hidden" name="request_id" value="<?php echo (int)$request['request_id']; ?>"><input type="hidden" name="action" value="require_adviser"><button type="submit" class="warning-action" role="menuitem"><i class="fa-solid fa-user-check"></i><span>Require Adviser Endorsement</span></button></form><?php endif; ?>
 
 
                                                 <?php if ($canApproveRequest): ?>

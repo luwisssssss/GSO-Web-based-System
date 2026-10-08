@@ -21,6 +21,8 @@ require_once $root . "/includes/return_upload_helper.php";
 require_once $root . "/includes/notification_helper.php";
 require_once $root . "/includes/login_throttle_helper.php";
 
+require_once __DIR__."/request_letter_test_helper.php";
+
 final class Step8Failure extends RuntimeException
 {
 }
@@ -69,12 +71,15 @@ function step8Http(
         $options[CURLOPT_COOKIEJAR] = $cookieFile;
         $options[CURLOPT_COOKIEFILE] = $cookieFile;
     }
+    if ($method === "POST" && is_array($data) && str_starts_with($path,"borrower/request_resource.php")) {
+        parse_str((string)parse_url($path,PHP_URL_QUERY),$query);$data=gsoTestLetterForm($GLOBALS["pdo"],(int)($query["resource_id"]??0),$data);
+    }
     if ($method === "POST") {
         $options[CURLOPT_POST] = true;
         $options[CURLOPT_POSTFIELDS] = is_array($data)
-            ? http_build_query($data, "", "&", PHP_QUERY_RFC3986)
+            ? (isset($data["request_letter"])?$data:http_build_query($data, "", "&", PHP_QUERY_RFC3986))
             : (string) $data;
-        if (is_array($data)) {
+        if (is_array($data) && !isset($data["request_letter"])) {
             $options[CURLOPT_HTTPHEADER] = array_merge($headers, ["Content-Type: application/x-www-form-urlencoded"]);
         }
     } elseif ($method === "HEAD") {
@@ -677,6 +682,7 @@ try {
     $facilitySubmit($cookies["a"], $aSession, "09:00", "10:00");
     $facilityApprovedId = (int) step8Value($pdo, "SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE rr.borrower_id=:b AND ri.resource_id=:r AND rr.status='Pending' ORDER BY rr.request_id DESC LIMIT 1", [":b" => $borrowerA, ":r" => $facilityId]);
     $requestIds[] = $facilityApprovedId;
+    gsoTestVerifiedLetter($pdo,$facilityApprovedId,$adminId);
     step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $facilityApprovedId, "action" => "approve"]);
     step8Assert(step8Status($pdo, $facilityApprovedId) === "Approved", "Facility approval failed.");
     $approvedOverlap = $facilitySubmit($cookies["b"], $bSession, "09:30", "10:30");
@@ -892,6 +898,7 @@ try {
             $placeholders = implode(",", array_fill(0, count($maintenanceIds), "?"));
             $pdo->prepare("DELETE FROM maintenance_schedules WHERE maintenance_id IN ({$placeholders})")->execute($maintenanceIds);
         }
+        foreach($requestIds as $letterRequest)gsoTestDeleteLetters($pdo,(int)$letterRequest);
         if ($requestIds !== []) {
             $placeholders = implode(",", array_fill(0, count($requestIds), "?"));
             $pdo->prepare("DELETE FROM resource_requests WHERE request_id IN ({$placeholders})")->execute($requestIds);

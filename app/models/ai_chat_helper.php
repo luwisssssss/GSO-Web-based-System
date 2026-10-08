@@ -230,6 +230,7 @@ if (!function_exists("gsoBuildChatSystemPrompt")) {
         $lines[] = "The user's role in this system is: " . ($roleLabels[$role] ?? "Borrower") . ".";
         $lines[] = "";
         $lines[] = "Reference material:";
+        $lines[] = "Current facility procedure: prepare the request letter, obtain required manual signatures outside the system, upload one signed letter for the request, then GSO verifies the document and separately processes the borrowing request. There is no online Adviser endorsement or Director approval.";
 
         if ($entries === []) {
             $lines[] = "(no matching reference material)";
@@ -261,6 +262,7 @@ if (!function_exists("gsoComposeKnowledgeAnswer")) {
 
         $primary = $entries[0];
         $answer = trim((string) ($primary["content"] ?? ""));
+        if (($primary["category"]??"")==="Facilities") $answer .= "\n\nFor facility requests, prepare the letter and obtain required manual signatures outside the system, upload the signed letter, and wait for GSO document verification and separate request processing.";
 
         if ($answer === "") {
             return "";

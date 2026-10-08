@@ -12,7 +12,8 @@ require_once $root."/includes/request_helper.php";require_once $root."/includes/
 final class P35Fail extends RuntimeException{}
 function p35a(bool $v,string $m):void{if(!$v)throw new P35Fail($m);}
 function p35v(PDO $p,string $q,array $a=[]):mixed{$s=$p->prepare($q);$s->execute($a);return $s->fetchColumn();}
-function p35h(string $b,string $p,string $c,string $m="GET",array $d=[],array $heads=[]):array{$x=curl_init(rtrim($b,"/")."/".ltrim($p,"/"));curl_setopt_array($x,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HEADER=>true,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_COOKIEJAR=>$c,CURLOPT_COOKIEFILE=>$c,CURLOPT_TIMEOUT=>30,CURLOPT_HTTPHEADER=>$heads]);if($m==="POST"){curl_setopt($x,CURLOPT_POST,true);curl_setopt($x,CURLOPT_POSTFIELDS,http_build_query($d));}$r=curl_exec($x);p35a(is_string($r),"HTTP failed: ".curl_error($x));$n=(int)curl_getinfo($x,CURLINFO_HEADER_SIZE);$s=(int)curl_getinfo($x,CURLINFO_RESPONSE_CODE);curl_close($x);return["status"=>$s,"body"=>substr($r,$n)];}
+require_once __DIR__."/request_letter_test_helper.php";
+function p35h(string $b,string $p,string $c,string $m="GET",array $d=[],array $heads=[]):array{$x=curl_init(rtrim($b,"/")."/".ltrim($p,"/"));curl_setopt_array($x,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HEADER=>true,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_COOKIEJAR=>$c,CURLOPT_COOKIEFILE=>$c,CURLOPT_TIMEOUT=>30,CURLOPT_HTTPHEADER=>$heads]);if($m==="POST"){curl_setopt($x,CURLOPT_POST,true);curl_setopt($x,CURLOPT_POSTFIELDS,isset($d["request_letter"])?$d:http_build_query($d));}$r=curl_exec($x);p35a(is_string($r),"HTTP failed: ".curl_error($x));$n=(int)curl_getinfo($x,CURLINFO_HEADER_SIZE);$s=(int)curl_getinfo($x,CURLINFO_RESPONSE_CODE);curl_close($x);return["status"=>$s,"body"=>substr($r,$n)];}
 function p35user(PDO $p,string $mark,string $key,string $role,?string $type):int{$u="p35_{$key}_".strtolower(substr($mark,4));$s=$p->prepare("INSERT INTO users(full_name,department,university_id,email,role,account_type,username,password_hash,account_status,email_verified)VALUES(:n,'Phase 3.5A QA',:uid,:e,:r,:t,:u,:pw,'Approved',1)");$s->execute([":n"=>"{$mark} {$key}",":uid"=>strtoupper(substr(md5($key),0,4)).substr($mark,4),":e"=>"{$u}@example.invalid",":r"=>$role,":t"=>$type,":u"=>$u,":pw"=>password_hash("P35!{$mark}",PASSWORD_DEFAULT)]);return(int)$p->lastInsertId();}
 
 $base=(string)(getenv("GSO_PHASE35A_BASE_URL")?:"http://127.0.0.1/GSO_WebSystem");
@@ -59,9 +60,11 @@ try{
  foreach($people as $k=>$v){$cookies[$k]=tempnam(sys_get_temp_dir(),"p35_");$r=p35h($base,basename($boot),$cookies[$k],"POST",["persona"=>$k],["X-P35-Token: {$tok}"]);$j=json_decode($r["body"],true);p35a($r["status"]===200&&is_array($j),"Bootstrap {$k} failed.");$csrf[$k]=$j["csrf_token"];}
 
  $day=date("Y-m-d",strtotime("+12 days"));$day2=date("Y-m-d",strtotime("+13 days"));$day3=date("Y-m-d",strtotime("+14 days"));
- $submit=function(string $who,int $primaryId,int $primaryQty,array $extras,string $date,string $start="08:00",string $end="10:00",?string $token=null)use($base,&$cookies,&$csrf):array{
+ $submit=function(string $who,int $primaryId,int $primaryQty,array $extras,string $date,string $start="08:00",string $end="10:00",?string $token=null)use($base,&$cookies,&$csrf,$pdo):array{
    $d=["csrf_token"=>$token??$csrf[$who],"quantity"=>$primaryQty,"contact_number"=>"09123456789","date_needed"=>$date,"start_time"=>$start,"end_time"=>$end,"notes"=>"Phase 3.5A activity"];
    foreach(array_values($extras) as $i=>$x){$d["extra_lines"][$i]["resource_id"]=$x[0];$d["extra_lines"][$i]["quantity"]=$x[1];}
+   $body=gsoTestLetterForm($pdo,$primaryId,$d);
+   if(is_array($body))$d=$body;
    return p35h($base,"borrower/request_resource.php?resource_id={$primaryId}",$cookies[$who],"POST",$d);};
  $newest=function(int $uid)use($pdo):int{return (int)p35v($pdo,"SELECT request_id FROM resource_requests WHERE borrower_id=? ORDER BY request_id DESC LIMIT 1",[$uid]);};
  $lineSig=function(int $rid)use($pdo):string{$s=$pdo->prepare("SELECT GROUP_CONCAT(CONCAT(resource_id,':',line_kind,':',requested_quantity) ORDER BY resource_id) FROM request_items WHERE request_id=?");$s->execute([$rid]);return (string)$s->fetchColumn();};
@@ -156,15 +159,17 @@ try{
  p35a(str_contains((string)$rollup,"{$mark} Hall B")&&str_contains((string)$rollup,"{$mark} Item A")&&str_contains((string)$rollup,"{$mark} Item B"),"Request rollup omitted a secondary resource line.");
  $checks+=4;
 
- // ---- Adviser remains request-level; Director routing is retired --------
+ // ---- Adviser and Director routing are retired; historical schema stays ---
  p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqE,"action"=>"require_adviser"]);
- p35a((string)p35v($pdo,"SELECT adviser_state FROM resource_requests WHERE request_id=?",[$reqE])==="Selection Required","Adviser routing failed for a combined request.");
+ p35a((string)p35v($pdo,"SELECT adviser_state FROM resource_requests WHERE request_id=?",[$reqE])==="Not Required","Retired Adviser routing changed the request.");
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='request_items' AND COLUMN_NAME LIKE '%adviser%'")===0,"Adviser state leaked onto request lines.");
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='request_items' AND COLUMN_NAME LIKE '%director%'")===0,"Director state leaked onto request lines.");
  p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqC,"action"=>"require_director"]);
  p35a((string)p35v($pdo,"SELECT director_state FROM resource_requests WHERE request_id=?",[$reqC])==="Not Required","Retired Director routing changed the request.");
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM request_items WHERE request_id=?",[$reqC])===3,"Routing changed the request's lines.");
  $checks+=5;
+
+ foreach([$reqB,$reqC,$reqE] as $letterRequest)gsoTestVerifiedLetter($pdo,$letterRequest,$ids["admin"]);
 
  // ---- Release and return safety ---------------------------------------
  // Phase 3.5B delivers serialized allocation, consumable issuance and
@@ -252,6 +257,7 @@ finally{
   $reqStmt=$pdo->prepare("SELECT DISTINCT ri.request_id FROM request_items ri JOIN resource_requests rr ON rr.request_id=ri.request_id WHERE ri.resource_id IN ({$marks}) AND rr.borrower_id IN ({$userMarks})");$reqStmt->execute(array_merge($resourceIds,array_values($ids)));
   $fixtureRequests=$reqStmt->fetchAll(PDO::FETCH_COLUMN)?:[];
   foreach($fixtureRequests as $rid){
+   gsoTestDeleteLetters($pdo,(int)$rid);
    $pdo->prepare("DELETE FROM notifications WHERE link LIKE :l")->execute([":l"=>"%request_id={$rid}"]);
    $pdo->prepare("DELETE FROM request_director_history WHERE request_id=:r")->execute([":r"=>$rid]);
    $pdo->prepare("DELETE FROM request_adviser_history WHERE request_id=:r")->execute([":r"=>$rid]);

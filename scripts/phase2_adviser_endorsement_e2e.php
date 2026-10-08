@@ -1,4 +1,5 @@
 <?php
+// SUPERSEDED by R2B. Preserved for historical online Adviser workflow reference.
 declare(strict_types=1);
 $root=dirname(__DIR__);require_once $root."/config/bootstrap.php";require_once $root."/config/db.php";
 final class P2Fail extends RuntimeException{}

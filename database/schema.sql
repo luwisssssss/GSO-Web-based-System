@@ -466,3 +466,29 @@ CREATE TABLE IF NOT EXISTS `ai_knowledge_entries` (
     CONSTRAINT `fk_ai_knowledge_updated_by`
         FOREIGN KEY (`updated_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- R2B: document verification is distinct from request approval/manual signatures.
+CREATE TABLE IF NOT EXISTS request_attachments (
+    attachment_id BIGINT(20) NOT NULL AUTO_INCREMENT,
+    request_id INT(11) NOT NULL,
+    uploaded_by INT(11) NOT NULL,
+    attachment_type ENUM('Facility Request Letter') NOT NULL DEFAULT 'Facility Request Letter',
+    version_no INT UNSIGNED NOT NULL,
+    original_file_name VARCHAR(255) NOT NULL,
+    stored_file_name VARCHAR(80) NOT NULL,
+    mime_type VARCHAR(100) NOT NULL,
+    file_size INT UNSIGNED NOT NULL,
+    verification_status ENUM('Pending','Verified','Rejected') NOT NULL DEFAULT 'Pending',
+    verified_by INT(11) NULL,
+    verified_at DATETIME NULL,
+    verification_remarks VARCHAR(1000) NULL,
+    uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (attachment_id),
+    UNIQUE KEY uq_request_attachment_version (request_id, attachment_type, version_no),
+    UNIQUE KEY uq_request_attachment_file (stored_file_name),
+    KEY idx_request_attachment_uploader (uploaded_by),
+    KEY idx_request_attachment_reviewer (verified_by),
+    CONSTRAINT fk_request_attachment_request FOREIGN KEY (request_id) REFERENCES resource_requests(request_id) ON DELETE RESTRICT,
+    CONSTRAINT fk_request_attachment_uploader FOREIGN KEY (uploaded_by) REFERENCES users(user_id) ON DELETE RESTRICT,
+    CONSTRAINT fk_request_attachment_reviewer FOREIGN KEY (verified_by) REFERENCES users(user_id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

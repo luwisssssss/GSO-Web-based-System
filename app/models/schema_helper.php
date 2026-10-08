@@ -969,6 +969,8 @@ if (!function_exists("ensureSystemSchema")) {
                 foreach($maintenanceFks as $name=>$column){if(!foreignKeyExists($pdo,"maintenance_schedules",$name))$pdo->exec("ALTER TABLE maintenance_schedules ADD KEY idx_ms_{$column} ({$column}), ADD CONSTRAINT {$name} FOREIGN KEY ({$column}) REFERENCES {$targets[$column]} ON DELETE SET NULL");}
             }
 
+            $pdo->exec(file_get_contents(dirname(__DIR__, 2) . "/database/migrations/20261008_002_request_attachments.sql"));
+
             $pdo->exec("CREATE TABLE IF NOT EXISTS borrower_liabilities (
                 liability_id BIGINT(20) NOT NULL AUTO_INCREMENT,request_id INT(11) NOT NULL,
                 return_item_id BIGINT(20) NULL,borrower_id INT(11) NOT NULL,equipment_unit_id BIGINT(20) NULL,

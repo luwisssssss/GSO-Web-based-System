@@ -1,0 +1,5 @@
+<?php // $letters is ordered newest first. Only the latest Pending version can be verified. ?>
+<div class="table-wrapper"><table class="request-table"><thead><tr><th>Version</th><th>Request letter</th><th>Verification</th><th>Remarks</th><th>Verified by / at</th></tr></thead><tbody>
+<?php if(!$letters):?><tr><td colspan="5">No request letter uploaded. Facility approval requires a verified letter.</td></tr><?php endif;?>
+<?php foreach($letters as $index=>$letter):?><tr><td><?php echo (int)$letter['version_no'];echo $index===0?' (Current)':' (Historical)';?></td><td><a href="../borrower/request_document.php?attachment_id=<?php echo (int)$letter['attachment_id'];?>"><?php echo htmlspecialchars($letter['original_file_name']);?></a></td><td><?php echo htmlspecialchars($letter['verification_status']);?></td><td><?php echo htmlspecialchars((string)$letter['verification_remarks']);?></td><td><?php echo htmlspecialchars((string)($letter['verifier_name']??'').' '.(string)$letter['verified_at']);?></td></tr>
+<?php endforeach;?></tbody></table></div>

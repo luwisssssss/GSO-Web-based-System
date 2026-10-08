@@ -4,8 +4,7 @@
  * Phase 3.5A — combined borrowing request lines.
  *
  * resource_requests remains the authoritative request header: one reference
- * number, one borrower, one approval workflow, one adviser workflow and one
- * director workflow. request_items carries the resources that request covers.
+ * number, one borrower, one approval workflow and historical routing records. request_items carries the resources that request covers.
  *
  * resource_requests.resource_id and .quantity survive only as a compatibility
  * mirror of the request's primary line so that display paths and test fixtures
@@ -328,7 +327,7 @@ if (!function_exists("gsoRequestFulfilmentBlocker")) {
      * Why a request cannot be released or returned yet, or null when it can.
      *
      * Phase 3.5A delivers combined borrowing end to end for request creation,
-     * approval, adviser routing and director routing. Physical-unit allocation
+     * approval and historical routing records. Physical-unit allocation
      * (serialized), permanent consumable issuance and per-line return
      * inspection are Phase 3.5B. Rather than let those shapes through the old
      * single-resource release and return paths — which would deduct stock for
