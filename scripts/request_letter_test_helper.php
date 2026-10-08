@@ -2,7 +2,7 @@
 // Required fixture setup for older active suites whose subject is not documents.
 require_once dirname(__DIR__) . '/includes/request_attachment_helper.php';
 function gsoTestLetterDatabase(): void {
-    if (!preg_match('/^gso_r2[ab]_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME',''))) throw new RuntimeException('Request-letter fixtures require an isolated R2 test database.');
+    if (!preg_match('/^gso_r(?:2[ab]|3)_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME',''))) throw new RuntimeException('Request-letter fixtures require an isolated R2 test database.');
 }
 function gsoTestLetterImage(): string {
     gsoTestLetterDatabase();$path=tempnam(sys_get_temp_dir(),'gso_letter_');
@@ -14,6 +14,7 @@ function gsoTestLetterForm(PDO $pdo,int $primary,array $data): array|string {
     $ids=[$primary];foreach((array)($data['extra_lines']??[]) as $line)$ids[]=(int)$line['resource_id'];
     $s=$pdo->prepare("SELECT COUNT(*) FROM resources WHERE resource_type='Facility' AND resource_id IN (".implode(',',array_fill(0,count($ids),'?')).")");$s->execute($ids);
     if(!(int)$s->fetchColumn())return http_build_query($data);
+    $data["facility_slot"]=$data["facility_slot"]??gsoFacilityPeriodForStart((string)($data["start_time"]??""));
     gsoTestLetterDatabase();$flat=[];parse_str(http_build_query($data),$normalized);
     $flatten=function(array $values,string $prefix='')use(&$flatten,&$flat){foreach($values as $k=>$v){$name=$prefix===''?(string)$k:$prefix.'['.$k.']';if(is_array($v))$flatten($v,$name);else $flat[$name]=$v;}};$flatten($normalized);
     $flat['request_letter']=new CURLFile(gsoTestLetterImage(),'image/png','signed-test-letter.png');return $flat;

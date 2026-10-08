@@ -95,6 +95,7 @@ $recentStmt = $pdo->prepare("
         rr.request_date,
         rr.date_needed,
         rr.start_time,
+        (SELECT MAX(sp.facility_slot) FROM request_items sp WHERE sp.request_id=rr.request_id) AS facility_slot,
         rr.end_time,
         rr.status,
         rr.due_date,
@@ -376,7 +377,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                     <tr>
                                         <td>REQ-<?php echo str_pad((string) $request["request_id"], 3, "0", STR_PAD_LEFT); ?></td>
                                         <td>
-                                            <strong><?php echo htmlspecialchars((string) $request["resource_name"]); ?></strong><br>
+                                            <strong><?php echo htmlspecialchars((string) $request["resource_name"]); ?><?php if(($request["resource_type"]??"")==="Facility"):?><small><?php echo htmlspecialchars(formatDateTimeDisplay($request["date_needed"])." | ".gsoRequestScheduleDisplay($request));?></small><?php endif;?></strong><br>
                                             <small><?php echo htmlspecialchars((string) $request["resource_type"]); ?></small>
                                         </td>
                                         <td>

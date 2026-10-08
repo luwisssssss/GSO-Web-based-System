@@ -78,6 +78,7 @@ $listSql = "
         r.quantity,
         rr.date_needed,
         rr.start_time,
+        (SELECT MAX(sp.facility_slot) FROM request_items sp WHERE sp.request_id=rr.request_id) AS facility_slot,
         rr.end_time,
         rr.request_date,
         rr.status,
@@ -180,13 +181,14 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                     <td>REQ-<?php echo str_pad($row["request_id"], 3, "0", STR_PAD_LEFT); ?></td>
 
                                     <td>
-                                        <strong><?php echo htmlspecialchars($row["resource_name"]); ?></strong><br>
+                                        <strong><?php echo htmlspecialchars($row["resource_name"]); ?><?php if(($row["resource_type"]??"")==="Facility"):?><small><?php echo htmlspecialchars(formatDateTimeDisplay($row["date_needed"])." | ".gsoRequestScheduleDisplay($row));?></small><?php endif;?></strong><br>
                                         <small>
                                             <?php echo htmlspecialchars($row["resource_type"]); ?>
                                             <?php if (!empty($row["category"])): ?>
                                                 - <?php echo htmlspecialchars($row["category"]); ?>
                                             <?php endif; ?>
                                         </small>
+                                        <?php if(($row["resource_type"]??"")==="Facility"):?><small><?php echo htmlspecialchars(formatDateTimeDisplay($row["date_needed"])." | ".gsoRequestScheduleDisplay($row));?></small><?php endif;?>
                                     </td>
 
                                     <td><?php echo htmlspecialchars($row["quantity"] ?? "N/A"); ?></td>

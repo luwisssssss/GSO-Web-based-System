@@ -138,7 +138,7 @@ try{
 
  // ---- Availability and conflict read from lines ------------------------
  $facilityConflicts=array_map(static fn(array $r):int=>(int)$r["request_id"],findScheduleConflicts($pdo,$hallB,"Facility",$day,"08:00:00","10:00:00",null,0));
- p35a(in_array($reqC,$facilityConflicts,true),"Facility line not visible to the conflict service.");
+ p35a(!in_array($reqC,$facilityConflicts,true),"Pending facility line incorrectly reserved the interval.");
  $equipConflicts=array_map(static fn(array $r):int=>(int)$r["request_id"],findScheduleConflicts($pdo,$itemB,"Item",$day,"08:00:00","10:00:00",null,0));
  p35a(in_array($reqA,$equipConflicts,true)&&in_array($reqC,$equipConflicts,true),"Extra equipment lines are invisible to availability.");
  p35a(!in_array($reqB,$equipConflicts,true),"An unrelated request appeared in the equipment conflict set.");

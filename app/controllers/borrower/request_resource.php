@@ -67,6 +67,8 @@ $formContactNumber = $_POST["contact_number"] ?? "";
 $formDateNeeded = $_POST["date_needed"] ?? "";
 $formStartTime = $_POST["start_time"] ?? "";
 $formEndTime = $_POST["end_time"] ?? "";
+$formFacilitySlot=(string)($_POST["facility_slot"]??"");
+$facilityHours=gsoFacilityOperatingHours($pdo);
 $formNotes = $_POST["notes"] ?? "";
 $resourceBaseStatus = (string) ($resource["status"] ?? "Unavailable");
 $resourceBaseStatusClass = getStatusCssClass($resourceBaseStatus);
@@ -140,6 +142,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             null
         ));
 
+        if ($scheduleType === "Facility") {
+            $periodError=gsoFacilityPeriodError($formFacilitySlot,$startTime,$endTime);
+            if($periodError!==null)$errors[]=$periodError;
+            $hoursError=gsoFacilitySubmissionHoursError($pdo,$startTime,$endTime,($_POST["request_extended_hours"]??"")==="1");
+            if($hoursError!==null)$errors[]=$hoursError;
+        } elseif ($formFacilitySlot!=="" || isset($_POST["request_extended_hours"])) {
+            $errors[]="AM/PM classification and extended-hours exceptions apply only to facility requests.";
+        }
+        foreach((array)($_POST["extra_lines"]??[]) as $rawLine) {
+            if(is_array($rawLine)&&isset($rawLine["facility_slot"]))$errors[]="Choose one request-level facility period; other resource lines cannot supply a period.";
+        }
         $validatedLetter = null;
         if ($scheduleType === "Facility") {
             try { $validatedLetter=gsoValidateRequestLetter($_FILES["request_letter"]??[]); }
@@ -255,9 +268,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 // live reference number can never exist.
                 $lineStmt = $pdo->prepare("
                     INSERT INTO request_items
-                        (request_id, resource_id, line_kind, requested_quantity)
+                        (request_id, resource_id, line_kind, requested_quantity, facility_slot)
                     VALUES
-                        (:request_id, :resource_id, :line_kind, :requested_quantity)
+                        (:request_id, :resource_id, :line_kind, :requested_quantity, :facility_slot)
                 ");
 
                 foreach ($requestLines as $line) {
@@ -265,6 +278,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         ":request_id" => $newRequestId,
                         ":resource_id" => (int) $line["resource_id"],
                         ":line_kind" => $line["line_kind"],
+                        ":facility_slot" => $line["line_kind"]==="Facility"?$formFacilitySlot:null,
                         ":requested_quantity" => (int) $line["quantity"],
                     ]);
                 }
@@ -315,7 +329,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 $message = "Request submitted successfully. "
                     . formatRequestCode($newRequestId) . " covers " . count($requestLines)
-                    . " resource line(s). Please wait for admin review.";
+                    . " resource line(s). Please wait for GSO review."
+                    . ($scheduleType==="Facility"&&gsoFacilityNeedsExtendedHours($pdo,$startTime,$endTime)?" This schedule is outside normal hours and requires an explicit GSO exception before approval.":"");
                 $messageType = "success";
 
                 $formQuantity = $defaultQuantity;
@@ -324,6 +339,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $formStartTime = "";
                 $formEndTime = "";
                 $formNotes = "";
+                $formFacilitySlot="";
             } else {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
@@ -544,7 +560,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                         <?php if (!$isFacility): ?>
                             Current item policy: <?php echo (int) getDefaultLoanDurationHours(); ?> hours after release.
                         <?php else: ?>
-                            Facility reservations close at the approved end time. Valid requests follow first-come-first-served priority.
+                            Facility reservations close at the approved end time. Pending requests may overlap. GSO approval confirms the actual reserved interval.
                         <?php endif; ?>
                     </div>
                 </div>
@@ -677,6 +693,12 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                     </div>
                 <?php endif; ?>
 
+                <div class="form-row" id="facilityPeriodRow">
+                    <label for="facilityPeriod">Facility period</label><select name="facility_slot" id="facilityPeriod"><option value="">Select AM or PM</option><?php foreach(['AM','PM'] as $period):?><option value="<?php echo $period;?>" <?php echo $formFacilitySlot===$period?'selected':'';?>><?php echo $period;?></option><?php endforeach;?></select>
+                    <small class="form-help">AM starts before noon; PM starts at or after noon. Exact start/end times determine the reservation interval. Normal campus hours: <?php echo htmlspecialchars(buildTimeRangeDisplay($facilityHours['start'],$facilityHours['end']));?>.</small>
+                    <label><input type="checkbox" name="request_extended_hours" value="1" <?php echo ($_POST['request_extended_hours']??'')==='1'?'checked':'';?>> Request an extended-hours exception for explicit GSO review</label>
+                    <small class="form-help">This requests review only. GSO must expressly authorize an interval extending past normal closing time.</small>
+                </div>
                 <div class="form-row" id="requestLetterRow">
                     <label for="requestLetter">Signed facility request letter</label>
                     <input type="file" id="requestLetter" name="request_letter" accept=".pdf,.jpg,.jpeg,.png" <?php echo $isFacility ? "required" : ""; ?>>
@@ -685,7 +707,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                 <script>
                 document.addEventListener('DOMContentLoaded',function(){
                     const form=document.getElementById('requestForm'), input=document.getElementById('requestLetter'), row=document.getElementById('requestLetterRow');
-                    const sync=function(){const required=form.dataset.resourceType==='Facility'||form.querySelector('[data-kind="Facility"]')!==null;input.required=required;row.hidden=!required;};
+                    const sync=function(){const required=form.dataset.resourceType==='Facility'||form.querySelector('[data-kind="Facility"]')!==null;input.required=required;row.hidden=!required;const period=document.getElementById('facilityPeriod');period.required=required;period.disabled=!required;document.getElementById('facilityPeriodRow').hidden=!required;const exception=form.querySelector('[name="request_extended_hours"]');exception.disabled=!required;document.getElementById('start_time').required=required;document.getElementById('end_time').required=required;};
                     new MutationObserver(sync).observe(form,{childList:true,subtree:true});sync();
                 });
                 </script>
@@ -859,6 +881,14 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
 
+        const period=document.getElementById('facilityPeriod');
+        if(period&&!period.disabled){
+            if(!['AM','PM'].includes(period.value))errors.push('Select AM or PM.');
+            else if(hasStart&&((startTime.value<'12:00'?'AM':'PM')!==period.value))errors.push('The AM/PM period must match the start time.');
+            const operatingStart=<?php echo json_encode(substr($facilityHours['start'],0,5));?>, operatingEnd=<?php echo json_encode(substr($facilityHours['end'],0,5));?>;
+            if(hasStart&&startTime.value<operatingStart)errors.push('Start time is before normal campus opening.');
+            if(hasEnd&&endTime.value>operatingEnd&&!form.querySelector('[name="request_extended_hours"]').checked)errors.push('Request explicit GSO review for a schedule extending past normal closing.');
+        }
         showErrors(errors);
         syncFacilityAvailabilityState();
         return errors.length === 0;
@@ -890,6 +920,8 @@ document.addEventListener("DOMContentLoaded", function () {
         field.addEventListener("change", validateSchedule);
     });
 
+    document.getElementById("facilityPeriod").addEventListener("change",validateSchedule);
+    form.querySelector('[name="request_extended_hours"]').addEventListener("change",validateSchedule);
     form.addEventListener("submit", function (event) {
         syncMinTimes();
         syncFacilityAvailabilityState();

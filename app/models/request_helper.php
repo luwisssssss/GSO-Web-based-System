@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . "/maintenance_helper.php";
+require_once __DIR__ . "/facility_schedule_helper.php";
 
 if (!function_exists("gsoRequestResourceRollupSql")) {
     /** Request-level display projection built exclusively from request_items. */
@@ -9,6 +10,7 @@ if (!function_exists("gsoRequestResourceRollupSql")) {
         return "(
             SELECT ri.request_id,
                    MIN(ri.resource_id) AS resource_id,
+                   MAX(ri.facility_slot) AS facility_slot,
                    SUM(ri.requested_quantity) AS quantity,
                    GROUP_CONCAT(CONCAT(r.resource_name, CASE WHEN ri.line_kind='Facility' THEN '' ELSE CONCAT(' x',ri.requested_quantity) END) ORDER BY FIELD(ri.line_kind,'Facility','Equipment','Consumable'),r.resource_name SEPARATOR ', ') AS resource_name,
                    CASE WHEN SUM(ri.line_kind='Facility')>0 THEN 'Facility' ELSE 'Item' END AS resource_type,
@@ -357,7 +359,8 @@ if (!function_exists("fetchActiveScheduleRequests")) {
             FROM resource_requests rr
             INNER JOIN request_items ri ON ri.request_id = rr.request_id
             WHERE ri.resource_id = :resource_id
-              AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released', 'Return')
+              AND ((ri.line_kind='Facility' AND rr.status IN ('Approved','Released','Return'))
+                   OR (ri.line_kind<>'Facility' AND rr.status IN ('Pending','Under Review','Approved','Released','Return')))
         ";
 
         $params = [
@@ -792,6 +795,7 @@ if (!function_exists("getEarlierFirstComeFirstServedRequests")) {
 
         foreach ($targetLines as $targetLine) {
             $resourceType = (string) $targetLine["resource_type"];
+            if ($resourceType === "Facility") continue; // Pending facilities have no reservation priority; approval rechecks confirmed overlap.
             $targetRange = buildRequestDateRange(
                 $resourceType,
                 $requestRow["date_needed"] ?? null,

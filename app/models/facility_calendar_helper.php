@@ -72,6 +72,7 @@ if (!function_exists("fetchFacilityCalendarEvents")) {
             SELECT
                 rr.request_id,
                 ri.resource_id,
+                ri.facility_slot,
                 ri.requested_quantity AS quantity,
                 rr.date_needed,
                 rr.start_time,
@@ -142,6 +143,8 @@ if (!function_exists("fetchFacilityCalendarEvents")) {
                 "status_class" => getStatusCssClass($status),
                 "request_code" => formatRequestCode((int) ($row["request_id"] ?? 0)),
                 "time" => $timeRange,
+                "period" => $row["facility_slot"]??null,
+                "confirmed" => in_array($status,["Approved","Released","Return"],true),
                 "title" => implode(" | ", $details),
                 "resource_name" => (string) ($row["resource_name"] ?? "Facility"),
                 "borrower_name" => $includeBorrowerName ? (string) ($row["borrower_name"] ?? "") : "",
@@ -316,16 +319,17 @@ if (!function_exists("renderFacilityAvailabilityCalendar")) {
         $nextQueryParams = array_merge($baseQueryParams, [$monthParam => $nextMonth]);
 
         $title = (string) ($options["title"] ?? "Facility Availability");
-        $subtitle = (string) ($options["subtitle"] ?? "Reserved dates and maintenance blocks are loaded from active facility requests.");
+        $subtitle = (string) ($options["subtitle"] ?? "AM/PM groups show actual reservation times. Pending requests do not reserve an interval; other non-overlapping times may remain available.");
         $emptyMessage = (string) ($options["empty_message"] ?? "Available");
         $pastDayMessage = (string) ($options["past_day_message"] ?? "Unavailable");
         $markPastDaysUnavailable = (bool) ($options["mark_past_days_unavailable"] ?? true);
         $disablePastDateSelection = (bool) ($options["disable_past_date_selection"] ?? false);
         $today = date("Y-m-d");
         $activeReservationCount = 0;
-        $blockedDayCount = count($eventsByDate);
+        $blockedDayCount = 0;
 
         foreach ($eventsByDate as $eventList) {
+            if(array_filter($eventList,static fn($e)=>($e["type"]??"")==="maintenance"))$blockedDayCount++;
             foreach ($eventList as $event) {
                 if (($event["type"] ?? "") === "reservation") {
                     $activeReservationCount++;
@@ -370,7 +374,7 @@ if (!function_exists("renderFacilityAvailabilityCalendar")) {
 
             <div class="facility-calendar-summary" aria-label="Facility availability summary">
                 <span><strong><?php echo (int) $activeReservationCount; ?></strong> active reservation<?php echo $activeReservationCount === 1 ? "" : "s"; ?></span>
-                <span><strong><?php echo (int) $blockedDayCount; ?></strong> blocked day<?php echo $blockedDayCount === 1 ? "" : "s"; ?></span>
+                <span><strong><?php echo (int) $blockedDayCount; ?></strong> maintenance day<?php echo $blockedDayCount === 1 ? "" : "s"; ?></span>
                 <span><strong><?php echo facilityCalendarEscape($monthTitle); ?></strong></span>
             </div>
 
@@ -411,7 +415,7 @@ if (!function_exists("renderFacilityAvailabilityCalendar")) {
                             if (($event["type"] ?? "") === "maintenance") {
                                 $hasMaintenance = true;
                             } else {
-                                $hasReservation = true;
+                                $hasReservation = $hasReservation || !empty($event["confirmed"]);
                             }
                         }
 
@@ -451,40 +455,23 @@ if (!function_exists("renderFacilityAvailabilityCalendar")) {
                                 <span class="facility-calendar-day-number"><?php echo facilityCalendarEscape(date("j", $dayTimestamp)); ?></span>
 
                                 <span class="facility-calendar-day-events">
-                                    <?php if (!$isOutside && empty($dayEvents)): ?>
-                                        <?php if ($isPastDate && $markPastDaysUnavailable): ?>
-                                            <span class="facility-calendar-unavailable"><?php echo facilityCalendarEscape($pastDayMessage); ?></span>
-                                        <?php else: ?>
-                                            <span class="facility-calendar-available"><?php echo facilityCalendarEscape($emptyMessage); ?></span>
-                                        <?php endif; ?>
-                                    <?php else: ?>
-                                        <?php foreach (array_slice($dayEvents, 0, 4) as $event): ?>
-                                            <?php
-                                            $eventClasses = [
-                                                "facility-calendar-event",
-                                                "facility-calendar-event-" . (string) ($event["type"] ?? "reservation"),
-                                                "status-" . (string) ($event["status_class"] ?? "pending")
-                                            ];
-                                            ?>
-                                            <span class="<?php echo facilityCalendarEscape(implode(" ", $eventClasses)); ?>">
-                                                <strong><?php echo facilityCalendarEscape($event["time"] ?? "Reserved"); ?></strong>
-                                                <?php if (($event["type"] ?? "") === "maintenance" && !empty($event["title"])): ?>
-                                                    <span><?php echo facilityCalendarEscape($event["title"]); ?></span>
-                                                <?php elseif ($showResourceName && !empty($event["title"])): ?>
-                                                    <span><?php echo facilityCalendarEscape($event["title"]); ?></span>
-                                                <?php elseif ($showBorrower && !empty($event["borrower_name"])): ?>
-                                                    <span><?php echo facilityCalendarEscape($event["borrower_name"]); ?></span>
-                                                <?php else: ?>
-                                                    <span><?php echo facilityCalendarEscape($event["status"] ?? "Reserved"); ?></span>
-                                                <?php endif; ?>
-                                                <small><?php echo facilityCalendarEscape($event["request_code"] ?? ""); ?></small>
-                                            </span>
-                                        <?php endforeach; ?>
-
-                                        <?php if (count($dayEvents) > 4): ?>
-                                            <span class="facility-calendar-more">+<?php echo count($dayEvents) - 4; ?> more</span>
-                                        <?php endif; ?>
-                                    <?php endif; ?>
+                                    <?php if(!$isOutside): foreach(['AM','PM','Legacy'] as $period):
+                                        $periodEvents=array_filter($dayEvents,static fn($e)=>($e['type']??'')==='maintenance'||(($e['period']??null)?:'Legacy')===$period);
+                                        if($period==='Legacy'&&!array_filter($periodEvents,static fn($e)=>($e['type']??'')==='reservation'))continue;
+                                        $maintenanceForPeriod=(bool)array_filter($periodEvents,static fn($e)=>($e['type']??'')==='maintenance');
+                                        $confirmedForPeriod=(bool)array_filter($periodEvents,static fn($e)=>!empty($e['confirmed']));
+                                    ?>
+                                    <span class="facility-calendar-period"><strong><?php echo facilityCalendarEscape($period==='Legacy'?'Legacy schedule':$period);?></strong>
+                                    <?php if($isPastDate&&$markPastDaysUnavailable):?><span>Past / unavailable</span>
+                                    <?php elseif($maintenanceForPeriod):?><span>Maintenance</span>
+                                    <?php elseif($confirmedForPeriod):?><span>Reserved intervals; other times may remain available</span>
+                                    <?php elseif(array_filter($dayEvents,static fn($e)=>!empty($e['confirmed']))):?><span>Other listed reservations may overlap; check exact times</span>
+                                    <?php else:?><span>Available subject to exact-time check</span><?php endif;?>
+                                    <?php foreach($periodEvents as $event):?><span class="facility-calendar-event facility-calendar-event-<?php echo facilityCalendarEscape($event['type']);?> status-<?php echo facilityCalendarEscape($event['status_class']);?>">
+                                        <strong><?php echo facilityCalendarEscape($event['time']);?></strong>
+                                        <span><?php echo facilityCalendarEscape(($event['type']==='reservation'?($event['confirmed']?'Reserved':'Pending review (does not reserve)'):'Maintenance').' | '.($event['title']??'').' | '.($event['request_code']??'').' | '.($event['status']??''));?></span>
+                                    </span><?php endforeach;?></span>
+                                    <?php endforeach;endif;?>
                                 </span>
                             </button>
                         </div>

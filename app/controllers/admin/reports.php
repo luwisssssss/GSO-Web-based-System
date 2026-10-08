@@ -53,6 +53,7 @@ $requestStmt = $pdo->query("
         rr.request_date,
         rr.date_needed,
         rr.start_time,
+        (SELECT MAX(sp.facility_slot) FROM request_items sp WHERE sp.request_id=rr.request_id) AS facility_slot,
         rr.end_time,
         rr.status,
         rr.reviewed_at,
@@ -340,7 +341,7 @@ if ($export === "excel") {
                     <td>" . h($row["quantity"] ?? "N/A") . "</td>
                     <td>" . h(formatDateTimeDisplay($row["request_date"] ?? "")) . "</td>
                     <td>" . h(formatDateTimeDisplay($row["date_needed"] ?? "")) . "</td>
-                    <td>" . h(buildTimeRangeDisplay($row["start_time"] ?? null, $row["end_time"] ?? null)) . "</td>
+                    <td>" . h(gsoRequestScheduleDisplay($row)) . "</td>
                     <td>" . h($row["display_status"] ?? ($row["status"] ?? "N/A")) . "</td>
                     <td>" . h(formatDateTimeDisplay($row["due_date"] ?? "")) . "</td>
                     <td>" . h(formatDateTimeDisplay($row["return_date"] ?? "")) . "</td>
@@ -621,7 +622,7 @@ if ($export === "pdf") {
                         <td><?php echo h($row["borrower_name"] ?? "N/A"); ?></td>
                         <td><?php echo h($row["resource_name"] ?? "N/A"); ?></td>
                         <td><?php echo h(formatDateTimeDisplay($row["date_needed"] ?? "")); ?></td>
-                        <td><?php echo h(buildTimeRangeDisplay($row["start_time"] ?? null, $row["end_time"] ?? null)); ?></td>
+                        <td><?php echo h(gsoRequestScheduleDisplay($row)); ?></td>
                         <td><?php echo h($row["display_status"] ?? ($row["status"] ?? "N/A")); ?></td>
                     </tr>
                 <?php endforeach; ?>
@@ -942,7 +943,7 @@ $exportBase = [
                                     <td><?php echo h($row["quantity"] ?? "N/A"); ?></td>
                                     <td><?php echo h(formatDateTimeDisplay($row["request_date"] ?? "")); ?></td>
                                     <td><?php echo h(formatDateTimeDisplay($row["date_needed"] ?? "")); ?></td>
-                                    <td><?php echo h(buildTimeRangeDisplay($row["start_time"] ?? null, $row["end_time"] ?? null)); ?></td>
+                                    <td><?php echo h(gsoRequestScheduleDisplay($row)); ?></td>
                                     <td><span class="status-badge <?php echo h($statusClass); ?>"><?php echo h($row["display_status"] ?? ($row["status"] ?? "N/A")); ?></span></td>
                                     <td><?php echo h(formatDateTimeDisplay($row["due_date"] ?? "")); ?></td>
                                 </tr>
@@ -1087,7 +1088,7 @@ $exportBase = [
                                     <td><?php echo h($row["borrower_name"] ?? "N/A"); ?></td>
                                     <td><?php echo h($row["resource_name"] ?? "N/A"); ?></td>
                                     <td><?php echo h(formatDateTimeDisplay($row["date_needed"] ?? "")); ?></td>
-                                    <td><?php echo h(buildTimeRangeDisplay($row["start_time"] ?? null, $row["end_time"] ?? null)); ?></td>
+                                    <td><?php echo h(gsoRequestScheduleDisplay($row)); ?></td>
                                     <td><span class="status-badge <?php echo h(getStatusCssClass((string) ($row["display_status"] ?? $row["status"] ?? ""))); ?>"><?php echo h($row["display_status"] ?? ($row["status"] ?? "N/A")); ?></span></td>
                                 </tr>
                             <?php endforeach; ?>

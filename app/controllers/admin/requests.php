@@ -53,6 +53,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             rr.contact_number,
             rr.date_needed,
             rr.start_time,
+        (SELECT MAX(sp.facility_slot) FROM request_items sp WHERE sp.request_id=rr.request_id) AS facility_slot,
             rr.end_time,
             rr.request_date,
             rr.status,
@@ -181,9 +182,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     }
 
     if ($action === "approve") {
+        try {
         $pdo->beginTransaction();
         $lock=$pdo->prepare("SELECT status FROM resource_requests WHERE request_id=? FOR UPDATE");$lock->execute([$requestId]);
         $requestRow["status"]=$lock->fetchColumn();
+        gsoLockRequestSchedulingResources($pdo,$requestId);
+        $facilityLine=gsoRequestFacilityLine($pdo,$requestId);
+        $extendedHoursRemarks=trim((string)($_POST["extended_hours_remarks"]??""));
+        if($facilityLine && $facilityLine["facility_slot"]!==null) {
+            $periodError=gsoFacilityPeriodError($facilityLine["facility_slot"],$requestRow["start_time"],$requestRow["end_time"]);
+            if($periodError!==null)throw new DomainException($periodError);
+            $hoursError=gsoFacilitySubmissionHoursError($pdo,$requestRow["start_time"],$requestRow["end_time"],true);
+            if($hoursError!==null)throw new DomainException($hoursError);
+            if(gsoFacilityNeedsExtendedHours($pdo,$requestRow["start_time"],$requestRow["end_time"]) && (($_POST["allow_extended_hours"]??"")!=="1"||$extendedHoursRemarks===""||mb_strlen($extendedHoursRemarks)>120))throw new DomainException("Explicit GSO extended-hours authorization and audit remarks (up to 120 characters) are required before approving this schedule.");
+        }
         if (!gsoRequestLetterAllowsApproval($pdo,$requestId)) {
             $_SESSION["flash_message"]="GSO must verify the current signed facility request letter before approving this request.";
             $_SESSION["flash_type"]="error";redirectRequestsPage();
@@ -195,9 +207,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $_SESSION["flash_type"] = "error";
             redirectRequestsPage();
         }
-    }
 
-    if ($action === "approve") {
         if (!in_array((string) ($requestRow["status"] ?? ""), ["Pending", "Under Review"], true)) {
             $_SESSION["flash_message"] = "Only pending or under review requests can be approved.";
             $_SESSION["flash_type"] = "error";
@@ -253,10 +263,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             );
         }
 
+        if($success && $facilityLine && $facilityLine["facility_slot"]!==null && gsoFacilityNeedsExtendedHours($pdo,$requestRow["start_time"],$requestRow["end_time"])) {
+            if(!addActivityLog($pdo,$adminUserId,"Extended Facility Hours Authorized","Request #{$requestId}; {$dateNeeded}; ".gsoRequestScheduleDisplay($requestRow)."; GSO authorization: ".$extendedHoursRemarks))throw new RuntimeException("Extended-hours authorization audit could not be recorded.");
+        }
         $pdo->commit();
         $_SESSION["flash_message"] = $success ? "Request approved successfully." : "Failed to approve request.";
         $_SESSION["flash_type"] = $success ? "success" : "error";
         redirectRequestsPage();
+        }catch(Throwable $approvalError){
+            if($pdo->inTransaction())$pdo->rollBack();
+            $_SESSION["flash_message"]=$approvalError instanceof DomainException?$approvalError->getMessage():"Approval could not be saved. Refresh and retry.";$_SESSION["flash_type"]="error";redirectRequestsPage();
+        }
     }
 
     if (($requestRow["status"] ?? "") !== "Approved") {
@@ -294,6 +311,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 rr.contact_number,
                 rr.date_needed,
                 rr.start_time,
+        (SELECT MAX(sp.facility_slot) FROM request_items sp WHERE sp.request_id=rr.request_id) AS facility_slot,
                 rr.end_time,
                 rr.request_date,
                 rr.status,
@@ -700,6 +718,7 @@ $listStmt = $pdo->query("
         rr.contact_number,
         rr.date_needed,
         rr.start_time,
+        (SELECT MAX(sp.facility_slot) FROM request_items sp WHERE sp.request_id=rr.request_id) AS facility_slot,
         rr.end_time,
         rr.request_date,
         rr.status,
@@ -828,7 +847,7 @@ $facilityCalendarResourceId = isset($_GET["facility_calendar_resource_id"])
 $facilityCalendarMonth = normalizeFacilityCalendarMonth($_GET["facility_calendar_month"] ?? null);
 $facilityCalendarHtml = renderFacilityAvailabilityCalendar($pdo, [
     "title" => "Facility Availability",
-    "subtitle" => "Pending, approved, released, and maintenance schedules block the shown dates and times.",
+    "subtitle" => "Confirmed reservations block their exact intervals. Pending review does not reserve a facility; whole-day maintenance blocks both periods.",
     "month" => $facilityCalendarMonth,
     "resource_id" => $facilityCalendarResourceId > 0 ? $facilityCalendarResourceId : null,
     "show_borrower" => true,
@@ -854,7 +873,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
     <main class="page-content">
         <div class="card">
             <h2>Requests</h2>
-            <p>Review borrower submissions in first-come-first-served order. Older competing requests must be processed before later requests for the same resource schedule.</p>
+            <p>GSO approval confirms a facility reservation after a fresh exact-time availability check. Pending facility requests may overlap; equipment processing retains its stock and queue protections.</p>
         </div>
 
         <?php if (!empty($flashMessage)): ?>
@@ -972,7 +991,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                     <td>
                                         <strong><?php echo htmlspecialchars(formatDateTimeDisplay($request["date_needed"] ?? "")); ?></strong><br>
                                         <small>
-                                            <?php echo htmlspecialchars(buildTimeRangeDisplay($request["start_time"] ?? null, $request["end_time"] ?? null)); ?>
+                                            <?php echo htmlspecialchars(gsoRequestScheduleDisplay($request)); ?>
                                             | Due: <?php echo !empty($request["due_date"])
                                                 ? htmlspecialchars(formatDateTimeDisplay($request["due_date"]))
                                                 : "Generated on release"; ?>
@@ -1044,6 +1063,9 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
                                                         <input type="hidden" name="request_id" value="<?php echo htmlspecialchars((string) $request["request_id"]); ?>">
                                                         <input type="hidden" name="action" value="approve">
+                                                        <?php if(($request["facility_slot"]??null)!==null && gsoFacilityNeedsExtendedHours($pdo,$request["start_time"],$request["end_time"])):?>
+                                                        <label><input type="checkbox" name="allow_extended_hours" value="1" required> Authorize extended facility hours</label><label>GSO authorization remarks<textarea name="extended_hours_remarks" maxlength="120" required></textarea></label>
+                                                        <?php endif;?>
                                                         <button type="submit" class="success-action" role="menuitem">
                                                             <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
                                                             <span>Approve</span>

@@ -32,6 +32,7 @@ $reqStmt = $pdo->prepare("
         rr.status,
         rr.date_needed,
         rr.start_time,
+        (SELECT MAX(sp.facility_slot) FROM request_items sp WHERE sp.request_id=rr.request_id) AS facility_slot,
         rr.end_time,
         rr.due_date,
         rr.return_date,
@@ -350,6 +351,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
     <main class="page-content">
         <div class="card">
             <h2>Return Submission</h2>
+            <?php if($facilityReturnLine!==null):?><p><?php echo htmlspecialchars(formatDateTimeDisplay($requestRow["date_needed"])." | ".gsoRequestScheduleDisplay($requestRow));?></p><?php endif;?>
             <p>Submit notes and up to 3 photos. Admin will confirm and mark as returned.</p>
         </div>
 

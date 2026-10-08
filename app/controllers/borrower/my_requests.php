@@ -164,6 +164,7 @@ $listSql = "
         r.quantity,
         rr.date_needed,
         rr.start_time,
+        (SELECT MAX(sp.facility_slot) FROM request_items sp WHERE sp.request_id=rr.request_id) AS facility_slot,
         rr.end_time,
         rr.request_date,
         rr.status,
@@ -308,7 +309,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                     <td><?php echo htmlspecialchars(formatDateTimeDisplay($request["date_needed"] ?? "")); ?></td>
 
                                     <td>
-                                        <?php echo htmlspecialchars(buildTimeRangeDisplay($request["start_time"] ?? null, $request["end_time"] ?? null)); ?>
+                                        <?php echo htmlspecialchars(gsoRequestScheduleDisplay($request)); ?>
                                     </td>
 
                                     <td>

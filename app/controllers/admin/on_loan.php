@@ -143,6 +143,7 @@ $sql = "
         rr.request_date,
         rr.date_needed,
         rr.start_time,
+        (SELECT MAX(sp.facility_slot) FROM request_items sp WHERE sp.request_id=rr.request_id) AS facility_slot,
         rr.end_time,
         rr.status,
         rr.released_by,
@@ -348,6 +349,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                 - <?php echo htmlspecialchars($row["location"]); ?>
                                             <?php endif; ?>
                                         </small>
+                                        <?php if(($row["resource_type"]??"")==="Facility"):?><small><?php echo htmlspecialchars(formatDateTimeDisplay($row["date_needed"])." | ".gsoRequestScheduleDisplay($row));?></small><?php endif;?>
                                     </td>
 
                                     <td><?php echo htmlspecialchars($row["quantity"] ?? "N/A"); ?></td>

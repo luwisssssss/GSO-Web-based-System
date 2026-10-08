@@ -970,6 +970,9 @@ if (!function_exists("ensureSystemSchema")) {
             }
 
             $pdo->exec(file_get_contents(dirname(__DIR__, 2) . "/database/migrations/20261008_002_request_attachments.sql"));
+            if (!columnExists($pdo,"request_items","facility_slot")) {
+                $pdo->exec(file_get_contents(dirname(__DIR__,2)."/database/migrations/20261008_003_facility_schedule_period.sql"));
+            }
 
             $pdo->exec("CREATE TABLE IF NOT EXISTS borrower_liabilities (
                 liability_id BIGINT(20) NOT NULL AUTO_INCREMENT,request_id INT(11) NOT NULL,

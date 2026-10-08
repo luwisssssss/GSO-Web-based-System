@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__).'/config/bootstrap.php';
-if(!preg_match('/^gso_r2b_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R2B tests require an isolated gso_r2b_test_* database.');
+if(!preg_match('/^gso_r(?:2b|3)_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R2B tests require an isolated gso_r2b_test_* database.');
 $base=(string)gsoEnv('GSO_R2B_BASE_URL','http://127.0.0.1:8094/GSO_WebSystem');
 if(!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true))throw new RuntimeException('Loopback only.');
 require_once dirname(__DIR__).'/config/db.php';
@@ -37,6 +37,7 @@ try{
     $active=tempnam(sys_get_temp_dir(),'r2b_active_');$files[]=$active;file_put_contents($active,"%PDF-1.4\n1 0 obj\n<< /JavaScript (alert) >>\nendobj\n%%EOF");
     $submit=function(string $who,int $primary,array $extras=[],?CURLFile $letter=null,int $offset=100,?string $token=null)use(&$csrf):array{
         $data=['csrf_token'=>$token??$csrf[$who],'quantity'=>1,'contact_number'=>'09123456789','date_needed'=>date('Y-m-d',strtotime('+'.$offset.' days')),'start_time'=>'08:00','end_time'=>'10:00','notes'=>'Already manually signed outside the system'];
+        global $pdo;$ids=[$primary,...$extras];$m=implode(',',array_fill(0,count($ids),'?'));$s=$pdo->prepare("SELECT COUNT(*) FROM resources WHERE resource_type='Facility' AND resource_id IN ($m)");$s->execute($ids);if((int)$s->fetchColumn())$data['facility_slot']='AM';
         foreach($extras as $i=>$resource)$data['extra_lines'][$i]=['resource_id'=>$resource,'quantity'=>1];if($letter)$data['request_letter']=$letter;
         return bHttp($who,'borrower/request_resource.php?resource_id='.$primary,$data);
     };

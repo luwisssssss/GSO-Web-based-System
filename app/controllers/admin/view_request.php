@@ -53,6 +53,7 @@ $stmt = $pdo->prepare("
         rr.contact_number,
         rr.date_needed,
         rr.start_time,
+        (SELECT MAX(sp.facility_slot) FROM request_items sp WHERE sp.request_id=rr.request_id) AS facility_slot,
         rr.end_time,
         rr.request_date,
         rr.status,
@@ -129,7 +130,7 @@ $resourceStatusClass = strtolower($request["resource_status"] ?? "");
 $archiveState = ((int)($request["is_archived"] ?? 0) === 1) ? "Archived" : "Active";
 $archiveClass = ((int)($request["is_archived"] ?? 0) === 1) ? "archived" : "available";
 
-$timeDisplay = buildTimeRangeDisplay($request["start_time"] ?? null, $request["end_time"] ?? null);
+$timeDisplay = gsoRequestScheduleDisplay($request);
 $borrowerCallHref = buildPhoneCallHref($request["contact_number"] ?? null);
 
 $cssFiles = array_merge($cssFiles ?? [], ["../public/assets/css/pages/admin-view-request.css"]);

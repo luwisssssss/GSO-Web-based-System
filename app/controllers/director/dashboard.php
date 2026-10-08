@@ -34,14 +34,14 @@ require_once dirname(__DIR__, 3) . "/includes/header.php";
         ]); ?>
     </section>
     <section class="card"><h2>Facility Reservations</h2><div class="table-wrapper">
-        <table class="request-table"><thead><tr><th>Request</th><th>Facility</th><th>Date</th><th>Time</th><th>Status</th></tr></thead><tbody>
+        <table class="request-table"><thead><tr><th>Request</th><th>Facility</th><th>Date</th><th>Period / Exact Time</th><th>Status</th></tr></thead><tbody>
         <?php $reservations = array_filter($events, static fn(array $event): bool => $event["type"] === "reservation"); ?>
         <?php if (!$reservations): ?><tr><td colspan="5">No facility reservations in this month.</td></tr><?php endif; ?>
         <?php foreach ($reservations as $event): ?>
             <tr><td><?php echo facilityCalendarEscape($event["request_code"]); ?></td>
                 <td><?php echo facilityCalendarEscape($event["resource_name"]); ?></td>
                 <td><?php echo facilityCalendarEscape(formatDateTimeDisplay($event["date"])); ?></td>
-                <td><?php echo facilityCalendarEscape($event["time"]); ?></td>
+                <td><?php echo facilityCalendarEscape(($event["period"]??"Legacy schedule")." | ".$event["time"]); ?></td>
                 <td><?php echo facilityCalendarEscape($event["status"]); ?></td></tr>
         <?php endforeach; ?>
         </tbody></table>

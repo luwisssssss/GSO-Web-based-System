@@ -670,7 +670,9 @@ try {
     step8Assert($facilityRequestA > 0, "Facility request failed.");
     $requestIds[] = $facilityRequestA;
     $overlap = $facilitySubmit($cookies["b"], $bSession, "09:30", "10:30");
-    step8Assert($overlap["status"] === 200 && str_contains($overlap["body"], "occupies the selected date and time"), "Overlapping facility request was accepted.");
+    $pendingOverlapId=(int)step8Value($pdo,"SELECT MAX(request_id) FROM resource_requests WHERE borrower_id=?",[$borrowerB]);$requestIds[]=$pendingOverlapId;
+    step8Assert($overlap["status"]===200&&step8Status($pdo,$pendingOverlapId)==="Pending","Pending facility requests could not coexist.");
+    step8Http($baseUrl,"borrower/my_requests.php","POST",$cookies["b"],["csrf_token"=>$bSession["csrf_token"],"request_id"=>$pendingOverlapId,"action"=>"cancel"]);
     step8Http($baseUrl, "borrower/my_requests.php", "POST", $cookies["a"], ["csrf_token" => $aSession["csrf_token"], "request_id" => $facilityRequestA, "action" => "cancel"]);
     step8Assert(step8Status($pdo, $facilityRequestA) === "Cancelled", "Facility cancellation failed.");
     $facilitySubmit($cookies["b"], $bSession, "09:30", "10:30");
