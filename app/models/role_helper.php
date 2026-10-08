@@ -26,6 +26,7 @@ if (!function_exists("getRoleHomePath")) {
     {
         return match ($role) {
             "Admin" => $prefix . "admin/dashboard.php",
+            "Super Admin" => $prefix . "admin/accounts_dashboard.php",
             "GSO Staff" => $prefix . "gso_staff/dashboard.php",
             "Director" => $prefix . "director/dashboard.php",
             default => $prefix . "borrower/browse.php",
@@ -36,13 +37,13 @@ if (!function_exists("getRoleHomePath")) {
 if (!function_exists("gsoSupportedRoles")) {
     function gsoSupportedRoles(): array
     {
-        return ["Borrower", "GSO Staff", "Admin", "Director"];
+        return ["Borrower", "GSO Staff", "Admin", "Director", "Super Admin"];
     }
 }
 
 if (!function_exists("gsoRolePermissions")) {
-    /** Central Phase 1 authorization policy. Admin is deliberately explicit
-     * through the wildcard; other roles receive only listed capabilities. */
+    /** Explicit capabilities: MIS account administration and GSO operations
+     * are separate. No role inherits an unrestricted wildcard. */
     function gsoRolePermissions(): array
     {
         return [
@@ -58,10 +59,18 @@ if (!function_exists("gsoRolePermissions")) {
                 "work_order.manage", "walk_in.create", "profile.manage_own",
                 "chatbot.use",
             ],
-            "Admin" => ["*"],
+            "Admin" => [
+                "gso.admin_workspace", "request.view_queue", "request.approve_ordinary",
+                "release.manage", "return.inspect", "inventory.view", "inventory.manage_units",
+                "work_order.manage", "walk_in.create", "profile.manage_own",
+                "profile.manage_admin_own", "notifications.view_own", "chatbot.use",
+            ],
+            "Super Admin" => [
+                "accounts.manage", "profile.manage_own", "profile.manage_admin_own",
+                "notifications.view_own",
+            ],
             "Director" => [
-                "director.dashboard", "director.request.view", "director.request.decide",
-                "profile.manage_own", "chatbot.use",
+                "director.dashboard", "facility.schedule.view", "profile.manage_own",
             ],
         ];
     }
@@ -71,7 +80,14 @@ if (!function_exists("gsoUserHasPermission")) {
     function gsoUserHasPermission(?string $role, string $permission): bool
     {
         $permissions = gsoRolePermissions()[$role ?? ""] ?? [];
-        return in_array("*", $permissions, true) || in_array($permission, $permissions, true);
+        return in_array($permission, $permissions, true);
+    }
+}
+
+if (!function_exists("gsoManagedSystemRoles")) {
+    function gsoManagedSystemRoles(): array
+    {
+        return ["Super Admin", "Admin", "GSO Staff", "Director"];
     }
 }
 

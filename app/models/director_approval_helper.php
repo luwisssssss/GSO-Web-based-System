@@ -9,9 +9,8 @@ require_once __DIR__ . "/activity_log_helper.php";
 
 if (!function_exists("gsoIsApprovedDirector")) {
     /**
-     * Authoritative Director check. The Admin role holds the "*" permission
-     * wildcard, so permission checks alone would let a GSO Head record a
-     * Director decision. Only the database role decides who may act here.
+     * Historical compatibility account check. This does not grant decision
+     * authority: all Director actions are retired after R2A.
      */
     function gsoIsApprovedDirector(PDO $pdo, int $userId): bool
     {
@@ -34,27 +33,21 @@ if (!function_exists("gsoIsApprovedDirector")) {
 if (!function_exists("gsoDirectorStateBlocksGso")) {
     function gsoDirectorStateBlocksGso(array $request): bool
     {
-        return (string) ($request["director_state"] ?? "Not Required") === "Pending";
+        return false; // Retired: historical Director state does not gate GSO.
     }
 }
 
 if (!function_exists("gsoDirectorGateAllowsRelease")) {
     function gsoDirectorGateAllowsRelease(array $request): bool
     {
-        return in_array(
-            (string) ($request["director_state"] ?? "Not Required"),
-            ["Not Required", "Approved"],
-            true
-        );
+        return true; // GSO release still enforces its own validation.
     }
 }
 
 if (!function_exists("gsoCanRouteRequestToDirector")) {
     function gsoCanRouteRequestToDirector(array $request): bool
     {
-        return in_array((string) ($request["status"] ?? ""), ["Pending", "Under Review"], true)
-            && in_array((string) ($request["adviser_state"] ?? "Not Required"), ["Not Required", "Endorsed"], true)
-            && (string) ($request["director_state"] ?? "Not Required") === "Not Required";
+        return false; // No new Director routing after R2A.
     }
 }
 
@@ -107,7 +100,7 @@ if (!function_exists("gsoNotifyApprovedRoles")) {
         string $message,
         string $link
     ): void {
-        $roles = array_values(array_intersect(["Admin", "GSO Staff", "Director"], array_unique($roles)));
+        $roles = array_values(array_intersect(["Admin", "GSO Staff"], array_unique($roles)));
         if ($roles === []) {
             return;
         }
@@ -136,39 +129,6 @@ if (!function_exists("gsoSendDirectorAssignmentEmails")) {
     /** Notification only: links always require the Director to authenticate. */
     function gsoSendDirectorAssignmentEmails(PDO $pdo, int $requestId, int $actorId): bool
     {
-        require_once dirname(__DIR__, 2) . "/includes/mail_helper.php";
-        $stmt = $pdo->prepare("
-            SELECT d.full_name,d.email,r.resource_name,b.full_name AS borrower_name
-            FROM users d
-            JOIN resource_requests rr ON rr.request_id=:request_id
-            JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id=rr.request_id
-            JOIN users b ON b.user_id=rr.borrower_id
-            WHERE d.role='Director' AND d.account_status='Approved' AND d.email_verified=1
-        ");
-        $stmt->execute([":request_id" => $requestId]);
-        $directors = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        if ($directors === []) return false;
-        $config = require dirname(__DIR__, 2) . "/config/mail.php";
-        $ref = formatRequestCode($requestId);
-        $url = gsoBuildAppUrl("director/request.php?request_id={$requestId}");
-        $allSent = true;
-        foreach ($directors as $director) {
-            if (str_ends_with(strtolower((string)$director["email"]), "@example.invalid")) {
-                $allSent = false;
-                continue;
-            }
-            $result = gsoSendEmail(
-                $config,
-                (string)$director["email"],
-                (string)$director["full_name"],
-                "Campus Director decision required: {$ref}",
-                "<p>A GSO request requires your authenticated decision.</p><p><a href=\"".htmlspecialchars($url,ENT_QUOTES,"UTF-8")."\">Sign in to review {$ref}</a></p><p>This email cannot authorize or record a decision.</p>",
-                "A GSO request requires your decision. Sign in to review {$ref}: {$url}"
-            );
-            $allSent = $allSent && !empty($result["success"]);
-        }
-        addActivityLog($pdo,$actorId,$allSent?"Director Email Notification Sent":"Director Email Notification Failed","Director assignment email for {$ref} ".($allSent?"was sent.":"was unavailable; in-app routing remains active."));
-        if (!$allSent) error_log("Director assignment email notification failed for request {$requestId}.");
-        return $allSent;
+        return false; // Retired: never send approval assignment emails.
     }
 }

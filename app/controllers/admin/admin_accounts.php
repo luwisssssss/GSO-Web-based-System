@@ -1,4 +1,5 @@
 <?php
+define("GSO_REQUIRED_PERMISSION", "accounts.manage");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
@@ -7,7 +8,7 @@ if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
 }
 
-$pageTitle = "Admin Accounts";
+$pageTitle = "System Accounts";
 $activePage = "admin_accounts";
 $cssFile = "../public/assets/css/pages/admin.css";
 
@@ -58,6 +59,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $email = trim((string) ($_POST["email"] ?? ""));
         $username = trim((string) ($_POST["username"] ?? ""));
         $password = (string) ($_POST["password"] ?? "");
+        $role = trim((string) ($_POST["role"] ?? "Admin"));
+        if (!in_array($role, gsoManagedSystemRoles(), true)) {
+            redirectWithFlash("admin_accounts.php", "Select a valid system account role.");
+        }
 
         if ($fullName === "" || $email === "" || $username === "" || $password === "") {
             $_SESSION["flash_message"] = "Full name, email, username, and password are required.";
@@ -67,7 +72,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
 
         if (strlen($password) < 8) {
-            $_SESSION["flash_message"] = "Admin password must be at least 8 characters long.";
+            $_SESSION["flash_message"] = "Account password must be at least 8 characters long.";
             $_SESSION["flash_type"] = "error";
             header("Location: admin_accounts.php");
             exit();
@@ -116,7 +121,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 :department,
                 :university_id,
                 :email,
-                'Admin',
+                :role,
                 :username,
                 :password_hash,
                 'Approved',
@@ -131,6 +136,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             ":department" => $department !== "" ? $department : null,
             ":university_id" => $universityId !== "" ? $universityId : null,
             ":email" => $email,
+            ":role" => $role,
             ":username" => $username,
             ":password_hash" => password_hash($password, PASSWORD_DEFAULT),
             ":approved_by" => $adminUserId
@@ -140,28 +146,28 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             addActivityLog(
                 $pdo,
                 $adminUserId,
-                "Admin Account Created",
-                "Admin created admin account: " . $fullName
+                "System Account Created",
+                "MIS created {$role} account: " . $fullName
             );
         }
 
         $_SESSION["flash_message"] = $success
-            ? "Admin account created successfully."
-            : "Failed to create admin account.";
+            ? "System account created successfully."
+            : "Failed to create system account.";
         $_SESSION["flash_type"] = $success ? "success" : "error";
         header("Location: admin_accounts.php");
         exit();
     }
 
     if ($targetUserId <= 0) {
-        $_SESSION["flash_message"] = "Invalid admin account action.";
+        $_SESSION["flash_message"] = "Invalid system account action.";
         $_SESSION["flash_type"] = "error";
         header("Location: admin_accounts.php");
         exit();
     }
 
     if ($targetUserId === $adminUserId) {
-        $_SESSION["flash_message"] = "You cannot change your own admin account status here.";
+        $_SESSION["flash_message"] = "You cannot change your own system account status here.";
         $_SESSION["flash_type"] = "error";
         header("Location: admin_accounts.php");
         exit();
@@ -179,8 +185,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     $targetUser = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$targetUser || $targetUser["role"] !== "Admin") {
-        $_SESSION["flash_message"] = "Admin account not found.";
+    if (!$targetUser || !in_array((string) $targetUser["role"], gsoManagedSystemRoles(), true)) {
+        $_SESSION["flash_message"] = "System account not found.";
         $_SESSION["flash_type"] = "error";
         header("Location: admin_accounts.php");
         exit();
@@ -194,7 +200,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 approved_by = :approved_by,
                 approved_at = NOW()
             WHERE user_id = :user_id
-              AND role = 'Admin'
+              AND role IN ('Super Admin','Admin','GSO Staff','Director')
             LIMIT 1
         ");
 
@@ -207,14 +213,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             addActivityLog(
                 $pdo,
                 $adminUserId,
-                "Admin Account Enabled",
-                "Admin enabled admin account: " . ($targetUser["full_name"] ?? "Unknown")
+                "System Account Enabled",
+                "MIS enabled system account: " . ($targetUser["full_name"] ?? "Unknown")
             );
         }
 
         $_SESSION["flash_message"] = $success
-            ? "Admin account enabled successfully."
-            : "Failed to enable admin account.";
+            ? "System account enabled successfully."
+            : "Failed to enable system account.";
         $_SESSION["flash_type"] = $success ? "success" : "error";
 
         header("Location: admin_accounts.php");
@@ -229,7 +235,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 approved_by = :approved_by,
                 approved_at = NOW()
             WHERE user_id = :user_id
-              AND role = 'Admin'
+              AND role IN ('Super Admin','Admin','GSO Staff','Director')
             LIMIT 1
         ");
 
@@ -242,14 +248,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             addActivityLog(
                 $pdo,
                 $adminUserId,
-                "Admin Account Disabled",
-                "Admin disabled admin account: " . ($targetUser["full_name"] ?? "Unknown")
+                "System Account Disabled",
+                "MIS disabled system account: " . ($targetUser["full_name"] ?? "Unknown")
             );
         }
 
         $_SESSION["flash_message"] = $success
-            ? "Admin account disabled successfully."
-            : "Failed to disable admin account.";
+            ? "System account disabled successfully."
+            : "Failed to disable system account.";
         $_SESSION["flash_type"] = $success ? "success" : "error";
 
         header("Location: admin_accounts.php");
@@ -271,7 +277,7 @@ $offset = ($page - 1) * $perPage;
 $baseWhereSql = "
     FROM users u
     LEFT JOIN users approver ON u.approved_by = approver.user_id
-    WHERE u.role = 'Admin'
+    WHERE u.role IN ('Super Admin','Admin','GSO Staff','Director')
 ";
 
 $params = [];
@@ -358,8 +364,8 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
     <main class="page-content">
         <div class="card">
-            <h2>Admin Accounts</h2>
-            <p>View, create, enable, disable, and monitor administrator access.</p>
+            <h2>System Accounts</h2>
+            <p>Manage MIS, GSO Head, GSO Staff, and Director accounts.</p>
         </div>
 
         <?php if (!empty($flashMessage)): ?>
@@ -371,14 +377,22 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
         <div class="card">
             <div class="page-header-row">
                 <div>
-                    <h3>Add Admin Account</h3>
-                    <p>Create an approved administrator account for system management.</p>
+                    <h3>Add System Account</h3>
+                    <p>Create an approved account with its assigned role.</p>
                 </div>
             </div>
 
             <form method="POST" class="request-form admin-account-create-form">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>">
                 <input type="hidden" name="action" value="create">
+                <div class="form-row">
+                    <label for="role">Role</label>
+                    <select id="role" name="role" required>
+                        <?php foreach (gsoManagedSystemRoles() as $roleOption): ?>
+                            <option value="<?php echo htmlspecialchars($roleOption); ?>" <?php echo $roleOption === "Admin" ? "selected" : ""; ?>><?php echo htmlspecialchars($roleOption); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
 
                 <div class="form-row">
                     <label for="full_name">Full Name</label>
@@ -398,7 +412,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                 <div class="form-row">
                     <label for="password">Temporary Password</label>
                     <input type="password" id="password" name="password" minlength="8" required>
-                    <small class="form-help">Minimum 8 characters. Admin can change this after login.</small>
+                    <small class="form-help">Minimum 8 characters. The user can change this after login.</small>
                 </div>
 
                 <div class="form-row">
@@ -412,7 +426,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                 </div>
 
                 <div class="profile-actions">
-                    <button type="submit" class="admin-btn primary-btn">Create Admin</button>
+                    <button type="submit" class="admin-btn primary-btn">Create Account</button>
                 </div>
             </form>
         </div>
@@ -443,6 +457,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                         <tr>
                             <th>User ID</th>
                             <th>Full Name</th>
+                            <th>Role</th>
                             <th>University ID</th>
                             <th>Email</th>
                             <th>Username</th>
@@ -462,6 +477,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                 <tr>
                                     <td><?php echo htmlspecialchars($admin["user_id"]); ?></td>
                                     <td><?php echo htmlspecialchars($admin["full_name"]); ?></td>
+                                    <td><?php echo htmlspecialchars($admin["role"]); ?></td>
                                     <td><?php echo htmlspecialchars($admin["university_id"] ?? "N/A"); ?></td>
                                     <td><?php echo htmlspecialchars($admin["email"]); ?></td>
                                     <td><?php echo htmlspecialchars($admin["username"]); ?></td>
@@ -508,7 +524,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                     <span class="row-action-note">Current account</span>
                                                 <?php else: ?>
                                                     <?php if ($admin["account_status"] !== "Approved"): ?>
-                                                        <form method="POST" class="inline-form" onsubmit="return confirm('Enable this admin account?');">
+                                                        <form method="POST" class="inline-form" onsubmit="return confirm('Enable this system account?');">
                                                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>">
                                                             <input type="hidden" name="user_id" value="<?php echo htmlspecialchars($admin["user_id"]); ?>">
                                                             <input type="hidden" name="action" value="enable">
@@ -520,7 +536,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                     <?php endif; ?>
 
                                                     <?php if ($admin["account_status"] !== "Disabled"): ?>
-                                                        <form method="POST" class="inline-form" onsubmit="return confirm('Disable this admin account?');">
+                                                        <form method="POST" class="inline-form" onsubmit="return confirm('Disable this system account?');">
                                                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>">
                                                             <input type="hidden" name="user_id" value="<?php echo htmlspecialchars($admin["user_id"]); ?>">
                                                             <input type="hidden" name="action" value="disable">
@@ -538,7 +554,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                             <?php endforeach; ?>
                         <?php else: ?>
                             <tr>
-                                <td colspan="12" class="empty-note">No admin accounts found.</td>
+                                <td colspan="13" class="empty-note">No system accounts found.</td>
                             </tr>
                         <?php endif; ?>
                     </tbody>
@@ -547,7 +563,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
             <div class="pagination-bar">
                 <div class="pagination-info">
-                    Showing <?php echo count($admins); ?> of <?php echo $totalRows; ?> admin account(s)
+                    Showing <?php echo count($admins); ?> of <?php echo $totalRows; ?> system account(s)
                 </div>
 
                 <div class="pagination-links">

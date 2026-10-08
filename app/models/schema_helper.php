@@ -465,11 +465,12 @@ if (!function_exists("ensureSystemSchema")) {
             // so the enums are widened first. Widening never reclassifies an
             // existing account: legacy Borrowers keep a NULL account_type.
             if (tableExists($pdo, "users")) {
-                if (!enumColumnHasValue($pdo, "users", "role", "Director")) {
+                if (!enumColumnHasValue($pdo, "users", "role", "Director")
+                    || !enumColumnHasValue($pdo, "users", "role", "Super Admin")) {
                     $pdo->exec("
                         ALTER TABLE users
                         MODIFY COLUMN role
-                            ENUM('Admin','Borrower','GSO Staff','Director')
+                            ENUM('Admin','Borrower','GSO Staff','Director','Super Admin')
                             NOT NULL DEFAULT 'Borrower'
                     ");
                 }

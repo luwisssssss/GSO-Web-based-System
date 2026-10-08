@@ -38,7 +38,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         redirectRequestsPage();
     }
 
-    if ($requestId <= 0 || !in_array($action, ["review", "approve", "reject", "release", "require_adviser", "require_director"], true)) {
+    if ($requestId <= 0 || !in_array($action, ["review", "approve", "reject", "release", "require_adviser"], true)) {
         $_SESSION["flash_message"] = "Invalid request action.";
         $_SESSION["flash_type"] = "error";
         redirectRequestsPage();
@@ -96,55 +96,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $_SESSION["flash_message"]=$ok?"Request returned to the Student for Adviser selection.":"The request changed before it could be routed.";$_SESSION["flash_type"]=$ok?"success":"error";redirectRequestsPage();
     }
 
-    if ($action === "require_director") {
-        if ((string) ($_SESSION["role"] ?? "") !== "Admin" || !gsoCanRouteRequestToDirector($requestRow)) {
-            $_SESSION["flash_message"] = "Only the GSO Head may route an eligible, Adviser-cleared request to the Campus Director.";
-            $_SESSION["flash_type"] = "error";
-            redirectRequestsPage();
-        }
-
-        $stmt = $pdo->prepare("
-            UPDATE resource_requests
-            SET director_state='Pending', director_required_by=:required_by,
-                director_required_at=NOW(), status='Under Review',
-                reviewed_by=:reviewed_by, reviewed_at=NOW(), approved_by=NULL, approved_at=NULL
-            WHERE request_id=:request_id
-              AND status IN ('Pending','Under Review')
-              AND adviser_state IN ('Not Required','Endorsed')
-              AND director_state='Not Required'
-            LIMIT 1
-        ");
-        $ok = $stmt->execute([
-                ":required_by" => $adminUserId,
-                ":reviewed_by" => $adminUserId,
-                ":request_id" => $requestId,
-            ]) && $stmt->rowCount() === 1;
-        if ($ok) {
-            $ref = formatRequestCode($requestId);
-            addActivityLog($pdo, $adminUserId, "Director Approval Required", "GSO Head routed {$ref} to the Campus Director.");
-            createNotification($pdo, (int) $requestRow["borrower_id"], "director_pending", "Campus Director Review Required", "{$ref} was routed to the Campus Director for a decision.", "my_requests.php");
-            gsoNotifyApprovedRoles($pdo, ["Director"], "director_pending", "Director Decision Required", "{$ref} requires Campus Director review.", "../director/request.php?request_id={$requestId}");
-            // Email is notification-only and deliberately occurs after the
-            // authoritative conditional update. Failure cannot undo routing.
-            gsoSendDirectorAssignmentEmails($pdo, $requestId, $adminUserId);
-        }
-        $_SESSION["flash_message"] = $ok ? "Request routed to the Campus Director." : "The request changed before it could be routed.";
-        $_SESSION["flash_type"] = $ok ? "success" : "error";
-        redirectRequestsPage();
-    }
-
     if (gsoAdviserStateBlocksGso($requestRow)) {
         $_SESSION["flash_message"]="This request is stopped in the Adviser endorsement workflow.";$_SESSION["flash_type"]="error";redirectRequestsPage();
     }
     if ((string)($requestRow["adviser_state"]??"")==="Endorsed" && (string)($_SESSION["role"]??"")!=="Admin" && in_array($action,["review","approve","reject"],true)) {
         $_SESSION["flash_message"]="An endorsed request must return to the GSO Head for review.";$_SESSION["flash_type"]="error";redirectRequestsPage();
     }
-    if (gsoDirectorStateBlocksGso($requestRow)) {
-        $_SESSION["flash_message"] = "This request is awaiting a Campus Director decision and cannot be changed by GSO.";
-        $_SESSION["flash_type"] = "error";
-        redirectRequestsPage();
-    }
-
     $dateNeeded = $requestRow["date_needed"] ?? null;
     $startTime = $requestRow["start_time"] ?? null;
     $endTime = $requestRow["end_time"] ?? null;
@@ -166,7 +123,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             WHERE request_id = :request_id
               AND status = 'Pending'
               AND adviser_state IN ('Not Required','Endorsed')
-              AND director_state='Not Required'
             LIMIT 1
         ");
         $success = $updateStmt->execute([
@@ -214,7 +170,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             WHERE request_id = :request_id
               AND status IN ('Pending', 'Under Review')
               AND adviser_state IN ('Not Required','Endorsed')
-              AND director_state='Not Required'
             LIMIT 1
         ");
 
@@ -286,7 +241,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             WHERE request_id = :request_id
               AND status IN ('Pending', 'Under Review')
               AND adviser_state IN ('Not Required','Endorsed')
-              AND director_state='Not Required'
             LIMIT 1
         ");
 
@@ -381,7 +335,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             throw new Exception("Only approved requests can be released.");
         }
         if (gsoAdviserStateBlocksGso($lockedRequest)) { throw new Exception("Adviser endorsement must be completed before release."); }
-        if (!gsoDirectorGateAllowsRelease($lockedRequest)) { throw new Exception("Campus Director approval must be completed before release."); }
 
         // Phase 3.5A: serialized allocation, consumable issuance and per-line
         // return inspection are Phase 3.5B. Rather than let those request
@@ -657,7 +610,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             WHERE request_id = :request_id
               AND status = 'Approved'
               AND adviser_state IN ('Not Required','Endorsed')
-              AND director_state IN ('Not Required','Approved')
             LIMIT 1
         ");
         $updateRequestStmt->execute([
@@ -802,7 +754,6 @@ foreach ($rows as $row) {
     $isPastFacilityUnavailable = isPastFacilityRequest($row);
     $displayStatus = $isPastFacilityUnavailable ? "Unavailable" : getRequestLifecycleStatus($row);
     if (!$isPastFacilityUnavailable && in_array((string)$row["status"], ["Pending", "Under Review"], true) && (string)($row["adviser_state"]??"Not Required")!=="Not Required") $displayStatus=(string)$row["adviser_state"];
-    if (!$isPastFacilityUnavailable && in_array((string)$row["status"], ["Pending", "Under Review"], true) && (string)($row["director_state"]??"Not Required")==="Pending") $displayStatus="Pending Director";
     $row["display_status"] = $displayStatus;
     $row["display_status_class"] = getStatusCssClass($displayStatus);
     $row["is_past_facility_unavailable"] = $isPastFacilityUnavailable;
@@ -934,7 +885,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
         </div>
 
         <div class="status-tabs" aria-label="Request status filters">
-            <?php foreach (["All", "Pending", "Under Review", "Pending Director", "Approved", "Released", "Return", "Completed", "Unavailable", "Overdue", "Returned", "Rejected", "Cancelled"] as $statusTab): ?>
+            <?php foreach (["All", "Pending", "Under Review", "Approved", "Released", "Return", "Completed", "Unavailable", "Overdue", "Returned", "Rejected", "Cancelled"] as $statusTab): ?>
                 <a
                     href="requests.php?<?php echo htmlspecialchars(http_build_query(array_merge($queryBase, ["status" => $statusTab, "page" => 1]))); ?>"
                     class="<?php echo strcasecmp($statusFilter, $statusTab) === 0 ? "active" : ""; ?>"
@@ -957,7 +908,6 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                     <option value="All" <?php echo $statusFilter === "All" ? "selected" : ""; ?>>All Status</option>
                     <option value="Pending" <?php echo $statusFilter === "Pending" ? "selected" : ""; ?>>Pending</option>
                     <option value="Under Review" <?php echo $statusFilter === "Under Review" ? "selected" : ""; ?>>Under Review</option>
-                    <option value="Pending Director" <?php echo $statusFilter === "Pending Director" ? "selected" : ""; ?>>Pending Director</option>
                     <option value="Approved" <?php echo $statusFilter === "Approved" ? "selected" : ""; ?>>Approved</option>
                     <option value="Released" <?php echo $statusFilter === "Released" ? "selected" : ""; ?>>Released</option>
                     <option value="Return" <?php echo $statusFilter === "Return" ? "selected" : ""; ?>>Return</option>
@@ -1002,9 +952,6 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                 if($adviserBlocks){$canReviewRequest=$canApproveRequest=$canRejectRequest=$canReleaseRequest=false;}
                                 if((string)($request["adviser_state"]??"")==="Endorsed" && (string)($_SESSION["role"]??"")!=="Admin"){$canReviewRequest=$canApproveRequest=$canRejectRequest=false;}
                                 $canRequireAdviser=(string)($_SESSION["role"]??"")==="Admin" && (string)($request["borrower_account_type"]??"")==="Student" && in_array((string)$request["status"],["Pending","Under Review"],true) && (string)($request["adviser_state"]??"Not Required")==="Not Required";
-                                $directorBlocks=(string)($request["director_state"]??"Not Required")==="Pending";
-                                if($directorBlocks){$canReviewRequest=$canApproveRequest=$canRejectRequest=$canReleaseRequest=$canRequireAdviser=false;}
-                                $canRequireDirector=(string)($_SESSION["role"]??"")==="Admin" && gsoCanRouteRequestToDirector($request);
                                 ?>
                                 <tr class="<?php echo $isPastFacilityUnavailable ? "request-row-unavailable" : ""; ?>">
                                     <td>REQ-<?php echo str_pad((string) $request["request_id"], 3, "0", STR_PAD_LEFT); ?></td>
@@ -1112,7 +1059,6 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
                                                 <?php if ($canRequireAdviser): ?><form method="POST" class="inline-form" onsubmit="return confirm('Require this Student to obtain Adviser endorsement?');"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']); ?>"><input type="hidden" name="request_id" value="<?php echo (int)$request['request_id']; ?>"><input type="hidden" name="action" value="require_adviser"><button type="submit" class="warning-action" role="menuitem"><i class="fa-solid fa-user-check"></i><span>Require Adviser Endorsement</span></button></form><?php endif; ?>
 
-                                                <?php if ($canRequireDirector): ?><form method="POST" class="inline-form" onsubmit="return confirm('Route this request to the Campus Director? GSO approval and release will be blocked until the Director decides.');"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']); ?>"><input type="hidden" name="request_id" value="<?php echo (int)$request['request_id']; ?>"><input type="hidden" name="action" value="require_director"><button type="submit" class="warning-action" role="menuitem"><i class="fa-solid fa-building-columns"></i><span>Require Campus Director Approval</span></button></form><?php endif; ?>
 
                                                 <?php if ($canApproveRequest): ?>
                                                     <form method="POST" class="inline-form" onsubmit="return confirm('Approve this request?');">

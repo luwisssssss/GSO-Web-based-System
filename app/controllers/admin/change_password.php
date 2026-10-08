@@ -1,4 +1,5 @@
 <?php
+define("GSO_REQUIRED_PERMISSION", "profile.manage_admin_own");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 
@@ -18,7 +19,7 @@ $stmt = $pdo->prepare("
     SELECT user_id, password_hash, full_name
     FROM users
     WHERE user_id = :user_id
-      AND role = 'Admin'
+      AND role IN ('Admin','Super Admin')
     LIMIT 1
 ");
 $stmt->execute([
@@ -63,7 +64,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             SET password_hash = :password_hash,
                 password_updated_at = NOW()
             WHERE user_id = :user_id
-              AND role = 'Admin'
+              AND role IN ('Admin','Super Admin')
             LIMIT 1
         ");
 

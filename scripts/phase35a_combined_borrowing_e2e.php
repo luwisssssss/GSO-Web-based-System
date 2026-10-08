@@ -156,13 +156,13 @@ try{
  p35a(str_contains((string)$rollup,"{$mark} Hall B")&&str_contains((string)$rollup,"{$mark} Item A")&&str_contains((string)$rollup,"{$mark} Item B"),"Request rollup omitted a secondary resource line.");
  $checks+=4;
 
- // ---- Adviser and Director stay request-level --------------------------
+ // ---- Adviser remains request-level; Director routing is retired --------
  p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqE,"action"=>"require_adviser"]);
  p35a((string)p35v($pdo,"SELECT adviser_state FROM resource_requests WHERE request_id=?",[$reqE])==="Selection Required","Adviser routing failed for a combined request.");
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='request_items' AND COLUMN_NAME LIKE '%adviser%'")===0,"Adviser state leaked onto request lines.");
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='request_items' AND COLUMN_NAME LIKE '%director%'")===0,"Director state leaked onto request lines.");
  p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqC,"action"=>"require_director"]);
- p35a((string)p35v($pdo,"SELECT director_state FROM resource_requests WHERE request_id=?",[$reqC])==="Pending","Director routing failed for a combined request.");
+ p35a((string)p35v($pdo,"SELECT director_state FROM resource_requests WHERE request_id=?",[$reqC])==="Not Required","Retired Director routing changed the request.");
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM request_items WHERE request_id=?",[$reqC])===3,"Routing changed the request's lines.");
  $checks+=5;
 
@@ -215,7 +215,7 @@ try{
  p35a(str_contains($mine["body"],htmlspecialchars("{$mark} Item B")),"Borrower list hid a non-mirrored resource line.");
  $hist=p35h($base,"borrower/history.php",$cookies["student"]);
  p35a(substr_count($hist["body"],"<td>REQ-".str_pad((string)$reqA,3,"0",STR_PAD_LEFT)."</td>")<=1,"Borrower history duplicated a combined request.");
- $adminList=p35h($base,"admin/requests.php?status=".urlencode("Pending Director"),$cookies["admin"]);
+ $adminList=p35h($base,"admin/requests.php?status=Pending",$cookies["admin"]);
  // Count table cells; the same reference can appear in the facility calendar.
  p35a(substr_count($adminList["body"],"<td>REQ-".str_pad((string)$reqC,3,"0",STR_PAD_LEFT)."</td>")===1,"Admin queue must show exactly one combined request row.");
  $adminDetail=p35h($base,"admin/view_request.php?request_id={$reqC}",$cookies["admin"]);

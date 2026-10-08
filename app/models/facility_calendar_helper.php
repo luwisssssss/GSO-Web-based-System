@@ -63,12 +63,14 @@ if (!function_exists("fetchFacilityCalendarEvents")) {
         ?int $resourceId,
         string $monthStart,
         string $monthEnd,
-        bool $includeBorrowerName = false
+        bool $includeBorrowerName = false,
+        bool $includeMaintenanceReason = true
     ): array {
+        $borrowerSelect = $includeBorrowerName ? "borrower.full_name" : "''";
+        $borrowerJoin = $includeBorrowerName ? "LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id" : "";
         $sql = "
             SELECT
                 rr.request_id,
-                rr.borrower_id,
                 ri.resource_id,
                 ri.requested_quantity AS quantity,
                 rr.date_needed,
@@ -76,13 +78,13 @@ if (!function_exists("fetchFacilityCalendarEvents")) {
                 rr.end_time,
                 rr.request_date,
                 rr.status,
-                borrower.full_name AS borrower_name,
+                {$borrowerSelect} AS borrower_name,
                 r.resource_name,
                 r.location
             FROM resource_requests rr
             INNER JOIN request_items ri ON ri.request_id = rr.request_id AND ri.line_kind = 'Facility'
             INNER JOIN resources r ON ri.resource_id = r.resource_id
-            LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id
+            {$borrowerJoin}
             WHERE r.resource_type = 'Facility'
               AND r.is_archived = 0
               AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released', 'Return')
@@ -148,13 +150,14 @@ if (!function_exists("fetchFacilityCalendarEvents")) {
         }
 
         if (tableExists($pdo, "maintenance_schedules")) {
+            $reasonSelect = $includeMaintenanceReason ? "ms.reason" : "'Maintenance'";
             $maintenanceSql = "
                 SELECT
                     ms.maintenance_id,
                     ms.resource_id,
                     ms.start_date,
                     ms.end_date,
-                    ms.reason,
+                    {$reasonSelect} AS reason,
                     ms.status,
                     r.resource_name,
                     r.location
@@ -292,7 +295,7 @@ if (!function_exists("renderFacilityAvailabilityCalendar")) {
         $prevMonth = date("Y-m", strtotime($month . "-01 -1 month"));
         $nextMonth = date("Y-m", strtotime($month . "-01 +1 month"));
 
-        $events = fetchFacilityCalendarEvents($pdo, $resourceId, $monthStart, $monthEnd, $showBorrower);
+        $events = fetchFacilityCalendarEvents($pdo, $resourceId, $monthStart, $monthEnd, $showBorrower, (bool) ($options["show_maintenance_reason"] ?? true));
         $eventsByDate = groupFacilityCalendarEventsByDate($events);
 
         $firstDayTimestamp = strtotime($monthStart);

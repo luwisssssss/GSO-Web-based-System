@@ -1,4 +1,5 @@
 <?php
+define("GSO_REQUIRED_PERMISSION", "accounts.manage");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
@@ -99,7 +100,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $pdo,
                 $adminUserId,
                 "Borrower Account Approved",
-                "Admin approved borrower account: " . ($targetUser["full_name"] ?? "Unknown")
+                "MIS approved borrower account: " . ($targetUser["full_name"] ?? "Unknown")
             );
         }
 
@@ -134,7 +135,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $pdo,
                 $adminUserId,
                 "Borrower Account Rejected",
-                "Admin rejected borrower account: " . ($targetUser["full_name"] ?? "Unknown")
+                "MIS rejected borrower account: " . ($targetUser["full_name"] ?? "Unknown")
             );
         }
 
@@ -169,7 +170,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $pdo,
                 $adminUserId,
                 "Borrower Account Disabled",
-                "Admin disabled borrower account: " . ($targetUser["full_name"] ?? "Unknown")
+                "MIS disabled borrower account: " . ($targetUser["full_name"] ?? "Unknown")
             );
         }
 

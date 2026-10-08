@@ -287,18 +287,6 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                 <?php
                                 $displayStatus = getRequestLifecycleStatus($request);
                                 if(in_array((string)$request["status"],["Pending","Under Review"],true) && (string)($request["adviser_state"]??"Not Required")!=="Not Required")$displayStatus=(string)$request["adviser_state"];
-                                // Borrowers see the Director outcome in plain language; the
-                                // prioritisation case must say a new request is needed.
-                                $borrowerDirectorState = (string) ($request["director_state"] ?? "Not Required");
-                                if (in_array((string) $request["status"], ["Pending", "Under Review"], true) && $borrowerDirectorState === "Pending") {
-                                    $displayStatus = "Pending Campus Director";
-                                } elseif ($borrowerDirectorState === "Approved" && (string) $request["status"] === "Approved") {
-                                    $displayStatus = "Approved by Campus Director";
-                                } elseif ($borrowerDirectorState === "Rejected" && (string) $request["status"] === "Rejected") {
-                                    $displayStatus = (string) ($request["director_last_action"] ?? "") === "Rejected by Prioritization"
-                                        ? "Rejected due to facility prioritisation"
-                                        : "Rejected by Campus Director";
-                                }
                                 $statusClass = getStatusCssClass($displayStatus);
                                 $canCancelRequest = in_array((string) ($request["status"] ?? ""), $cancelableRequestStatuses, true);
                                 ?>

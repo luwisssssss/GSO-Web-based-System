@@ -31,7 +31,7 @@ $base=(string)(getenv("GSO_PHASE1_BASE_URL") ?: "http://127.0.0.1/GSO_WebSystem"
 $host=strtolower((string)(parse_url($base,PHP_URL_HOST) ?: ""));
 p1Assert(in_array($host,["127.0.0.1","localhost","::1"],true),"Refusing non-loopback target.");
 $token=bin2hex(random_bytes(8)); $password="Phase1!".$token; $ids=[]; $cookies=[]; $csrf=[]; $checks=0;
-$roles=["Borrower"=>"borrower/browse.php","GSO Staff"=>"gso_staff/dashboard.php","Admin"=>"admin/dashboard.php","Director"=>"director/dashboard.php"];
+$roles=["Borrower"=>"borrower/browse.php","GSO Staff"=>"gso_staff/dashboard.php","Admin"=>"admin/dashboard.php","Director"=>"director/dashboard.php","Super Admin"=>"admin/accounts_dashboard.php"];
 
 try {
     foreach ($roles as $role=>$home) {
@@ -60,7 +60,12 @@ try {
     foreach(["admin/dashboard.php","admin/reports.php","admin/ai_knowledge.php","admin/requests.php","admin/maintenance.php"] as $path){
         $r=p1Http($base,$path,$cookies["Admin"]); p1Assert($r["status"]===200,"Admin lost {$path} ({$r['status']})."); $checks++;
     }
-    foreach($roles as $role=>$home){ $r=p1Http($base,"chatbot/history.php",$cookies[$role],"POST",["csrf_token"=>$csrf[$role],"action"=>"list"]); p1Assert($r["status"]===200,"{$role} chatbot guard failed ({$r['status']})."); $checks++; }
+    foreach(["admin/admin_accounts.php","admin/borrowers_accounts.php"] as $path){
+        p1Assert(p1Http($base,$path,$cookies["Admin"])["status"]===302,"GSO Head retained Account Management.");$checks++;
+        p1Assert(p1Http($base,$path,$cookies["Super Admin"])["status"]===200,"MIS lost Account Management.");$checks++;
+    }
+    foreach(["admin/requests.php","admin/on_loan.php","admin/maintenance.php","admin/inventory.php","admin/reports.php"] as $path){p1Assert(p1Http($base,$path,$cookies["Super Admin"])["status"]===302,"MIS gained operational access.");$checks++;}
+    foreach($roles as $role=>$home){ $r=p1Http($base,"chatbot/history.php",$cookies[$role],"POST",["csrf_token"=>$csrf[$role],"action"=>"list"]); $expected=in_array($role,["Director","Super Admin"],true)?403:200;p1Assert($r["status"]===$expected,"{$role} chatbot guard failed ({$r['status']})."); $checks++; }
     echo "PASS: Phase 1 roles and direct endpoint isolation ({$checks} checks).\n";
 } catch(Throwable $e) { fwrite(STDERR,"FAIL: {$e->getMessage()}\n"); $failure=true; }
 finally {

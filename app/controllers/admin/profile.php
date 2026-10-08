@@ -1,4 +1,5 @@
 <?php
+define("GSO_REQUIRED_PERMISSION", "profile.manage_admin_own");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/avatar_helper.php";
@@ -39,7 +40,7 @@ $userSql = "
     FROM users u
     LEFT JOIN users admin ON u.approved_by = admin.user_id
     WHERE u.user_id = ?
-      AND u.role = 'Admin'
+      AND u.role IN ('Admin','Super Admin')
 ";
 $stmt = $pdo->prepare($userSql);
 $stmt->execute([$user_id]);
@@ -64,7 +65,7 @@ if(isset($_POST['upload_profile'])){
     $uploadResult = gsoStoreUserProfileImage(
         $pdo,
         $user_id,
-        "Admin",
+        (string) $_SESSION["role"],
         $_FILES["profile_image"] ?? [],
         5 * 1024 * 1024
     );

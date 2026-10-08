@@ -1,72 +1,15 @@
 <?php
-require_once dirname(__DIR__,3)."/includes/auth_check.php";
-require_once dirname(__DIR__,3)."/includes/role_helper.php";
-require_once dirname(__DIR__,3)."/config/db.php";
-require_once dirname(__DIR__,3)."/includes/activity_log_helper.php";
-require_once dirname(__DIR__,3)."/includes/request_helper.php";
-require_once dirname(__DIR__,3)."/includes/director_approval_helper.php";
-// Role-exact gate first: the Admin wildcard permission must not reach the
-// Director workspace. Permission checks then apply on top of it.
-ensureAuthenticatedRole("Director");
-ensureApprovedRoleAccount($pdo,"Director");
-ensureAuthenticatedPermission("director.request.view");
-ensureApprovedPermissionAccount($pdo,"director.request.view");
-if(empty($_SESSION["csrf_token"]))$_SESSION["csrf_token"]=bin2hex(random_bytes(32));
-$requestId=(int)($_POST["request_id"]??$_GET["request_id"]??0);
-if($requestId<=0)redirectWithFlash("dashboard.php","A valid request is required.");
-
-$fetchRequest=static function(PDO $pdo,int $id,bool $lock=false):?array{
-    $sql="SELECT rr.*,r.resource_name,r.resource_type,r.category,r.location,r.capacity,b.full_name AS borrower_name,b.account_type,b.department,a.full_name AS adviser_name,req.full_name AS director_required_by_name FROM resource_requests rr JOIN ".gsoRequestResourceRollupSql()." r ON r.request_id=rr.request_id JOIN users b ON b.user_id=rr.borrower_id LEFT JOIN users a ON a.user_id=rr.adviser_user_id LEFT JOIN users req ON req.user_id=rr.director_required_by WHERE rr.request_id=:id LIMIT 1".($lock?" FOR UPDATE":"");
-    $s=$pdo->prepare($sql);$s->execute([":id"=>$id]);$row=$s->fetch(PDO::FETCH_ASSOC);return is_array($row)?$row:null;
-};
-
-if($_SERVER["REQUEST_METHOD"]==="POST"){
-    ensureApprovedPermissionAccount($pdo,"director.request.decide");
-    $action=(string)($_POST["action"]??"");$remarks=trim((string)($_POST["remarks"]??""));
-    if(!hash_equals((string)$_SESSION["csrf_token"],(string)($_POST["csrf_token"]??"")))redirectWithFlash("request.php?request_id={$requestId}","Invalid request token.");
-    if(!in_array($action,["approve","reject","prioritize"],true))redirectWithFlash("request.php?request_id={$requestId}","Invalid Director action.");
-    if(mb_strlen($remarks)>1000)redirectWithFlash("request.php?request_id={$requestId}","Remarks must be 1,000 characters or fewer.");
-    $directorId=(int)$_SESSION["user_id"];
-    try{
-        $pdo->beginTransaction();
-        // Re-assert the database role inside the transaction so no controller
-        // wiring mistake can ever persist a decision by a non-Director actor.
-        if(!gsoIsApprovedDirector($pdo,$directorId))throw new DomainException("Only an approved Campus Director may record this decision.");
-        $target=$fetchRequest($pdo,$requestId,true);
-        if(!$target||(string)$target["director_state"]!=="Pending"||!in_array((string)$target["status"],["Pending","Under Review"],true))throw new DomainException("This Director decision is no longer pending.");
-        if(gsoAdviserStateBlocksGso($target))throw new DomainException("Adviser endorsement must be completed before a Director decision.");
-        $facility=$pdo->prepare("SELECT resource_id FROM request_items WHERE request_id=:id AND line_kind='Facility' LIMIT 1");$facility->execute([":id"=>$requestId]);$facilityId=(int)$facility->fetchColumn();if($facilityId>0){$resourceLock=$pdo->prepare("SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE ri.resource_id=:resource_id AND rr.status IN ('Pending','Under Review','Approved','Released','Return') ORDER BY rr.request_id FOR UPDATE");$resourceLock->execute([":resource_id"=>$facilityId]);$resourceLock->fetchAll(PDO::FETCH_COLUMN);}
-        $conflicts=gsoFacilityConflictsForRequest($pdo,$target);
-        if($action==="approve"&&$conflicts)throw new DomainException("An active facility conflict exists. Review and prioritize the competing requests instead.");
-        if($action==="prioritize"&&((string)$target["resource_type"]!=="Facility"||!$conflicts))throw new DomainException("The facility conflict changed or no longer exists. Refresh before deciding.");
-
-        if($action==="prioritize"){
-            $conflictIds=array_values(array_unique(array_map(static fn(array $r):int=>(int)$r["request_id"],$conflicts)));sort($conflictIds);
-            $marks=implode(",",array_fill(0,count($conflictIds),"?"));$lock=$pdo->prepare("SELECT request_id,status,adviser_state FROM resource_requests WHERE request_id IN ({$marks}) ORDER BY request_id FOR UPDATE");$lock->execute($conflictIds);$locked=$lock->fetchAll(PDO::FETCH_ASSOC)?:[];
-            if(count($locked)!==count($conflictIds))throw new DomainException("A competing request changed. Refresh before deciding.");
-            foreach($locked as $row)if(!in_array((string)$row["status"],["Pending","Under Review"],true)||!in_array((string)$row["adviser_state"],["Not Required","Endorsed"],true))throw new DomainException("A competing request is no longer eligible for prioritisation. Refresh before deciding.");
-            $currentIds=array_values(array_unique(array_map(static fn(array $r):int=>(int)$r["request_id"],gsoFacilityConflictsForRequest($pdo,$target))));sort($currentIds);if($currentIds!==$conflictIds)throw new DomainException("The conflict membership changed. Refresh before deciding.");
-            $batch=gsoNewDirectorDecisionBatch();
-            $win=$pdo->prepare("UPDATE resource_requests SET director_state='Approved',status='Approved',approved_by=:actor,approved_at=NOW() WHERE request_id=:id AND director_state='Pending' AND status IN ('Pending','Under Review') AND adviser_state IN ('Not Required','Endorsed')");$win->execute([":actor"=>$directorId,":id"=>$requestId]);if($win->rowCount()!==1)throw new DomainException("The winning request changed before the decision.");
-            $hist=$pdo->prepare("INSERT INTO request_director_history(request_id,director_user_id,action,remarks,decision_batch,winner_request_id) VALUES(:request,:actor,:action,:remarks,:batch,:winner)");$hist->execute([":request"=>$requestId,":actor"=>$directorId,":action"=>"Prioritized",":remarks"=>$remarks!==""?$remarks:null,":batch"=>$batch,":winner"=>$requestId]);
-            foreach($conflictIds as $loserId){$loser=$fetchRequest($pdo,$loserId,false);if(!$loser)throw new DomainException("A competing request disappeared.");$upd=$pdo->prepare("UPDATE resource_requests SET director_state='Rejected',status='Rejected',approved_by=NULL,approved_at=NULL WHERE request_id=:id AND status IN ('Pending','Under Review') AND adviser_state IN ('Not Required','Endorsed')");$upd->execute([":id"=>$loserId]);if($upd->rowCount()!==1)throw new DomainException("A competing request changed before the decision.");$reason="Rejected due to Campus Director facility prioritisation; submit a new request for another schedule.".($remarks!==""?" ".$remarks:"");$hist->execute([":request"=>$loserId,":actor"=>$directorId,":action"=>"Rejected by Prioritization",":remarks"=>$reason,":batch"=>$batch,":winner"=>$requestId]);createNotification($pdo,(int)$loser["borrower_id"],"director_rejected","Facility Request Not Prioritized",formatRequestCode($loserId)." was rejected due to facility conflict prioritisation. Submit a new request for another schedule.","my_requests.php");addActivityLog($pdo,$directorId,"Director Conflict Rejection",formatRequestCode($loserId)." lost facility prioritisation to ".formatRequestCode($requestId).".");}
-            createNotification($pdo,(int)$target["borrower_id"],"director_approved","Facility Request Prioritized",formatRequestCode($requestId)." was prioritized and approved by the Campus Director.","my_requests.php");gsoNotifyApprovedRoles($pdo,["Admin","GSO Staff"],"director_decision","Director Conflict Decision Completed",formatRequestCode($requestId)." was prioritized; ".count($conflictIds)." competing request(s) were rejected.","../admin/view_request.php?request_id={$requestId}");addActivityLog($pdo,$directorId,"Director Prioritized Request",formatRequestCode($requestId)." was selected from a facility conflict involving ".(count($conflictIds)+1)." requests.");
-        }else{
-            $approved=$action==="approve";$next=$approved?"Approved":"Rejected";$stmt=$pdo->prepare("UPDATE resource_requests SET director_state=:state,status=:status,approved_by=:approver,approved_at=:approved_at WHERE request_id=:id AND director_state='Pending' AND status IN ('Pending','Under Review') AND adviser_state IN ('Not Required','Endorsed')");$stmt->execute([":state"=>$next,":status"=>$next,":approver"=>$approved?$directorId:null,":approved_at"=>$approved?date("Y-m-d H:i:s"):null,":id"=>$requestId]);if($stmt->rowCount()!==1)throw new DomainException("A Director decision was already recorded.");$stmt=$pdo->prepare("INSERT INTO request_director_history(request_id,director_user_id,action,remarks) VALUES(:request,:actor,:action,:remarks)");$stmt->execute([":request"=>$requestId,":actor"=>$directorId,":action"=>$next,":remarks"=>$remarks!==""?$remarks:null]);createNotification($pdo,(int)$target["borrower_id"],$approved?"director_approved":"director_rejected",$approved?"Campus Director Approved Request":"Campus Director Rejected Request",formatRequestCode($requestId).($approved?" was approved and is ready for GSO release.":" was rejected by the Campus Director."),"my_requests.php");gsoNotifyApprovedRoles($pdo,["Admin","GSO Staff"],"director_decision","Campus Director Decision Recorded",formatRequestCode($requestId)." was {$next} by the Campus Director.","../admin/view_request.php?request_id={$requestId}");addActivityLog($pdo,$directorId,"Director Request {$next}","Campus Director {$next} ".formatRequestCode($requestId).".");
-        }
-        $pdo->commit();$_SESSION["flash_message"]="Director decision recorded.";$_SESSION["flash_type"]="success";
-    }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();$_SESSION["flash_message"]=$e->getMessage();$_SESSION["flash_type"]="error";}
-    header("Location: request.php?request_id={$requestId}");exit;
+// Retired decision endpoint. Historical records remain in the database.
+require_once dirname(__DIR__, 3) . "/includes/auth_check.php";
+require_once dirname(__DIR__, 3) . "/includes/role_helper.php";
+require_once dirname(__DIR__, 3) . "/config/db.php";
+ensureAuthenticatedPermission("facility.schedule.view");
+ensureApprovedPermissionAccount($pdo, "facility.schedule.view");
+if (($_SERVER["REQUEST_METHOD"] ?? "GET") !== "GET") {
+    http_response_code(410);
+    header("Content-Type: text/plain; charset=UTF-8");
+    header("Cache-Control: no-store");
+    exit("Director decision actions have been retired. Facility schedules are read-only.");
 }
-
-$request=$fetchRequest($pdo,$requestId,false);if(!$request||(string)$request["director_state"]==="Not Required")redirectWithFlash("dashboard.php","This request is outside the Director decision workspace.");
-$history=gsoDirectorHistory($pdo,$requestId);$conflicts=gsoFacilityConflictsForRequest($pdo,$request);$conflictDetails=[];
-if($conflicts){$ids=array_map(static fn(array $r):int=>(int)$r["request_id"],$conflicts);$marks=implode(",",array_fill(0,count($ids),"?"));$s=$pdo->prepare("SELECT rr.*,b.full_name AS borrower_name,b.account_type,b.department,r.resource_name FROM resource_requests rr JOIN users b ON b.user_id=rr.borrower_id JOIN ".gsoRequestResourceRollupSql()." r ON r.request_id=rr.request_id WHERE rr.request_id IN ({$marks}) ORDER BY rr.request_date,rr.request_id");$s->execute($ids);$conflictDetails=$s->fetchAll(PDO::FETCH_ASSOC)?:[];}
-$flash=$_SESSION["flash_message"]??"";$flashType=$_SESSION["flash_type"]??"";unset($_SESSION["flash_message"],$_SESSION["flash_type"]);$pageTitle="Director Request Review";$activePage="director-request";$cssFile="../public/assets/css/pages/admin.css";require_once dirname(__DIR__,3)."/includes/header.php";
-?>
-<div class="main-content"><main class="page-content"><?php if($flash):?><div class="flash-message <?php echo $flashType==='success'?'flash-success':'flash-error';?>"><?php echo htmlspecialchars($flash);?></div><?php endif;?>
-<section class="card"><h1><?php echo htmlspecialchars(formatRequestCode($requestId));?> — Director Review</h1><p><strong><?php echo htmlspecialchars((string)$request['borrower_name']);?></strong> · <?php echo htmlspecialchars((string)($request['account_type']??'Unclassified'));?> · <?php echo htmlspecialchars((string)($request['department']??'N/A'));?></p><p>Resources: <strong><?php $__lines=gsoRequestLines($pdo,$requestId); $__labels=[]; foreach($__lines as $__l){$__labels[]=$__l['resource_name'].($__l['line_kind']==='Facility'?' (Facility)':' x'.(int)$__l['requested_quantity']);} echo htmlspecialchars($__labels?implode(', ',$__labels):(string)$request['resource_name']);?></strong>, <?php echo htmlspecialchars(formatDateTimeDisplay($request['date_needed']));?> <?php echo htmlspecialchars(buildTimeRangeDisplay($request['start_time'],$request['end_time']));?></p><p>Purpose / notes: <?php echo htmlspecialchars((string)($request['notes']?:'Not provided'));?></p><p>Adviser: <?php echo htmlspecialchars((string)$request['adviser_state']);?><?php echo $request['adviser_name']?' — '.htmlspecialchars((string)$request['adviser_name']):'';?></p><p>Director state: <strong><?php echo htmlspecialchars((string)$request['director_state']);?></strong></p></section>
-<?php if($conflictDetails):?><section class="card"><h2>Facility Conflict Comparison</h2><p>These requests directly overlap this request. The system does not rank them.</p><div class="table-wrapper"><table class="request-table"><thead><tr><th>Request</th><th>Requester</th><th>Purpose</th><th>Schedule</th><th>Status</th></tr></thead><tbody><tr><td><?php echo htmlspecialchars(formatRequestCode($requestId));?> (candidate)</td><td><?php echo htmlspecialchars((string)$request['borrower_name']);?></td><td><?php echo htmlspecialchars((string)($request['notes']?:'Not provided'));?></td><td><?php echo htmlspecialchars(formatDateTimeDisplay($request['date_needed']).' '.buildTimeRangeDisplay($request['start_time'],$request['end_time']));?></td><td><?php echo htmlspecialchars((string)$request['status']);?></td></tr><?php foreach($conflictDetails as $row):?><tr><td><?php echo htmlspecialchars(formatRequestCode((int)$row['request_id']));?></td><td><?php echo htmlspecialchars((string)$row['borrower_name']);?><br><small><?php echo htmlspecialchars((string)($row['account_type']??'Unclassified'));?></small></td><td><?php echo htmlspecialchars((string)($row['notes']?:'Not provided'));?></td><td><?php echo htmlspecialchars(formatDateTimeDisplay($row['date_needed']).' '.buildTimeRangeDisplay($row['start_time'],$row['end_time']));?></td><td><?php echo htmlspecialchars((string)$row['status']);?></td></tr><?php endforeach;?></tbody></table></div></section><?php endif;?>
-<?php if((string)$request['director_state']==='Pending'):?><section class="card"><h2>Record Decision</h2><form method="post"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']);?>"><input type="hidden" name="request_id" value="<?php echo $requestId;?>"><label>Remarks (optional)<textarea name="remarks" maxlength="1000"></textarea></label><div class="page-action-bar"><?php if($conflictDetails):?><button class="admin-btn success-btn" name="action" value="prioritize" onclick="return confirm('Prioritize this request and reject its currently overlapping competitors?');">Prioritize Request</button><?php else:?><button class="admin-btn success-btn" name="action" value="approve">Approve</button><?php endif;?><button class="admin-btn danger-btn" name="action" value="reject">Reject</button></div></form></section><?php endif;?>
-<section class="card"><h2>Decision History</h2><?php if(!$history):?><p>No Director decision recorded yet.</p><?php else:?><div class="table-wrapper"><table class="request-table"><thead><tr><th>Decision</th><th>Director</th><th>Recorded</th><th>Remarks</th></tr></thead><tbody><?php foreach($history as $event):?><tr><td><?php echo htmlspecialchars((string)$event['action']);?></td><td><?php echo htmlspecialchars((string)$event['director_name']);?></td><td><?php echo htmlspecialchars(formatDateTimeDisplay($event['decided_at']));?></td><td><?php echo nl2br(htmlspecialchars((string)($event['remarks']??'—')));?></td></tr><?php endforeach;?></tbody></table></div><?php endif;?></section><a class="admin-btn" href="dashboard.php">Back to Director Dashboard</a></main></div>
-<?php require_once dirname(__DIR__,3)."/includes/footer.php";?>
+header("Location: dashboard.php");
+exit();

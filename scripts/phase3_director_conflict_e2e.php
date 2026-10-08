@@ -1,4 +1,7 @@
 <?php
+// SUPERSEDED by R2A. Retained as historical/reference coverage of the former
+// Director decision workflow. Active cutover coverage is now provided by
+// scripts/r2a_role_director_cutover_e2e.php; do not run this as a current gate.
 declare(strict_types=1);
 /**
  * Phase 3 end-to-end suite: Campus Director approval and facility conflict

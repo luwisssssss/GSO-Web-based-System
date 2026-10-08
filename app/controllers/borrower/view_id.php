@@ -1,6 +1,7 @@
 <?php
 require_once dirname(__DIR__, 3) . "/includes/auth_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
+require_once dirname(__DIR__, 3) . "/includes/role_helper.php";
 
 if (!function_exists("sendUploadedIdNotFound")) {
     function sendUploadedIdNotFound(): void
@@ -43,7 +44,7 @@ $actorStmt->execute([":user_id" => $loggedInUserId]);
 $actor = $actorStmt->fetch(PDO::FETCH_ASSOC);
 
 $isApprovedAdmin = is_array($actor)
-    && (string) ($actor["role"] ?? "") === "Admin"
+    && gsoUserHasPermission((string) ($actor["role"] ?? ""), "accounts.manage")
     && (string) ($actor["account_status"] ?? "") === "Approved"
     && (int) ($actor["email_verified"] ?? 0) === 1;
 $isApprovedOwner = is_array($actor)

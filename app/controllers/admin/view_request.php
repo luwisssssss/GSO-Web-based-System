@@ -397,12 +397,12 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
         <?php $directorHistory=gsoDirectorHistory($pdo,(int)$request["request_id"]); $directorState=(string)($request["director_state"]??"Not Required"); ?>
         <?php if($directorState!=="Not Required"||$directorHistory): ?>
-        <div class="card detail-block"><h3 class="section-title">Campus Director Approval</h3><div class="detail-list">
+        <div class="card detail-block"><h3 class="section-title">Historical Campus Director Workflow</h3><div class="detail-list">
             <div class="detail-row"><span>Director State</span><strong><?php echo htmlspecialchars($directorState); ?></strong></div>
             <div class="detail-row"><span>Required By</span><strong><?php echo htmlspecialchars((string)($request["director_required_by_name"]??"N/A")); ?></strong></div>
             <div class="detail-row"><span>Required At</span><strong><?php echo !empty($request["director_required_at"])?htmlspecialchars(formatDateTimeDisplay($request["director_required_at"])):"N/A"; ?></strong></div>
         </div><h4 class="section-title mt-12">Director Decision History</h4>
-        <?php if(!$directorHistory): ?><div class="note-box">Awaiting Campus Director decision.</div><?php else: ?><div class="table-wrapper"><table class="request-table"><thead><tr><th>Decision</th><th>Director</th><th>Recorded</th><th>Conflict Outcome</th><th>Remarks</th></tr></thead><tbody><?php foreach($directorHistory as $event):?><tr><td><?php echo htmlspecialchars((string)$event["action"]); ?></td><td><?php echo htmlspecialchars((string)$event["director_name"]); ?></td><td><?php echo htmlspecialchars(formatDateTimeDisplay($event["decided_at"])); ?></td><td><?php
+        <?php if(!$directorHistory): ?><div class="note-box">No historical decision was recorded. Director approval is no longer required.</div><?php else: ?><div class="table-wrapper"><table class="request-table"><thead><tr><th>Decision</th><th>Director</th><th>Recorded</th><th>Conflict Outcome</th><th>Remarks</th></tr></thead><tbody><?php foreach($directorHistory as $event):?><tr><td><?php echo htmlspecialchars((string)$event["action"]); ?></td><td><?php echo htmlspecialchars((string)$event["director_name"]); ?></td><td><?php echo htmlspecialchars(formatDateTimeDisplay($event["decided_at"])); ?></td><td><?php
             if (empty($event["winner_request_id"])) {
                 echo "Not a conflict decision";
             } elseif ((int) $event["winner_request_id"] === (int) $request["request_id"]) {
@@ -446,7 +446,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
             </div>
             <p class="mini-muted mt-12">
                 All lines belong to this one request reference and share a single
-                approval, adviser and director workflow.
+                approval and adviser workflow. Director workflow records are historical.
             </p>
         </div>
 

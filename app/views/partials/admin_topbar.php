@@ -35,15 +35,18 @@ $notificationSummary = $unreadCount > 0
 
             <div class="quick-actions-dropdown" id="quickActionsDropdown">
                 <h4>Quick Actions</h4>
+                <?php if (gsoUserHasPermission((string)$_SESSION["role"], "request.view_queue")): ?>
                 <a href="<?php echo $adminBase; ?>requests.php?status=Pending"><i class="fa-solid fa-clipboard-check"></i><span>Review Requests</span></a>
-                <?php if (!$isStaff): ?>
-                <a href="incidents.php?status=Submitted"><i class="fa-solid fa-triangle-exclamation"></i><span>Review Incidents</span></a>
-                <?php endif; ?>
                 <a href="<?php echo $adminBase; ?>on_loan.php"><i class="fa-solid fa-box-open"></i><span>Active Borrowings</span></a>
-                <?php if (!$isStaff): ?>
+                <?php endif; ?>
+                <?php if (gsoUserHasPermission((string)$_SESSION["role"], "gso.admin_workspace")): ?>
+                <a href="incidents.php?status=Submitted"><i class="fa-solid fa-triangle-exclamation"></i><span>Review Incidents</span></a>
                 <a href="add_resource.php"><i class="fa-solid fa-plus"></i><span>Add Resource</span></a>
-                <a href="borrowers_accounts.php?status=Pending"><i class="fa-solid fa-user-check"></i><span>Approve Borrowers</span></a>
                 <a href="reports.php"><i class="fa-solid fa-chart-pie"></i><span>Generate Reports</span></a>
+                <?php endif; ?>
+                <?php if (gsoUserHasPermission((string)$_SESSION["role"], "accounts.manage")): ?>
+                <a href="borrowers_accounts.php?status=Pending"><i class="fa-solid fa-user-check"></i><span>Review Borrower Accounts</span></a>
+                <a href="admin_accounts.php"><i class="fa-solid fa-user-shield"></i><span>System Accounts</span></a>
                 <?php endif; ?>
             </div>
         </div>

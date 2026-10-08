@@ -298,7 +298,7 @@ CREATE TABLE `users` (
   `uploaded_id_type` varchar(100) DEFAULT NULL,
   `profile_image` longblob DEFAULT NULL,
   `profile_image_type` varchar(100) DEFAULT NULL,
-  `role` enum('Admin','Borrower','GSO Staff','Director') NOT NULL DEFAULT 'Borrower',
+  `role` enum('Admin','Borrower','GSO Staff','Director','Super Admin') NOT NULL DEFAULT 'Borrower',
   `account_type` enum('Student','Faculty','University Staff') DEFAULT NULL,
   `username` varchar(50) NOT NULL,
   `password_hash` varchar(255) NOT NULL,

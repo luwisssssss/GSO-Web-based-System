@@ -15,6 +15,7 @@ return [
     ],
     "admin" => [
         "/admin/dashboard.php" => "app/controllers/admin/dashboard.php",
+        "/admin/accounts_dashboard.php" => "app/controllers/admin/accounts_dashboard.php",
         "/admin/inventory.php" => "app/controllers/admin/inventory.php",
         "/admin/requests.php" => "app/controllers/admin/requests.php",
         "/admin/on_loan.php" => "app/controllers/admin/on_loan.php",

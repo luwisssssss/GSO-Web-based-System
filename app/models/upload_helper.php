@@ -250,7 +250,7 @@ if (!function_exists("gsoStoreUserProfileImage")) {
             ];
         }
 
-        $role = $role === "Admin" ? "Admin" : "Borrower";
+        $role = in_array($role, ["Admin", "Super Admin"], true) ? $role : "Borrower";
         $stmt = $pdo->prepare("
             UPDATE users
             SET profile_image = :profile_image,
