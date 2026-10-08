@@ -54,7 +54,7 @@ if (!function_exists("gsoRolePermissions")) {
             ],
             "GSO Staff" => [
                 "staff.dashboard", "request.view_queue", "request.approve_ordinary",
-                "request.documents.view", "request.documents.verify",
+                "request.documents.view", "request.documents.verify", "request.reschedule.manage",
                 "release.manage", "return.inspect", "inventory.view",
                 "inventory.manage_units",
                 "work_order.manage", "walk_in.create", "profile.manage_own",
@@ -62,7 +62,7 @@ if (!function_exists("gsoRolePermissions")) {
             ],
             "Admin" => [
                 "gso.admin_workspace", "request.view_queue", "request.approve_ordinary",
-                "request.documents.view", "request.documents.verify",
+                "request.documents.view", "request.documents.verify", "request.reschedule.manage",
                 "release.manage", "return.inspect", "inventory.view", "inventory.manage_units",
                 "work_order.manage", "walk_in.create", "profile.manage_own",
                 "profile.manage_admin_own", "notifications.view_own", "chatbot.use",

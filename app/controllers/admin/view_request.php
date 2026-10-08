@@ -7,6 +7,7 @@ require_once dirname(__DIR__, 3) . "/includes/adviser_endorsement_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/director_approval_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_line_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_attachment_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/reschedule_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/notification_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
 
@@ -433,6 +434,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
         <button name="action" value="verify_letter" class="admin-btn primary-btn">Mark Document Verified</button><button name="action" value="reject_letter" class="admin-btn">Reject Document (remarks required)</button></form>
         <?php endif;?></section><?php endif;?>
 
+        <?php $rescheduleHistory=gsoRescheduleHistory($pdo,$requestId);if($rescheduleHistory):require dirname(__DIR__,2)."/views/partials/reschedule_history.php";?><a class="admin-btn" href="reschedules.php?request_id=<?php echo $requestId;?>">Review Reschedule Proposals</a><?php endif;?>
         <?php $directorHistory=gsoDirectorHistory($pdo,(int)$request["request_id"]); $directorState=(string)($request["director_state"]??"Not Required"); ?>
         <?php if($directorState!=="Not Required"||$directorHistory): ?>
         <div class="card detail-block"><h3 class="section-title">Historical Campus Director Workflow</h3><div class="detail-list">

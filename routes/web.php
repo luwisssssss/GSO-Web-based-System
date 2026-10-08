@@ -18,6 +18,7 @@ return [
         "/admin/accounts_dashboard.php" => "app/controllers/admin/accounts_dashboard.php",
         "/admin/inventory.php" => "app/controllers/admin/inventory.php",
         "/admin/requests.php" => "app/controllers/admin/requests.php",
+        "/admin/reschedules.php" => "app/controllers/admin/reschedules.php",
         "/admin/on_loan.php" => "app/controllers/admin/on_loan.php",
         "/admin/reports.php" => "app/controllers/admin/reports.php",
         "/admin/maintenance.php" => "app/controllers/admin/maintenance.php",
@@ -31,6 +32,7 @@ return [
     "borrower" => [
         "/borrower/browse.php" => "app/controllers/borrower/browse.php",
         "/borrower/my_requests.php" => "app/controllers/borrower/my_requests.php",
+        "/borrower/reschedule.php" => "app/controllers/borrower/reschedule.php",
         "/borrower/request_letter.php" => "app/controllers/borrower/request_letter.php",
         "/borrower/request_document.php" => "app/controllers/borrower/request_document.php",
         "/borrower/my_borrowed.php" => "app/controllers/borrower/my_borrowed.php",

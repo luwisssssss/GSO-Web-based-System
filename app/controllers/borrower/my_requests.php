@@ -4,6 +4,7 @@ require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_attachment_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/reschedule_helper.php";
 
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
@@ -346,6 +347,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                             </button>
 
                                             <div class="row-actions-menu" role="menu">
+                                                <?php if(gsoRescheduleEligible($pdo,$request)):?><a class="row-action-item" role="menuitem" href="reschedule.php?request_id=<?php echo (int)$request["request_id"];?>">Request Reschedule</a><?php elseif(gsoRescheduleHistory($pdo,(int)$request["request_id"])):?><a class="row-action-item" role="menuitem" href="reschedule.php?request_id=<?php echo (int)$request["request_id"];?>">Reschedule History</a><?php endif;?>
                                                 <?php if(gsoRequestHasFacility($pdo,(int)$request["request_id"])): ?><a class="row-action-item" role="menuitem" href="request_letter.php?request_id=<?php echo (int)$request["request_id"]; ?>">Facility request letter</a><?php endif; ?>
                                                 <?php if ($canCancelRequest): ?>
                                                     <form method="POST" class="inline-form" onsubmit="return confirm('Cancel this request?');">

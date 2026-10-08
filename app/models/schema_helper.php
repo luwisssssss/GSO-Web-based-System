@@ -970,6 +970,7 @@ if (!function_exists("ensureSystemSchema")) {
             }
 
             $pdo->exec(file_get_contents(dirname(__DIR__, 2) . "/database/migrations/20261008_002_request_attachments.sql"));
+            $pdo->exec(file_get_contents(dirname(__DIR__, 2) . "/database/migrations/20261008_004_request_reschedule_history.sql"));
             if (!columnExists($pdo,"request_items","facility_slot")) {
                 $pdo->exec(file_get_contents(dirname(__DIR__,2)."/database/migrations/20261008_003_facility_schedule_period.sql"));
             }
