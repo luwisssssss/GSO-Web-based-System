@@ -34,11 +34,11 @@ require_once __DIR__ . "/../includes/maintenance_helper.php";
 $runMigrations = gsoEnv("GSO_RUN_MIGRATIONS");
 
 try {
-    if ($runMigrations !== "0") {
+    if ($runMigrations !== "0" && !defined("GSO_CHAT_READ_ONLY")) {
         ensureSystemSchema($pdo);
     }
 
-    syncMaintenanceSchedules($pdo);
+    if (!defined("GSO_CHAT_READ_ONLY")) syncMaintenanceSchedules($pdo);
 } catch (Throwable $e) {
     error_log("GSO database initialization failed: " . $e->getMessage());
 

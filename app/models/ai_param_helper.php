@@ -84,11 +84,11 @@ if (!function_exists("gsoChatExtractDate")) {
         $months = "january|february|march|april|may|june|july|august|september|october|november|december";
 
         if (preg_match('/\b(' . $months . ')\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?\b/', $text, $m)) {
-            return gsoChatResolveNamedDate($m[1] . " " . $m[2] . " " . ($m[3] ?? date("Y", $now)), $now);
+            $month=(int)date('m',strtotime($m[1].' 1 2000'));$date=sprintf('%04d-%02d-%02d',(int)($m[3]??date('Y',$now)),$month,(int)$m[2]);return gsoChatIsRealDate($date)?$date:null;
         }
 
         if (preg_match('/\b(\d{1,2})\s+(' . $months . ')(?:\s*,?\s*(\d{4}))?\b/', $text, $m)) {
-            return gsoChatResolveNamedDate($m[2] . " " . $m[1] . " " . ($m[3] ?? date("Y", $now)), $now);
+            $month=(int)date('m',strtotime($m[2].' 1 2000'));$date=sprintf('%04d-%02d-%02d',(int)($m[3]??date('Y',$now)),$month,(int)$m[1]);return gsoChatIsRealDate($date)?$date:null;
         }
 
         if (strpos($text, "day after tomorrow") !== false) {
@@ -201,7 +201,7 @@ if (!function_exists("gsoChatBuildTime")) {
         $minuteValue = $minute === "" ? 0 : (int) $minute;
         $meridiem = strtolower(trim($meridiem));
 
-        if ($minuteValue < 0 || $minuteValue > 59) {
+        if (($meridiem!==""&&($hourValue<1||$hourValue>12)) || ($meridiem===""&&$minute===""&&$hourValue>=1&&$hourValue<=12) || $minuteValue < 0 || $minuteValue > 59) {
             return null;
         }
 
@@ -238,7 +238,7 @@ if (!function_exists("gsoChatMatchResources")) {
         }
 
         $sql = "SELECT resource_id, resource_name, resource_type, category, location,
-                       total_stock, available_stock, under_repair_stock, capacity,
+                       tracking_mode, total_stock, available_stock, under_repair_stock, capacity,
                        status, condition_status, is_archived
                 FROM resources
                 WHERE is_archived = 0";
@@ -311,4 +311,24 @@ if (!function_exists("gsoChatMatchResources")) {
 
         return $matches;
     }
+}
+
+function gsoChatExtractQuantity(string $message): ?int
+{
+    // Explicit quantity fields must not silently turn fractions or negative
+    // values into valid whole-unit requests. Zero prompts for clarification.
+    if (preg_match('/\b(?:quantity|qty)\s*[:=]?\s*([^\s,;]+)/i', $message, $m)) {
+        return preg_match('/\A\d{1,7}\z/', $m[1]) ? (int)$m[1] : 0;
+    }
+    if (preg_match('/\bavailable\s+(?:ba(?:ng)?\s+)?(\d{1,7})(?![\d.:])\s+(?!january\b|february\b|march\b|april\b|may\b|june\b|july\b|august\b|september\b|october\b|november\b|december\b)/i', $message, $m)
+        || preg_match('/\b(\d{1,7})\s+(?:units?|pieces?|pcs|chairs?|laptops?|projectors?|tables?|computers?|microphones?|items?|bang|na)\b/i', $message, $m)) {
+        return preg_match('/(?:-|\d\.)'.preg_quote($m[1],'/').'\s+(?:units?|pieces?|pcs|chairs?|laptops?|projectors?|tables?|computers?|microphones?|items?)\b/i', $message) ? 0 : (int)$m[1];
+    }
+    return null;
+}
+
+function gsoChatExtractPeriod(string $message): ?string
+{
+    $message = preg_replace('/\bi am\b/i', '', $message) ?? $message;
+    return preg_match('/(?<![0-9])\b(AM|PM)\b/i', $message, $m) ? strtoupper($m[1]) : null;
 }

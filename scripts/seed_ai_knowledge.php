@@ -38,7 +38,7 @@ $entries = [
         "keywords" => "requirements, requirement, needed, eligibility, qualify, contact number, purpose",
         "content" => "You need an approved and verified GSO account to borrow. "
             . "When submitting a request you must provide the quantity, a valid contact number for return reminders, the date needed, and the purpose of use. "
-            . "Facility reservations also require a start time and an end time. "
+            . "Facility reservations also require AM/PM classification, exact start and end times, and a manually signed letter uploaded for GSO document verification and separate processing. "
             . "Requests are checked against current availability before they are accepted.",
     ],
     [
@@ -46,7 +46,7 @@ $entries = [
         "category" => "Facilities",
         "question" => "How do I reserve a facility?",
         "keywords" => "facility, reserve, reservation, book, booking, room, venue, avr, hall, schedule",
-        "content" => "To reserve a facility: open Browse Resources, choose the facility, then enter the date, start time, and end time. "
+        "content" => "To reserve a facility: open Browse Resources, choose the facility, then select AM/PM classification and enter the exact date, start time, and end time. Prepare the required letter manually, obtain required signatures outside the system, and upload the signed document for GSO verification and separate processing. "
             . "The system checks your schedule against existing approved reservations and rejects the request if it overlaps one. "
             . "Submit the request and it goes to GSO for review and approval. "
             . "After use, the reservation still needs an explicit post-use submission and GSO review before it is marked complete - it does not close automatically when the end time passes.",
@@ -67,8 +67,8 @@ $entries = [
         "keywords" => "return, returning, bring back, give back, submit return, proof, condition",
         "content" => "Open My Borrowed and submit a return for the loan. "
             . "Record the condition of the item and attach proof photos. "
-            . "Your submission is marked Pending until GSO inspects the item. "
-            . "GSO then approves the return, which restores the stock and completes the transaction, or rejects it with remarks so you can resubmit. "
+            . "The request enters Return while GSO inspection is pending. "
+            . "GSO acceptance marks the request Returned. Only accepted good stock is restored; repairable affected units remain held and Lost remains permanently unavailable. GSO may reject the submission for correction. "
             . "Completed transactions appear under History.",
     ],
     [
@@ -114,7 +114,7 @@ $entries = [
         "question" => "Why is an item unavailable or under maintenance?",
         "keywords" => "maintenance, repair, servicing, under repair, unavailable, out of service",
         "content" => "GSO schedules maintenance for resources that need servicing or repair. "
-            . "While a maintenance schedule is in progress the resource is marked Maintenance and cannot be requested. "
+            . "Partial corrective or preventive maintenance withholds only affected equipment units or quantities; unaffected eligible stock remains available. Facility maintenance blocks the scheduled dates. "
             . "When GSO completes the maintenance, the resource returns to Available and any units that were held for repair go back into circulation. "
             . "Check Browse Resources for the current status of an item.",
     ],
@@ -155,7 +155,7 @@ $entries = [
         "keywords" => "status, pending, under review, approved, rejected, released, returned, cancelled, meaning",
         "content" => "Pending means GSO has not started reviewing your request yet. Under Review means staff are evaluating it. "
             . "Approved means it was accepted but not yet handed over. Released means the item is now in your possession and the loan is active. "
-            . "Returned means you returned it and GSO verified it. Rejected means GSO declined the request, and Cancelled means you withdrew it before release.",
+            . "Return means evidence has been submitted and is awaiting GSO inspection. Returned means GSO inspection was accepted. Completed closes applicable transactions, including issued consumables that do not require return. Rejected means GSO declined the request, and Cancelled means you withdrew it before release.",
     ],
 ];
 

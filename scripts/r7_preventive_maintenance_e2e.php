@@ -6,7 +6,7 @@ declare(strict_types=1);
  * loopback server bound to that same isolated database.
  */
 require_once dirname(__DIR__).'/config/bootstrap.php';
-if(!preg_match('/^gso_r7_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R7 requires an isolated gso_r7_test_* database.');
+if(!preg_match('/^gso_r[78]_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R7 requires an isolated gso_r7_test_* database.');
 $base=(string)gsoEnv('GSO_R7_BASE_URL','http://127.0.0.1:8098/GSO_WebSystem');if(!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true))throw new RuntimeException('Loopback only.');
 require_once dirname(__DIR__).'/config/db.php';
 require_once dirname(__DIR__).'/includes/request_helper.php';

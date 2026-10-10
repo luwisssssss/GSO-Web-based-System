@@ -164,7 +164,7 @@ try {
     $pdo->prepare("
         INSERT INTO resources (resource_name, resource_type, category, description, location,
                                tracking_mode, total_stock, available_stock, under_repair_stock, status, condition_status, is_archived)
-        VALUES (:name, 'Item', 'Equipment', 'Step 10 fixture', 'QA Room', 'Aggregate', 10, 8, 2, 'Available', 'Good', 0)
+        VALUES (:name, 'Item', 'Equipment', 'Step 10 fixture', 'QA Room', 'Aggregate', 10, 6, 2, 'Available', 'Good', 0)
     ")->execute([":name" => $itemName]);
     $itemId = (int) $pdo->lastInsertId();
 
@@ -288,13 +288,13 @@ try {
         str_starts_with((string) ($r["json"]["source"] ?? ""), "live:"),
         "Resource answer did not come from the live adapter (source: " . (string) ($r["json"]["source"] ?? "") . ")."
     );
-    // 10 total, 2 held for repair -> the answer must say 8, never 10.
+    // 10 total, 2 held for repair, 2 in an overlapping released loan -> 6 schedulable.
     step10Assert(
-        strpos(step10Reply($r), "8 available") !== false,
+        strpos(step10Reply($r), "6 available") !== false,
         "Live availability did not reflect the real figure: " . step10Reply($r)
     );
     step10Assert(
-        strpos(step10Reply($r), "2 unit(s) are held for repair") !== false,
+        strpos(step10Reply($r), "2 unit(s) are held out of service for maintenance") !== false,
         "Damaged units were not reported as held back: " . step10Reply($r)
     );
     $checks += 5;
@@ -456,8 +456,8 @@ try {
     $maintAdmin = step10Ask($baseUrl, $cookies["admin"], $session["admin"], "What is the maintenance status of {$maintItemName}?");
     $trackConversation($maintAdmin);
     step10Assert(
-        strpos(step10Reply($maintAdmin), "INTERNAL-MAINT-REASON") !== false,
-        "An admin did not receive the staff-visible maintenance reason: " . step10Reply($maintAdmin)
+        strpos(step10Reply($maintAdmin), "INTERNAL-MAINT-REASON") === false,
+        "The chatbot exposed private maintenance notes: " . step10Reply($maintAdmin)
     );
     $checks += 3;
 
@@ -547,7 +547,7 @@ try {
     $conversationIds[] = (int) ($degraded["conversation_id"] ?? 0);
     step10Assert(($degraded["ok"] ?? false) === true, "A live query failed when the provider was unreachable.");
     step10Assert(
-        strpos((string) $degraded["message"], "8 available") !== false,
+        strpos((string) $degraded["message"], "6 available") !== false,
         "The deterministic live answer was lost when the provider failed: " . (string) $degraded["message"]
     );
     step10Assert(

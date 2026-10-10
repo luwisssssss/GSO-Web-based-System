@@ -28,7 +28,7 @@ if (!function_exists("gsoAiIntentCatalog")) {
                 "patterns" => [
                     "status of my request", "my request status", "request approved", "approved yet",
                     "my borrowing request", "status of my borrow", "did my request", "was my request",
-                    "my pending request", "track my request",
+                    "my pending request", "track my request", "status ng request", "request ko", "approved na ba", "nasaan na yung return", "my return status",
                     // Action phrasings that carry no "my" and no reference number.
                     // Deliberately anchored on a verb: a bare "request status"
                     // would also swallow "what do the request statuses mean?",
@@ -67,6 +67,8 @@ if (!function_exists("gsoAiIntentCatalog")) {
                     "do you have any", "is there any available",
                 ],
             ],
+            "faq_rescheduling" => ["live"=>false,"patterns"=>["reschedule","rescheduling","change reservation","change my schedule","palit schedule"]],
+            "faq_director_role" => ["live"=>false,"patterns"=>["director","adviser"]],
             "navigation_help" => [
                 "live" => false,
                 "patterns" => [

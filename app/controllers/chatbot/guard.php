@@ -11,6 +11,7 @@
 
 require_once dirname(__DIR__, 3) . "/config/bootstrap.php";
 gsoSecureSessionStart();
+if (!defined("GSO_CHAT_READ_ONLY")) define("GSO_CHAT_READ_ONLY",true);
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/ai_chat_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/role_helper.php";

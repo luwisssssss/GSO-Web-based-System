@@ -22,6 +22,8 @@ require_once __DIR__ . "/request_helper.php";
 require_once __DIR__ . "/incident_helper.php";
 require_once __DIR__ . "/maintenance_helper.php";
 require_once __DIR__ . "/ai_param_helper.php";
+require_once __DIR__ . "/equipment_unit_helper.php";
+require_once __DIR__ . "/role_helper.php";
 
 if (!defined("GSO_CHAT_PENDING_TTL_SECONDS")) {
     define("GSO_CHAT_PENDING_TTL_SECONDS", 900);
@@ -122,43 +124,92 @@ if (!function_exists("gsoChatCheckResourceAvailability")) {
             ] + $params);
         }
 
-        $resourceName = (string) $resource["resource_name"];
-        $availableStock = max(0, (int) ($resource["available_stock"] ?? 0));
-        $underRepair = max(0, (int) ($resource["under_repair_stock"] ?? 0));
-        $status = (string) ($resource["status"] ?? "");
-
-        // The authoritative borrowability check - same call the request form makes.
-        $today = date("Y-m-d");
-        $availability = checkResourceAvailability($pdo, $resource, 1, $today, null, null, null);
-        $borrowable = (bool) ($availability["ok"] ?? false);
-
-        $facts = [
-            "resource_name" => $resourceName,
-            "available_quantity" => $availableStock,
-            "under_repair_quantity" => $underRepair,
-            "status" => $status,
-            "borrowable_today" => $borrowable,
-        ];
-
-        if ($borrowable) {
-            $text = "{$resourceName}: {$availableStock} available right now.";
-
-            if ($underRepair > 0) {
-                $text .= " {$underRepair} unit(s) are held for repair and cannot be borrowed until they are fixed.";
+        $resourceName = (string)$resource['resource_name'];
+        $date = $params['date'] ?? gsoChatExtractDate($message);
+        $todayQuery = $date === null;
+        $times = gsoChatExtractTimeRange($message);
+        $start = $params['start_time'] ?? $times['start'];
+        $end = $params['end_time'] ?? $times['end'];
+        $quantity = $params['quantity'] ?? gsoChatExtractQuantity($message);
+        $resolved = ['resource_name'=>$resourceName, 'date'=>$date, 'start_time'=>$start, 'end_time'=>$end, 'quantity'=>$quantity];
+        if ($date === null) {
+            $dateCue = '/\b(?:next|this|coming|january|february|march|april|may|june|july|august|september|october|november|december)\b|\b\d{4}-\d{1,2}-\d{1,2}\b|\b\d{1,2}\/\d{1,2}\/\d{4}\b/i';
+            if (preg_match($dateCue, $message) || $start !== null || $end !== null) {
+                return gsoChatLiveResult($type, false, 'Please clarify the intended date using YYYY-MM-DD.', ['resource_name'=>$resourceName], ['date'], $resolved);
             }
-
-            $text .= " You can submit a request from Browse Resources.";
-
-            return gsoChatLiveResult($type, true, $text, $facts);
+            $date = date('Y-m-d'); // Generic stock question means current availability.
+            $resolved['date'] = $date;
         }
+        if (!gsoChatIsRealDate((string)$date) || $date < date('Y-m-d')) {
+            unset($resolved['date']);
+            return gsoChatLiveResult($type, false, 'Choose a valid current or future date.', ['resource_name'=>$resourceName], ['date'], $resolved);
+        }
+        $timeCue = preg_match('/\b\d{1,2}\s*(?:am|pm)\b|\b\d{1,2}:\d{2}\b|\b(?:from|between)\s+\d/i', $message);
+        if (($start === null) !== ($end === null) || ($start === null && $timeCue)) {
+            return gsoChatLiveResult($type, false, 'What exact start and end time do you need?', ['resource_name'=>$resourceName], ['start_time','end_time'], $resolved);
+        }
+        if ($start !== null && (gsoFacilityClock($start) === null || gsoFacilityClock($end) === null || $start >= $end)) {
+            unset($resolved['start_time'], $resolved['end_time']);
+            return gsoChatLiveResult($type, false, 'Provide a valid time interval with the end after the start.', ['resource_name'=>$resourceName], ['start_time','end_time'], $resolved);
+        }
+        if ($quantity !== null && ((!is_int($quantity) && !ctype_digit((string)$quantity)) || (int)$quantity < 1 || (int)$quantity > 10000000)) {
+            unset($resolved['quantity']);
+            return gsoChatLiveResult($type, false, 'How many whole units do you need?', ['resource_name'=>$resourceName], ['quantity'], $resolved);
+        }
+        $quantity = $quantity === null ? null : (int)$quantity;
+        if (($resource['tracking_mode'] ?? '') === 'Serialized') {
+            // Bound stale counters by eligible physical units. Shared scheduling
+            // then accounts for overlapping loans and preventive holds.
+            $units = $pdo->prepare("SELECT COUNT(*) FROM equipment_units WHERE resource_id=? AND status IN ('Available','Released') AND condition_status='Good'");
+            $units->execute([$resource['resource_id']]);
+            $resource['total_stock'] = min((int)$resource['total_stock'], (int)$units->fetchColumn() + (int)$resource['under_repair_stock']);
+        }
+        // Find capacity through the same monotonic authoritative check as borrowing.
+        $lower = 0;
+        $upper = max(0, (int)$resource['total_stock']);
+        while ($lower < $upper) {
+            $middle = intdiv($lower + $upper + 1, 2);
+            $check = checkResourceAvailability($pdo, $resource, $middle, $date, $start, $end, null);
+            if ($check['ok']) $lower = $middle;
+            else $upper = $middle - 1;
+        }
+        $capacity = $lower;
+        if ($date === date('Y-m-d')) {
+            $current = ($resource['tracking_mode'] ?? '') === 'Serialized'
+                ? count(gsoAvailableUnitsForResource($pdo, (int)$resource['resource_id']))
+                : max(0, (int)$resource['available_stock']);
+            $capacity = min($capacity, $current);
+        }
+        $requested = $quantity ?? 1;
+        $check = checkResourceAvailability($pdo, $resource, $requested, $date, $start, $end, null);
+        $borrowable = $capacity >= $requested && $check['ok'];
+        $reason = $borrowable ? '' : trim((string)$check['message']);
+        $range = buildRequestDateRange('Item', $date, $start, $end, null);
+        $scheduled = gsoPreventiveUnavailableQuantity($pdo, (int)$resource['resource_id'], $range['start'] ?? null, $range['end'] ?? null);
+        $held = max(0, (int)$resource['under_repair_stock']);
+        $facts = [
+            'resource_name'=>$resourceName, 'available_quantity'=>$capacity, 'date'=>$date,
+            'start_time'=>$start ? substr($start,0,5) : '', 'end_time'=>$end ? substr($end,0,5) : '',
+            'under_repair_quantity'=>$held, 'scheduled_maintenance_quantity'=>$scheduled,
+            'requested_quantity'=>$quantity, 'borrowable_today'=>$todayQuery ? $borrowable : null, 'available'=>$borrowable,
+        ];
+        $window = $todayQuery ? 'right now' : ('on '.$date.($start ? ' from '.substr($start,0,5).' to '.substr($end,0,5) : ' for the date-based interval'));
+        $text = $resourceName.': '.$capacity.' available '.$window.'.';
+        if ($quantity !== null) {
+            $text .= $borrowable
+                ? ' The requested '.$quantity.' unit(s) can fit this interval; GSO approval and release remain required.'
+                : ' The requested '.$quantity.' unit(s) cannot fit this interval.';
+        }
+        if ($held > 0) $text .= ' '.$held.' unit(s) are held out of service for maintenance; unaffected eligible stock remains usable.';
+        if ($scheduled > 0) $text .= ' Scheduled preventive maintenance withholds '.$scheduled.' unit(s) during this interval.';
+        if (!$borrowable && $reason !== '') $text .= ' '.$reason;
+        $needs = [];
+        if ($quantity === null && preg_match('/\b(?:can i borrow|may i borrow|some|several|a few|enough)\b/i', $message)) {
+            $needs = ['quantity'];
+            $text .= ' How many units do you need?';
+        }
+        return gsoChatLiveResult($type, true, $text, $facts, $needs, $resolved);
 
-        // Not borrowable: the service already explains why, in user-safe wording.
-        $reason = trim((string) ($availability["message"] ?? ""));
-        $text = "{$resourceName} is not available to borrow right now"
-            . ($reason !== "" ? ": " . $reason : ".")
-            . " Current on-hand quantity: {$availableStock}.";
-
-        return gsoChatLiveResult($type, true, $text, $facts + ["reason" => $reason]);
     }
 }
 
@@ -234,7 +285,7 @@ if (!function_exists("gsoChatCheckFacilityAvailability")) {
             return gsoChatLiveResult(
                 $type,
                 false,
-                "What {$phrase} would you like for the {$facilityName}?",
+                "What {$phrase} would you like for the {$facilityName}? AM/PM classifies the start time; an exact interval is required.",
                 ["facility" => $facilityName],
                 $needs,
                 [
@@ -242,6 +293,7 @@ if (!function_exists("gsoChatCheckFacilityAvailability")) {
                     "date" => $date,
                     "start_time" => $startTime,
                     "end_time" => $endTime,
+                    "facility_slot" => $params["facility_slot"] ?? gsoChatExtractPeriod($message),
                 ]
             );
         }
@@ -250,7 +302,7 @@ if (!function_exists("gsoChatCheckFacilityAvailability")) {
             return gsoChatLiveResult($type, false, "That date doesn't look valid. Please give a date like 2026-09-20.", [], ["date"]);
         }
 
-        if (strtotime((string) $startTime) >= strtotime((string) $endTime)) {
+        if (gsoFacilityClock($startTime) === null || gsoFacilityClock($endTime) === null || $startTime >= $endTime) {
             return gsoChatLiveResult(
                 $type,
                 false,
@@ -272,6 +324,13 @@ if (!function_exists("gsoChatCheckFacilityAvailability")) {
             );
         }
 
+        $period = $params['facility_slot'] ?? gsoChatExtractPeriod($message) ?? gsoFacilityPeriodForStart($startTime);
+        $periodError = gsoFacilityPeriodError($period, $startTime, $endTime);
+        if ($periodError !== null) return gsoChatLiveResult($type, false, $periodError, [], ['start_time','end_time'], ['facility_name'=>$facilityName,'date'=>$date]);
+        $hoursError = gsoFacilitySubmissionHoursError($pdo, $startTime, $endTime, true);
+        if ($hoursError !== null) return gsoChatLiveResult($type, false, $hoursError, [], ['start_time','end_time'], ['facility_name'=>$facilityName,'date'=>$date]);
+        $extended = gsoFacilityNeedsExtendedHours($pdo, $startTime, $endTime);
+
         // Authoritative check: same service the reservation form uses, which
         // internally applies findScheduleConflict() and maintenance conflicts.
         $availability = checkResourceAvailability($pdo, $facility, 1, $date, $startTime, $endTime, null);
@@ -285,6 +344,7 @@ if (!function_exists("gsoChatCheckFacilityAvailability")) {
             "end_time" => substr((string) $endTime, 0, 5),
             "available" => $isAvailable,
             "conflict_summary" => $isAvailable ? "" : $reason,
+            "facility_slot" => $period, "extended_hours_required" => $extended,
         ];
 
         $window = $facts["start_time"] . " to " . $facts["end_time"] . " on " . $facts["date"];
@@ -293,6 +353,8 @@ if (!function_exists("gsoChatCheckFacilityAvailability")) {
             ? "{$facilityName} is free {$window}. You can submit the reservation from Browse Resources; GSO still has to approve it."
             : "{$facilityName} is not available {$window}" . ($reason !== "" ? ": " . $reason : ".");
 
+        $text .= ' Period: ' . $period . '. Exact times determine overlap; AM/PM is a classification.';
+        if ($extended) $text .= ' This interval exceeds configured campus hours and requires an extended-hours exception for explicit GSO review.';
         return gsoChatLiveResult($type, true, $text, $facts);
     }
 }
@@ -304,6 +366,7 @@ if (!function_exists("gsoChatCheckFacilityAvailability")) {
 if (!function_exists("gsoChatGetRequestStatus")) {
     function gsoChatGetRequestStatus(PDO $pdo, array $authUser, string $message, array $params = []): array
     {
+        $verified=gsoChatVerifiedIdentity($pdo,$authUser);if($verified===null)return gsoChatLiveResult('request_status',false,'Please sign in with an authorized account.',['found'=>false]);$authUser=$verified;
         $type = "request_status";
         $userId = (int) ($authUser["user_id"] ?? 0);
         $isAdmin = gsoChatIsAdmin($authUser);
@@ -318,7 +381,10 @@ if (!function_exists("gsoChatGetRequestStatus")) {
         }
 
         $sql = "SELECT rr.request_id, rr.status, r.quantity, rr.date_needed, rr.due_date,
-                       rr.return_date, rr.request_date, rr.borrower_id,
+                       rr.return_date, rr.request_date, rr.borrower_id,rr.start_time,rr.end_time,
+                       (SELECT MAX(i.facility_slot) FROM request_items i WHERE i.request_id=rr.request_id AND i.line_kind='Facility') AS facility_slot,
+                       " . gsoReturnOutcomeSummarySql() . " AS outcome_summary,
+                       (SELECT COUNT(*) FROM request_items i WHERE i.request_id=rr.request_id AND i.line_kind<>'Consumable') AS returnable_lines,
                        COALESCE((SELECT GROUP_CONCAT(CONCAT(lr.resource_name, CASE WHEN li.line_kind = 'Facility' THEN '' ELSE CONCAT(' x', li.requested_quantity) END) ORDER BY FIELD(li.line_kind,'Facility','Equipment','Consumable'), lr.resource_name SEPARATOR ', ') FROM request_items li INNER JOIN resources lr ON lr.resource_id = li.resource_id WHERE li.request_id = rr.request_id), r.resource_name) AS resource_name, r.resource_type,
                        rs.inspection_condition
                 FROM resource_requests rr
@@ -331,7 +397,7 @@ if (!function_exists("gsoChatGetRequestStatus")) {
         // Ownership is part of the query for a normal user. An Admin sees the
         // same breadth the admin Requests page already gives them.
         if (!$isAdmin) {
-            $sql .= " AND rr.borrower_id = :borrower_id";
+            $sql .= " AND rr.borrower_id = :borrower_id AND rr.requester_type='Registered'";
             $queryParams[":borrower_id"] = $userId;
         }
 
@@ -356,6 +422,8 @@ if (!function_exists("gsoChatGetRequestStatus")) {
             "lifecycle_stage" => $lifecycle,
             "date_needed" => (string) ($row["date_needed"] ?? ""),
             "due_date" => (string) ($row["due_date"] ?? ""),
+            "start_time" => $row['start_time']??'',"end_time" => $row['end_time']??'',"facility_slot" => $row['facility_slot']??'',
+            "return_outcomes" => $row['outcome_summary']??'',
         ];
 
         $text = "{$code} ({$facts["resource_name"]}) is currently {$lifecycle}.";
@@ -372,6 +440,9 @@ if (!function_exists("gsoChatGetRequestStatus")) {
             $text .= " GSO has not completed the review yet.";
         }
 
+        if($row['date_needed'])$text.=' Current request schedule: '.$row['date_needed'].($row['facility_slot']?' | '.$row['facility_slot']:'').($row['start_time']&&$row['end_time']?' | '.substr($row['start_time'],0,5).' to '.substr($row['end_time'],0,5):'').'.';
+        if($row['status']==='Returned')$text.=' GSO inspection was accepted.'.($row['outcome_summary']?' Recorded outcomes: '.$row['outcome_summary'].'.':'');
+        if($row['status']==='Completed')$text.=(int)$row['returnable_lines']===0?' This issued-consumable transaction is closed; issued consumables do not require return.':' This transaction is closed.';
         return gsoChatLiveResult($type, true, $text, $facts);
     }
 }
@@ -384,6 +455,7 @@ if (!function_exists("gsoChatListOwnRequests")) {
      */
     function gsoChatListOwnRequests(PDO $pdo, array $authUser): array
     {
+        $verified=gsoChatVerifiedIdentity($pdo,$authUser);if($verified===null)return gsoChatLiveResult('request_status',false,'Please sign in with an authorized account.',['found'=>false]);$authUser=$verified;
         $type = "request_status";
         $userId = (int) ($authUser["user_id"] ?? 0);
 
@@ -402,7 +474,7 @@ if (!function_exists("gsoChatListOwnRequests")) {
                    r.resource_name AS resource_name
             FROM resource_requests rr
             INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
-            WHERE rr.borrower_id = :borrower_id
+            WHERE rr.borrower_id = :borrower_id AND rr.requester_type='Registered'
               AND rr.status IN ('Pending', 'Under Review', 'Approved', 'Released', 'Return')
             ORDER BY rr.request_id DESC
             LIMIT 5
@@ -550,7 +622,6 @@ if (!function_exists("gsoChatGetMaintenanceStatus")) {
     function gsoChatGetMaintenanceStatus(PDO $pdo, array $authUser, string $message, array $params = []): array
     {
         $type = "maintenance_status";
-        $isAdmin = gsoChatIsAdmin($authUser);
         $searchText = trim((string) ($params["resource_name"] ?? "")) !== ""
             ? (string) $params["resource_name"]
             : $message;
@@ -600,7 +671,7 @@ if (!function_exists("gsoChatGetMaintenanceStatus")) {
 
         if ($schedule === null) {
             $text = $underRepair > 0
-                ? "{$resourceName} has no active maintenance schedule, but {$underRepair} unit(s) are still held for repair and are not borrowable yet."
+                ? "{$resourceName} has no active maintenance schedule, but {$underRepair} unit(s) are still held for maintenance and are not borrowable yet."
                 : "{$resourceName} has no active or upcoming maintenance. Its current status is {$resourceStatus}.";
 
             return gsoChatLiveResult($type, true, $text, $facts);
@@ -611,18 +682,15 @@ if (!function_exists("gsoChatGetMaintenanceStatus")) {
         $facts["schedule_status"] = (string) ($schedule["status"] ?? "");
 
         $text = "{$resourceName} is under maintenance ({$facts["schedule_status"]}) from "
-            . "{$facts["scheduled_from"]} to {$facts["scheduled_to"]}. It can't be borrowed during that period.";
+            . "{$facts["scheduled_from"]} to {$facts["scheduled_to"]}. Scheduled maintenance affects this interval.";
 
-        // Internal scheduling notes stay with staff, mirroring the admin pages.
-        if ($isAdmin) {
-            $reason = trim((string) ($schedule["reason"] ?? ""));
-
-            if ($reason !== "") {
-                $facts["reason"] = $reason;
-                $text .= " Reason: {$reason}.";
-            }
+        if ($resource['resource_type'] === 'Item') {
+            $availability = gsoChatCheckResourceAvailability($pdo, $authUser, $resourceName, ['resource_name'=>$resourceName, 'date'=>date('Y-m-d')]);
+            $facts['available_quantity'] = $availability['facts']['available_quantity'] ?? 0;
+            $text .= ' Current eligible availability: ' . $facts['available_quantity'] . ' unit(s). Partial maintenance holds only affected units; other eligible units remain borrowable. Future capacity depends on the requested interval.';
+        } else {
+            $text .= ' Facility maintenance blocks the facility on the scheduled dates.';
         }
-
         return gsoChatLiveResult($type, true, $text, $facts);
     }
 }
@@ -785,7 +853,7 @@ if (!function_exists("gsoChatRefineLiveIntent")) {
 
         // Word-boundary matching so "free" does not fire on "freedom".
         $cuePattern = '/\b(available|availability|vacant|free|unoccupied|booked|occupied|'
-            . 'can i (?:borrow|reserve|use|get)|may i (?:borrow|use)|how many|in stock|any left|still have)\b/';
+            . 'can i (?:borrow|reserve|use|get)|may i (?:borrow|use)|how many|ilan|may available|available ba|available bang|in stock|any left|still have)\b/';
 
         if (preg_match($cuePattern, $text) !== 1) {
             return $classification;
@@ -832,6 +900,8 @@ if (!function_exists("gsoChatMergePendingParams")) {
             $merged["end_time"] = $times["end"];
         }
 
+        $quantity=gsoChatExtractQuantity($message);if($quantity===null&&isset($merged['resource_name'])&&preg_match('/^\s*\d{1,7}\s*$/',$message))$quantity=(int)trim($message);if($quantity!==null)$merged['quantity']=$quantity;
+        $period=gsoChatExtractPeriod($message);if($period!==null)$merged['facility_slot']=$period;
         return $merged;
     }
 }
@@ -865,4 +935,9 @@ if (!function_exists("gsoChatHandleLiveIntent")) {
                 return null;
         }
     }
+}
+
+function gsoChatVerifiedIdentity(PDO $pdo,array $user): ?array
+{
+    $id=(int)($user['user_id']??0);if($id<1)return null;$s=$pdo->prepare("SELECT user_id,role FROM users WHERE user_id=? AND account_status='Approved' AND email_verified=1");$s->execute([$id]);$actual=$s->fetch(PDO::FETCH_ASSOC);return $actual&&gsoUserHasPermission($actual['role'],'chatbot.use')?$actual:null;
 }
