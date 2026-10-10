@@ -222,7 +222,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                             <?php endif; ?>
                             <?php foreach ($units as $unit): ?>
                                 <tr>
-                                    <td><?php echo htmlspecialchars((string) $unit["asset_tag"]); ?></td>
+                                    <td><?php echo htmlspecialchars((string) $unit["asset_tag"]); ?><br><small><a href="maintenance_history.php?unit_id=<?php echo (int) $unit["unit_id"]; ?>">Maintenance history</a></small></td>
                                     <td><?php echo htmlspecialchars((string) ($unit["serial_number"] ?? "—")); ?></td>
                                     <td><?php echo htmlspecialchars((string) $unit["status"]); ?></td>
                                     <td><?php echo htmlspecialchars((string) $unit["condition_status"]); ?></td>

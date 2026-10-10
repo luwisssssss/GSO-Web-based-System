@@ -524,7 +524,8 @@ if (!function_exists("checkResourceAvailability")) {
         ?string $startTime,
         ?string $endTime,
         ?string $dueDate,
-        ?int $excludeRequestId = null
+        ?int $excludeRequestId = null,
+        ?int $excludeMaintenanceId = null
     ): array {
         if ((int) ($resource["is_archived"] ?? 0) === 1) {
             return [
@@ -572,7 +573,8 @@ if (!function_exists("checkResourceAvailability")) {
             (int) ($resource["resource_id"] ?? 0),
             $range["start"] ?? null,
             $range["end"] ?? null,
-            $resourceType==='Item'
+            $resourceType==='Item',
+            $excludeMaintenanceId
         );
 
         if ($maintenanceConflict) {
@@ -621,6 +623,7 @@ if (!function_exists("checkResourceAvailability")) {
             $resource
         ));
 
+        $schedulableStock=max(0,$schedulableStock-gsoPreventiveUnavailableQuantity($pdo,(int)$resource['resource_id'],$range['start']??null,$range['end']??null,$excludeMaintenanceId));
         if ($schedulableStock <= 0) {
             return [
                 "ok" => false,

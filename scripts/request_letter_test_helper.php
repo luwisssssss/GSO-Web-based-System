@@ -2,7 +2,7 @@
 // Required fixture setup for older active suites whose subject is not documents.
 require_once dirname(__DIR__) . '/includes/request_attachment_helper.php';
 function gsoTestLetterDatabase(): void {
-    if (!preg_match('/^gso_r(?:2[ab]|3|4|5|6)_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME',''))) throw new RuntimeException('Request-letter fixtures require an isolated R2 test database.');
+    if (!preg_match('/^gso_r(?:2[ab]|3|4|5|6|7)_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME',''))) throw new RuntimeException('Request-letter fixtures require an isolated R2 test database.');
 }
 function gsoTestLetterImage(): string {
     gsoTestLetterDatabase();$path=tempnam(sys_get_temp_dir(),'gso_letter_');

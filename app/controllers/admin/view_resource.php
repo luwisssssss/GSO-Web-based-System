@@ -106,6 +106,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                 <a href="inventory.php" class="admin-btn info-btn">Back to Inventory</a>
                 <?php if ($canManageInventory): ?><a href="edit_resource.php?resource_id=<?php echo $resource["resource_id"]; ?>" class="admin-btn primary-btn">Edit Resource</a><?php endif; ?>
                 <a href="maintenance.php?resource_id=<?php echo $resource["resource_id"]; ?>" class="admin-btn neutral-btn">Maintenance</a>
+                <a href="maintenance_history.php?resource_id=<?php echo (int) $resource["resource_id"]; ?>" class="admin-btn neutral-btn">Maintenance History</a>
             </div>
         </div>
 

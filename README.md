@@ -124,6 +124,18 @@ Before exposing the application, run `httpd.exe -t` and verify that sensitive UR
 
 Use `http://localhost/GSO_WebSystem` only for isolated local development. Production must use the HTTPS URL configured in `GSO_APP_URL`.
 
+## R7 preventive maintenance and maintenance history
+
+`maintenance_schedules` stays the only work-order table. `maintenance_type` separates `Corrective` from `Preventive` occurrences. Rows that predate the column keep `NULL` unless a return or incident link proves they were corrective.
+
+`preventive_maintenance_plans` stores the recurring policy: target resource, optional real equipment unit or aggregate quantity, recurrence (`Once`, `Monthly`, `Quarterly`, `Semiannual`, `Annual`), `next_due_date`, duration, and assignee. Recurrence uses calendar months and clamps to the last day of short months. Consumables and Lost targets are rejected.
+
+There is no background scheduler. The GSO Head generates the due occurrence from **Work Orders > Preventive Plans**, which creates one `maintenance_schedules` row linked by `preventive_plan_id` and `plan_occurrence_date`. A unique key on that pair makes generation idempotent. No page load generates work.
+
+A Scheduled occurrence reduces availability only for its own dates, unit, or quantity, and does not change current stock. Starting it holds exactly that unit or quantity, and completing it restores exactly what was held. Completion and cancellation are explicit actions. A passed end date never completes maintenance, and `next_due_date` advances only when an occurrence is completed.
+
+Maintenance History (`admin/maintenance_history.php`) lists Completed and Cancelled rows from `maintenance_schedules`. Plan management requires `maintenance.plan.manage` (Admin/GSO Head). GSO Staff may start and complete occurrences assigned to them. Existing installations apply `database/migrations/20261010_006_preventive_maintenance.sql`.
+
 ## 📁 Project Structure
 
 ```text

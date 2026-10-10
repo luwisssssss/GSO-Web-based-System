@@ -3,7 +3,7 @@ declare(strict_types=1);
 /** R2A regression: isolated database and matching loopback Apache only. */
 $root = dirname(__DIR__);
 require_once $root . '/config/bootstrap.php';
-if (!preg_match('/^gso_r(?:2[ab]|3|4|5|6)_test_[a-zA-Z0-9_]+$/', (string) gsoEnv('GSO_DB_NAME', ''))) {
+if (!preg_match('/^gso_r(?:2[ab]|3|4|5|6|7)_test_[a-zA-Z0-9_]+$/', (string) gsoEnv('GSO_DB_NAME', ''))) {
     throw new RuntimeException('R2A fixtures require an explicitly isolated gso_r2a_test_* database.');
 }
 $base = (string) gsoEnv('GSO_R2A_BASE_URL', 'http://127.0.0.1:8093/GSO_WebSystem');

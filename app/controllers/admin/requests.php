@@ -518,6 +518,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         throw new Exception("Unit {$unit['asset_tag']} is not available for release.");
                     }
 
+                    $unitRange=buildRequestDateRange('Item',$dateNeeded,$startTime,$endTime,$requestRow['due_date']??null);
+                    if($unitRange&&gsoPreventiveUnitConflict($pdo,$unitId,$unitRange['start'],$unitRange['end']))throw new DomainException("This physical unit has overlapping preventive maintenance. Select an unaffected unit.");
                     $claim = $pdo->prepare("
                         UPDATE equipment_units
                         SET status = 'Released', updated_at = NOW()

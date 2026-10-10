@@ -994,6 +994,9 @@ if (!function_exists("ensureSystemSchema")) {
             if (!columnExists($pdo, "resource_requests", "requester_type")) {
                 $pdo->exec(file_get_contents(dirname(__DIR__,2)."/database/migrations/20261010_005_walkin_requests.sql"));
             }
+            if (!columnExists($pdo,"maintenance_schedules","maintenance_type")) {
+                $pdo->exec(file_get_contents(dirname(__DIR__,2)."/database/migrations/20261010_006_preventive_maintenance.sql"));
+            }
         } catch (Throwable $e) {
             $hasRun = false;
             throw new RuntimeException("Schema initialization failed: " . $e->getMessage(), 0, $e);

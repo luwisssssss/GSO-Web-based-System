@@ -6,6 +6,7 @@ require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/maintenance_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/work_order_helper.php";
+require_once dirname(__DIR__, 3) . "/includes/preventive_maintenance_helper.php";
 
 if (empty($_SESSION["csrf_token"])) {
     $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
@@ -260,12 +261,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $insertStmt = $pdo->prepare("
                 INSERT INTO maintenance_schedules
                 (
-                    resource_id, quantity, start_date, end_date, duration_days,
+                    maintenance_type, resource_id, quantity, start_date, end_date, duration_days,
                     reason, remarks, status, created_by, updated_by, updated_at
                 )
                 VALUES
                 (
-                    :resource_id, :quantity, :start_date, :end_date, :duration_days,
+                    'Corrective', :resource_id, :quantity, :start_date, :end_date, :duration_days,
                     :reason, :remarks, :status, :created_by, :updated_by, NOW()
                 )
             ");
@@ -314,6 +315,23 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $_SESSION["flash_type"] = "error";
         }
         redirectMaintenancePage();
+    }
+
+    if ($action === "start_schedule" || $action === "cancel_schedule") {
+        // Preventive occurrences own their inventory hold, so Start/Cancel go
+        // through the single locked helper that applies or releases that hold.
+        $maintenanceId = (int) ($_POST["maintenance_id"] ?? 0);
+        $typeStmt = $pdo->prepare("SELECT maintenance_type FROM maintenance_schedules WHERE maintenance_id = ?");
+        $typeStmt->execute([$maintenanceId]);
+        $isPreventive = $typeStmt->fetchColumn() === "Preventive";
+        if ($isPreventive || $action === "start_schedule") {
+            $result = $isPreventive
+                ? gsoPreventiveJobAction($pdo, $maintenanceId, $adminUserId, $action === "start_schedule" ? "start" : "cancel", trim((string) ($_POST["completion_notes"] ?? "")))
+                : ["ok" => false, "message" => "Only a preventive occurrence can be started from this action."];
+            $_SESSION["flash_message"] = $result["message"];
+            $_SESSION["flash_type"] = $result["ok"] ? "success" : "error";
+            redirectMaintenancePage();
+        }
     }
 
     if ($action === "cancel_schedule") {
@@ -425,6 +443,7 @@ $scheduleStmt = $pdo->query("
         ms.end_date,
         ms.duration_days,
         ms.quantity,ms.source_return_item_id,ms.incident_id,ms.equipment_unit_id,ms.assigned_to,ms.completed_at,ms.restored_at,
+        ms.maintenance_type,ms.preventive_plan_id,ms.started_at,unit.asset_tag,
         ms.reason,
         ms.remarks,
         ms.status,
@@ -442,6 +461,8 @@ $scheduleStmt = $pdo->query("
     LEFT JOIN users creator ON ms.created_by = creator.user_id
     LEFT JOIN users updater ON ms.updated_by = updater.user_id
     LEFT JOIN users assignee ON ms.assigned_to = assignee.user_id
+    LEFT JOIN equipment_units unit ON unit.unit_id = ms.equipment_unit_id
+    WHERE ms.status IN ('Scheduled', 'In Progress')
     ORDER BY
         CASE
             WHEN ms.status = 'In Progress' THEN 1
@@ -495,7 +516,12 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
     <main class="page-content">
         <div class="card">
             <h2>Maintenance</h2>
-            <p>Schedule preventive or corrective maintenance and automatically block resources from borrowing while maintenance is active.</p>
+            <p>Active and upcoming work orders. Corrective work comes from inspected returns, incidents, or a manual schedule. Preventive work is generated from a preventive plan. Completion always requires an explicit action; a passed end date does not complete a work order.</p>
+            <div class="profile-actions">
+                <a href="maintenance.php" class="admin-btn primary-btn" aria-current="page">Active / Upcoming</a>
+                <a href="preventive_plans.php" class="admin-btn neutral-btn">Preventive Plans</a>
+                <a href="maintenance_history.php" class="admin-btn neutral-btn">Maintenance History</a>
+            </div>
         </div>
 
         <?php if (!empty($flashMessage)): ?>
@@ -524,7 +550,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
         </div>
 
         <div class="card">
-            <h3>Schedule Maintenance</h3>
+            <h3>Schedule Corrective Maintenance</h3>
             <form method="POST" class="request-form">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
                 <input type="hidden" name="action" value="add_schedule">
@@ -558,7 +584,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
                 <div class="form-row">
                     <label for="reason">Reason</label>
-                    <input type="text" id="reason" name="reason" placeholder="Preventive check, repair, inspection..." required>
+                    <input type="text" id="reason" name="reason" placeholder="Repair, replacement, inspection..." required>
                 </div>
 
                 <div class="form-row">
@@ -588,11 +614,9 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                 >
 
                 <select name="status">
-                    <option value="All" <?php echo $statusFilter === "All" ? "selected" : ""; ?>>All Status</option>
+                    <option value="All" <?php echo $statusFilter === "All" ? "selected" : ""; ?>>All Active</option>
                     <option value="Scheduled" <?php echo $statusFilter === "Scheduled" ? "selected" : ""; ?>>Scheduled</option>
                     <option value="In Progress" <?php echo $statusFilter === "In Progress" ? "selected" : ""; ?>>In Progress</option>
-                    <option value="Completed" <?php echo $statusFilter === "Completed" ? "selected" : ""; ?>>Completed</option>
-                    <option value="Cancelled" <?php echo $statusFilter === "Cancelled" ? "selected" : ""; ?>>Cancelled</option>
                 </select>
 
                 <button type="submit" class="admin-btn primary-btn">Filter</button>
@@ -603,6 +627,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                     <thead>
                         <tr>
                             <th>ID</th>
+                            <th>Type</th>
                             <th>Resource</th>
                             <th>Maintenance Period</th>
                             <th>Days</th>
@@ -620,7 +645,12 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                 <tr>
                                     <td>MTN-<?php echo str_pad((string) $schedule["maintenance_id"], 3, "0", STR_PAD_LEFT); ?></td>
                                     <td>
+                                        <?php echo htmlspecialchars((string) ($schedule["maintenance_type"] ?? "Unclassified")); ?>
+                                        <?php if (!empty($schedule["preventive_plan_id"])): ?><br><small><a href="preventive_plans.php?plan_id=<?php echo (int) $schedule["preventive_plan_id"]; ?>">Plan #<?php echo (int) $schedule["preventive_plan_id"]; ?></a></small><?php endif; ?>
+                                    </td>
+                                    <td>
                                         <strong><?php echo htmlspecialchars((string) $schedule["resource_name"]); ?></strong><br>
+                                        <?php if (!empty($schedule["asset_tag"])): ?><small>Unit: <?php echo htmlspecialchars((string) $schedule["asset_tag"]); ?></small><br><?php elseif ((int) $schedule["quantity"] > 0): ?><small>Quantity: <?php echo (int) $schedule["quantity"]; ?></small><br><?php endif; ?>
                                         <small>
                                             <?php echo htmlspecialchars((string) $schedule["resource_type"]); ?>
                                             | Resource Status:
@@ -658,6 +688,17 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                             <div class="row-actions-menu" role="menu">
                                                 <?php if (in_array((string) ($schedule["status"] ?? ""), ["Scheduled", "In Progress"], true)): ?>
                                                     <form method="POST" class="inline-form"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']);?>"><input type="hidden" name="action" value="assign_work_order"><input type="hidden" name="maintenance_id" value="<?php echo (int)$schedule['maintenance_id'];?>"><select name="assigned_to" required><option value="">Assign personnel</option><?php foreach($assignees as $person):?><option value="<?php echo (int)$person['user_id'];?>" <?php echo (int)$schedule['assigned_to']===(int)$person['user_id']?'selected':'';?>><?php echo htmlspecialchars((string)$person['full_name']);?></option><?php endforeach;?></select><button type="submit">Assign</button></form>
+                                                    <?php if (($schedule["maintenance_type"] ?? "") === "Preventive" && (string) $schedule["status"] === "Scheduled"): ?>
+                                                    <form method="POST" class="inline-form" onsubmit="return confirm('Start this preventive maintenance now? The target will be held out of service.');">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
+                                                        <input type="hidden" name="action" value="start_schedule">
+                                                        <input type="hidden" name="maintenance_id" value="<?php echo (int) $schedule["maintenance_id"]; ?>">
+                                                        <button type="submit" class="success-action" role="menuitem">
+                                                            <i class="fa-solid fa-play" aria-hidden="true"></i>
+                                                            <span>Start</span>
+                                                        </button>
+                                                    </form>
+                                                    <?php endif; ?>
                                                     <form method="POST" class="inline-form" onsubmit="return confirm('Mark this maintenance as completed?');">
                                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
                                                         <input type="hidden" name="action" value="complete_schedule">
@@ -688,7 +729,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                             <?php endforeach; ?>
                         <?php else: ?>
                             <tr>
-                                <td colspan="9" class="empty-note">No maintenance schedules found.</td>
+                                <td colspan="10" class="empty-note">No active or upcoming maintenance. Completed and cancelled work is in Maintenance History.</td>
                             </tr>
                         <?php endif; ?>
                     </tbody>

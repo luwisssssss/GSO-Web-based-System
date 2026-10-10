@@ -215,19 +215,8 @@ if (!function_exists("syncMaintenanceSchedules")) {
                 status = 'In Progress',
                 updated_at = NOW()
             WHERE status = 'Scheduled'
+              AND (maintenance_type IS NULL OR maintenance_type='Corrective')
               AND CURDATE() BETWEEN start_date AND end_date
-        ");
-
-        $pdo->exec("
-            UPDATE maintenance_schedules
-            SET
-                status = 'Completed',
-                updated_at = NOW()
-            WHERE status IN ('Scheduled', 'In Progress')
-              AND end_date < CURDATE()
-              AND incident_id IS NULL AND source_return_item_id IS NULL
-              AND equipment_unit_id IS NULL AND quantity=0
-              AND reason NOT LIKE 'Incident %'
         ");
 
         $pdo->exec("
@@ -236,6 +225,7 @@ if (!function_exists("syncMaintenanceSchedules")) {
                 status = 'Scheduled',
                 updated_at = NOW()
             WHERE status = 'In Progress'
+              AND (maintenance_type IS NULL OR maintenance_type='Corrective')
               AND start_date > CURDATE()
         ");
 
@@ -256,7 +246,8 @@ if (!function_exists("getMaintenanceConflict")) {
         int $resourceId,
         ?string $rangeStart,
         ?string $rangeEnd,
-        bool $wholeResourceOnly=false
+        bool $wholeResourceOnly=false,
+        ?int $excludeMaintenanceId=null
     ): ?array {
         if ($resourceId <= 0) {
             return null;
@@ -279,6 +270,7 @@ if (!function_exists("getMaintenanceConflict")) {
             FROM maintenance_schedules
             WHERE resource_id = :resource_id
               " . ($wholeResourceOnly ? "AND quantity=0 AND equipment_unit_id IS NULL AND source_return_item_id IS NULL" : "") . "
+              AND (:excluded_maintenance IS NULL OR maintenance_id<>:excluded_maintenance_id)
               AND status IN ('Scheduled', 'In Progress')
               AND NOT (
                     :range_end < CONCAT(start_date, ' 00:00:00')
@@ -290,11 +282,26 @@ if (!function_exists("getMaintenanceConflict")) {
         $stmt->execute([
             ":resource_id" => $resourceId,
             ":range_start" => $rangeStart,
-            ":range_end" => $rangeEnd
+            ":range_end" => $rangeEnd,
+            ":excluded_maintenance" => $excludeMaintenanceId,
+            ":excluded_maintenance_id" => $excludeMaintenanceId
         ]);
 
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $row ?: null;
     }
+}
+
+/** Scheduled preventive holds affect future capacity, not current inventory counters. */
+function gsoPreventiveUnavailableQuantity(PDO $pdo,int $resourceId,?string $start,?string $end,?int $exclude=null): int
+{
+    if(!$start||!$end)return 0;
+    $s=$pdo->prepare("SELECT m.quantity,m.equipment_unit_id,m.start_date,m.end_date FROM maintenance_schedules m LEFT JOIN equipment_units u ON u.unit_id=m.equipment_unit_id WHERE m.resource_id=? AND m.maintenance_type='Preventive' AND m.status='Scheduled' AND(m.maintenance_id<>? OR ? IS NULL) AND NOT(?<CONCAT(m.start_date,' 00:00:00') OR ?>CONCAT(m.end_date,' 23:59:59')) AND(m.equipment_unit_id IS NULL OR(u.status IN('Available','Released') AND u.condition_status='Good'))");$s->execute([$resourceId,$exclude,$exclude,$end,$start]);$units=[];$events=[];
+    foreach($s->fetchAll(PDO::FETCH_ASSOC) as $job){if($job['equipment_unit_id']!==null){$units[(int)$job['equipment_unit_id']]=true;continue;}$a=max(strtotime($start),strtotime($job['start_date'].' 00:00:00'));$b=min(strtotime($end),strtotime($job['end_date'].' 23:59:59'))+1;$events[$a]=($events[$a]??0)+(int)$job['quantity'];$events[$b]=($events[$b]??0)-(int)$job['quantity'];}
+    ksort($events);$current=0;$peak=0;foreach($events as $change){$current+=$change;$peak=max($peak,$current);}return count($units)+$peak;
+}
+function gsoPreventiveUnitConflict(PDO $pdo,int $unitId,string $start,string $end,?int $exclude=null): bool
+{
+    $s=$pdo->prepare("SELECT 1 FROM maintenance_schedules WHERE equipment_unit_id=? AND maintenance_type='Preventive' AND status IN('Scheduled','In Progress') AND(maintenance_id<>? OR ? IS NULL) AND NOT(?<CONCAT(start_date,' 00:00:00') OR ?>CONCAT(end_date,' 23:59:59')) LIMIT 1");$s->execute([$unitId,$exclude,$exclude,$end,$start]);return (bool)$s->fetchColumn();
 }
