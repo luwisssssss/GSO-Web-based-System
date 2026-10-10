@@ -2,7 +2,7 @@
 declare(strict_types=1);
 /** R8 real HTTP/authentication and authoritative live-query regression; isolated DB only. */
 require_once dirname(__DIR__).'/config/bootstrap.php';
-if (!preg_match('/^gso_r[89]_test_[a-zA-Z0-9_]+$/', (string)gsoEnv('GSO_DB_NAME',''))) throw new RuntimeException('R8 requires an isolated database.');
+if (!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/', (string)gsoEnv('GSO_DB_NAME',''))) throw new RuntimeException('R8 requires an isolated database.');
 $base=(string)gsoEnv('GSO_R8_BASE_URL','http://127.0.0.1:8099/GSO_WebSystem');
 if (!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true)) throw new RuntimeException('Loopback only.');
 define('GSO_CHAT_READ_ONLY',true);
@@ -52,7 +52,7 @@ try {
     $auth=['user_id'=>$users['a'],'role'=>'Borrower'];$date=date('Y-m-d',strtotime('+30 days'));$proposed=date('Y-m-d',strtotime('+31 days'));
     $make=function(int $res,string $status='Approved',string $who='a',string $mode='Registered',int $qty=1)use($users,$date,$hall,$paper):int {
         global $pdo,$requests;
-        qExec('INSERT INTO resource_requests(borrower_id,resource_id,quantity,date_needed,start_time,end_time,status,requester_type,encoded_by,walkin_full_name,walkin_contact_number,notes)VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',[$mode==='Registered'?$users[$who]:null,$res,$qty,$date,'09:00:00','10:00:00',$status,$mode,$mode==='Walk-in'?$users['admin']:null,$mode==='Walk-in'?'PRIVATE-WALKIN-NAME':null,$mode==='Walk-in'?'PRIVATE-PHONE':null,'PRIVATE-STAFF-NOTE']);
+        qExec('INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status,requester_type,encoded_by,walkin_full_name,walkin_contact_number,notes)VALUES(?,?,?,?,?,?,?,?,?,?)',[$mode==='Registered'?$users[$who]:null,$date,'09:00:00','10:00:00',$status,$mode,$mode==='Walk-in'?$users['admin']:null,$mode==='Walk-in'?'PRIVATE-WALKIN-NAME':null,$mode==='Walk-in'?'PRIVATE-PHONE':null,'PRIVATE-STAFF-NOTE']);
         $id=(int)$pdo->lastInsertId();$requests[]=$id;
         qExec('INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity,facility_slot)VALUES(?,?,?,?,?)',[$id,$res,$res===$hall?'Facility':($res===$paper?'Consumable':'Equipment'),$qty,$res===$hall?'AM':null]);return $id;
     };

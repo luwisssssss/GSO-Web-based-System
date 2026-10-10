@@ -195,6 +195,16 @@ if (!function_exists("restoreRepairedStock")) {
     }
 }
 if (!function_exists("syncMaintenanceSchedules")) {
+    /**
+     * Operational status sync for corrective work orders only.
+     *
+     * A corrective schedule whose start date has arrived becomes In Progress, and
+     * one moved back into the future returns to Scheduled. Nothing here completes
+     * or cancels maintenance: an elapsed end date never proves work was done, so
+     * completion is always an explicit authorised action. Completed and Cancelled
+     * rows (maintenance history) and every Preventive occurrence are never touched.
+     * Only resources whose work order actually changed are refreshed.
+     */
     function syncMaintenanceSchedules(PDO $pdo): void
     {
         static $hasRun = false;
@@ -205,37 +215,44 @@ if (!function_exists("syncMaintenanceSchedules")) {
 
         $hasRun = true;
 
-        if (!tableExists($pdo, "maintenance_schedules")) {
+        $due = $pdo->query("
+            SELECT maintenance_id, resource_id,
+                   CASE WHEN status = 'Scheduled' THEN 'In Progress' ELSE 'Scheduled' END AS next_status
+            FROM maintenance_schedules
+            WHERE (maintenance_type IS NULL OR maintenance_type = 'Corrective')
+              AND (
+                    (status = 'Scheduled' AND CURDATE() BETWEEN start_date AND end_date)
+                 OR (status = 'In Progress' AND start_date > CURDATE())
+              )
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        if ($due === []) {
             return;
         }
 
-        $pdo->exec("
+        $update = $pdo->prepare("
             UPDATE maintenance_schedules
-            SET
-                status = 'In Progress',
-                updated_at = NOW()
-            WHERE status = 'Scheduled'
-              AND (maintenance_type IS NULL OR maintenance_type='Corrective')
-              AND CURDATE() BETWEEN start_date AND end_date
+            SET status = :next_status, updated_at = NOW()
+            WHERE maintenance_id = :maintenance_id
+              AND status = :current_status
+              AND (maintenance_type IS NULL OR maintenance_type = 'Corrective')
         ");
+        $resourceIds = [];
 
-        $pdo->exec("
-            UPDATE maintenance_schedules
-            SET
-                status = 'Scheduled',
-                updated_at = NOW()
-            WHERE status = 'In Progress'
-              AND (maintenance_type IS NULL OR maintenance_type='Corrective')
-              AND start_date > CURDATE()
-        ");
+        foreach ($due as $row) {
+            $update->execute([
+                ":next_status" => $row["next_status"],
+                ":maintenance_id" => (int) $row["maintenance_id"],
+                ":current_status" => $row["next_status"] === "In Progress" ? "Scheduled" : "In Progress",
+            ]);
 
-        $resourceIds = $pdo->query("
-            SELECT DISTINCT resource_id
-            FROM maintenance_schedules
-        ")->fetchAll(PDO::FETCH_COLUMN);
+            if ($update->rowCount() === 1) {
+                $resourceIds[(int) $row["resource_id"]] = true;
+            }
+        }
 
-        foreach ($resourceIds as $resourceId) {
-            refreshResourceOperationalStatus($pdo, (int) $resourceId);
+        foreach (array_keys($resourceIds) as $resourceId) {
+            refreshResourceOperationalStatus($pdo, $resourceId);
         }
     }
 }

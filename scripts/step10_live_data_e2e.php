@@ -188,11 +188,11 @@ try {
     // Approved reservation that must block an overlapping window.
     $conflictDate = date("Y-m-d", strtotime("+3 days"));
     $pdo->prepare("
-        INSERT INTO resource_requests (borrower_id, resource_id, quantity, contact_number, date_needed,
+        INSERT INTO resource_requests (borrower_id, contact_number, date_needed,
                                        start_time, end_time, status, approved_by, approved_at, notes)
-        VALUES (:b, :r, 1, '+63 900 000 0000', :d, '13:00:00', '15:00:00', 'Approved', :admin, NOW(), :notes)
+        VALUES (:b, '+63 900 000 0000', :d, '13:00:00', '15:00:00', 'Approved', :admin, NOW(), :notes)
     ")->execute([
-        ":b" => $borrowerB, ":r" => $facilityId, ":d" => $conflictDate,
+        ":b" => $borrowerB, ":d" => $conflictDate,
         ":admin" => $adminId, ":notes" => "Conflict fixture {$marker}",
     ]);
     $conflictRequestId=(int)$pdo->lastInsertId();
@@ -204,11 +204,11 @@ try {
 
     // Borrower A owns this one; Borrower B must never see it.
     $pdo->prepare("
-        INSERT INTO resource_requests (borrower_id, resource_id, quantity, contact_number, date_needed,
+        INSERT INTO resource_requests (borrower_id, contact_number, date_needed,
                                        status, approved_by, approved_at, released_by, released_at, due_date, notes)
-        VALUES (:b, :r, 2, '+63 900 000 0001', :d, 'Released', :approver, NOW(), :releaser, NOW(), :due, :notes)
+        VALUES (:b, '+63 900 000 0001', :d, 'Released', :approver, NOW(), :releaser, NOW(), :due, :notes)
     ")->execute([
-        ":b" => $borrowerA, ":r" => $itemId, ":d" => date("Y-m-d"),
+        ":b" => $borrowerA, ":d" => date("Y-m-d"),
         ":approver" => $adminId, ":releaser" => $adminId,
         ":due" => date("Y-m-d H:i:s", strtotime("+3 days")),
         ":notes" => "Owned request {$marker}",

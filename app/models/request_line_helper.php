@@ -4,14 +4,10 @@ require_once __DIR__."/requester_helper.php";
 /**
  * Phase 3.5A — combined borrowing request lines.
  *
- * resource_requests remains the authoritative request header: one reference
- * number, one borrower, one approval workflow and historical routing records. request_items carries the resources that request covers.
- *
- * resource_requests.resource_id and .quantity survive only as a compatibility
- * mirror of the request's primary line so that display paths and test fixtures
- * that have not yet switched over keep working. The mirror is NOT the complete
- * request and must never be used for availability, conflict decisions, stock
- * deduction, release, return or reporting.
+ * resource_requests is the request header: one reference number, one requester,
+ * one schedule and one approval workflow. request_items is the only store of the
+ * resources and quantities a request covers; the header holds no resource or
+ * quantity column.
  */
 
 require_once __DIR__ . "/request_helper.php";
@@ -179,40 +175,6 @@ if (!function_exists("gsoRequestLineAvailabilityError")) {
     }
 }
 
-if (!function_exists("gsoSyncRequestLegacyMirror")) {
-    /** Keep the temporary header mirror aligned after an authoritative line edit. */
-    function gsoSyncRequestLegacyMirror(PDO $pdo, int $requestId): void
-    {
-        $lines = gsoRequestLines($pdo, $requestId);
-        $candidates = [];
-
-        foreach ($lines as $line) {
-            $candidates[] = [
-                "resource_id" => (int) $line["resource_id"],
-                "line_kind" => (string) $line["line_kind"],
-                "quantity" => (int) $line["requested_quantity"],
-            ];
-        }
-
-        $primary = gsoPrimaryMirrorLine($candidates);
-
-        if ($primary === null) {
-            throw new DomainException("This request has no resource lines.");
-        }
-
-        $stmt = $pdo->prepare("
-            UPDATE resource_requests
-            SET resource_id = :resource_id, quantity = :quantity
-            WHERE request_id = :request_id
-        ");
-        $stmt->execute([
-            ":resource_id" => (int) $primary["resource_id"],
-            ":quantity" => (int) $primary["quantity"],
-            ":request_id" => $requestId,
-        ]);
-    }
-}
-
 if (!function_exists("gsoNormalizeRequestedLines")) {
     /**
      * Validate and normalize submitted lines into insertable rows.
@@ -294,32 +256,6 @@ if (!function_exists("gsoNormalizeRequestedLines")) {
         }
 
         return ["lines" => $lines, "errors" => $errors];
-    }
-}
-
-if (!function_exists("gsoPrimaryMirrorLine")) {
-    /**
-     * Pick the line mirrored into the legacy resource_requests columns.
-     *
-     * The facility wins when present, otherwise the largest equipment line.
-     * This exists purely so paths that have not yet migrated keep rendering
-     * something truthful; it is never the complete request.
-     */
-    function gsoPrimaryMirrorLine(array $lines): ?array
-    {
-        $primary = null;
-
-        foreach ($lines as $line) {
-            if ($line["line_kind"] === "Facility") {
-                return $line;
-            }
-
-            if ($primary === null || $line["quantity"] > $primary["quantity"]) {
-                $primary = $line;
-            }
-        }
-
-        return $primary;
     }
 }
 

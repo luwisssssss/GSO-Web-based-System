@@ -451,7 +451,7 @@ The GSO Borrowing and Inventory Management System follows a three-tier web archi
 
 **Helper Functions**: Modular PHP files in the `/includes` directory provide reusable functionality:
 - `db.php` - Database connection configuration
-- `schema_helper.php` - Dynamic schema migration
+- `schema_helper.php` - Read-only schema introspection and the request-time schema version check (migrations run only through `scripts/migrate.php`)
 - `auth_check.php` - Authentication verification
 - `admin_check.php` - Admin role verification
 - `borrower_check.php` - Borrower role verification

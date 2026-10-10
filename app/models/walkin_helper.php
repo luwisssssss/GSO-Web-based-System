@@ -22,9 +22,8 @@ function gsoCreateWalkin(PDO $pdo,int $actor,array $data,array $file): int
     try{
         $pdo->beginTransaction();gsoWalkinActor($pdo,$actor);
         foreach($lines as $line){$availability=checkResourceAvailability($pdo,$line['resource'],(int)$line['quantity'],$date,$start?:null,$end?:null,null);if(!($availability['ok']??false))throw new DomainException($line['resource']['resource_name'].': '.($availability['message']??'Unavailable.'));}
-        $mirror=gsoPrimaryMirrorLine($lines);
-        $s=$pdo->prepare("INSERT INTO resource_requests(requester_type,borrower_id,walkin_full_name,walkin_organization,walkin_email,walkin_contact_number,encoded_by,contact_number,resource_id,quantity,date_needed,start_time,end_time,status,notes) VALUES('Walk-in',NULL,?,?,?,?,?,?,?,?,?,?,?,'Pending',?)");
-        $s->execute([$identity['walkin_full_name'],$identity['walkin_organization'],$identity['walkin_email'],$identity['walkin_contact_number'],$actor,$identity['walkin_contact_number'],$mirror['resource_id'],$mirror['quantity'],$date,$start?:null,$end?:null,$notes?:null]);$id=(int)$pdo->lastInsertId();
+        $s=$pdo->prepare("INSERT INTO resource_requests(requester_type,borrower_id,walkin_full_name,walkin_organization,walkin_email,walkin_contact_number,encoded_by,contact_number,date_needed,start_time,end_time,status,notes) VALUES('Walk-in',NULL,?,?,?,?,?,?,?,?,?,'Pending',?)");
+        $s->execute([$identity['walkin_full_name'],$identity['walkin_organization'],$identity['walkin_email'],$identity['walkin_contact_number'],$actor,$identity['walkin_contact_number'],$date,$start?:null,$end?:null,$notes?:null]);$id=(int)$pdo->lastInsertId();
         $s=$pdo->prepare('INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity,facility_slot) VALUES(?,?,?,?,?)');foreach($lines as $line)$s->execute([$id,$line['resource_id'],$line['line_kind'],$line['quantity'],$line['line_kind']==='Facility'?$period:null]);
         if($letter!==null){$stored=gsoStoreRequestLetter($letter);gsoInsertRequestLetter($pdo,$id,$actor,$stored);}
         gsoRescheduleAudit($pdo,$actor,'Walk-in Request Created','Request #'.$id.' encoded on behalf of an external client; '.count($lines).' resource line(s). No account created.');

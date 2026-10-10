@@ -6,7 +6,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 require_once $root . '/config/bootstrap.php';
 $database = (string) gsoEnv('GSO_DB_NAME', '');
-if (!preg_match('/^gso_r(?:1|2a|2b|3|4|5|6|7|8|9)_test_[a-zA-Z0-9_]+$/', $database)) {
+if (!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/', $database)) {
     throw new RuntimeException('R1 fixtures require an explicitly isolated gso_r1_test_* or gso_r2a_test_* or gso_r2b_test_* database.');
 }
 $base = (string) gsoEnv('GSO_R1_BASE_URL', 'http://127.0.0.1:8091/GSO_WebSystem');
@@ -89,7 +89,7 @@ try {
         $id = (int) $pdo->lastInsertId(); $resources[] = $id; return $id;
     };
     $request = function(array $lines) use (&$requests, $users, $pdo): int {
-        r1exec("INSERT INTO resource_requests(borrower_id,resource_id,quantity,date_needed,start_time,end_time,status) VALUES(?,?,?,DATE_ADD(CURDATE(),INTERVAL 8 DAY),'08:00:00','10:00:00','Approved')", [$users['borrower'], $lines[0][0], $lines[0][1]]);
+        r1exec("INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status) VALUES(?,DATE_ADD(CURDATE(),INTERVAL 8 DAY),'08:00:00','10:00:00','Approved')", [$users['borrower']]);
         $id = (int) $pdo->lastInsertId(); $requests[] = $id;
         foreach ($lines as [$resource, $quantity]) r1exec("INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity) SELECT ?,resource_id,CASE WHEN tracking_mode='Facility' THEN 'Facility' WHEN tracking_mode='Consumable' THEN 'Consumable' ELSE 'Equipment' END,? FROM resources WHERE resource_id=?", [$id,$quantity,$resource]);
         return $id;

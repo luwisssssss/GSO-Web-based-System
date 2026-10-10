@@ -1218,41 +1218,6 @@ button:disabled {
     color: #1d4ed8;
 }
 
-/* Adviser endorsement workflow states. */
-.status-badge.selectionrequired,
-.status-badge.revisionrequired {
-    background: #fff4e5;
-    color: #b45309;
-}
-
-.status-badge.pendingadviser {
-    background: #f3e8ff;
-    color: #6b21a8;
-}
-
-.status-badge.endorsed {
-    background: #e7f8ef;
-    color: #12784a;
-}
-
-/* Campus Director approval and facility prioritisation states. */
-.status-badge.pendingdirector,
-.status-badge.pendingcampusdirector {
-    background: #e8eefc;
-    color: #1e3a8a;
-}
-
-.status-badge.approvedbycampusdirector {
-    background: #e7f8ef;
-    color: #12784a;
-}
-
-.status-badge.rejectedbycampusdirector,
-.status-badge.rejectedduetofacilityprioritisation {
-    background: #fdeaea;
-    color: #b91c1c;
-}
-
 .facility-calendar {
     display: flex;
     flex-direction: column;
@@ -4210,4 +4175,56 @@ textarea:focus {
     display: inline-flex;
     gap: 4px;
     align-items: center;
+}
+
+/* Plain stacked forms (walk-in, reschedule and request-letter pages). */
+.stack-form label {
+    display: block;
+    margin: 0 0 12px;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.stack-form label input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.stack-form label select,
+.stack-form label textarea {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 10px 12px;
+    border: 1px solid #d7dfeb;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #0f172a;
+    font: inherit;
+    font-weight: 400;
+}
+
+.stack-form label input[type="file"] {
+    display: block;
+    margin-top: 6px;
+}
+
+.stack-form fieldset {
+    margin: 0 0 14px;
+    padding: 14px;
+    border: 1px solid #d7dfeb;
+    border-radius: 12px;
+}
+
+.stack-form legend {
+    padding: 0 6px;
+    font-weight: 700;
+}
+
+.stack-form button:not(.admin-btn):not(.request-btn) {
+    margin: 4px 6px 4px 0;
+    padding: 9px 14px;
+    border: 1px solid #1d4ed8;
+    border-radius: 10px;
+    background: #1d4ed8;
+    color: #ffffff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
 }

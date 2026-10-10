@@ -55,16 +55,16 @@ C:\xampp\htdocs\
 
 * Open http://localhost/phpmyadmin or use the MySQL command-line client.
 * Create the application database (the example configuration uses `gso_database`).
-* Import `database/schema.sql`. It contains schema only and no users, password hashes, requests, or evidence.
-* Existing installations should apply the reviewed files in `database/migrations/` in filename order, or run `C:\xampp\php\php.exe scripts\migrate.php` with the deployment database account. The Step 8 migrations normalize legacy return statuses, enforce missing actor relationships, and separate release accountability from approval accountability. New installations using the baseline schema already include these changes.
+* New installation: run `C:\xampp\php\php.exe scripts\migrate.php` against the empty database, or import `database/schema.sql` into it. The file is the complete current schema and records its version. It contains no users, password hashes, requests, or evidence, and it fails on purpose if the tables already exist.
+* Existing installation: run `C:\xampp\php\php.exe scripts\migrate.php` with the deployment database account after deploying new code. It applies the ordered files in `database/migrations/` that are newer than the version recorded in `system_settings.schema_version`, and stops without dropping anything if a cleanup migration would destroy data. Do not import `database/schema.sql` into an existing database.
 * Never deploy database backups from `docs/`, an export folder, or another web-accessible location.
-* Run schema migrations with a separate deployment account. Create a dedicated `gso_app` MySQL account for the application, limit it to the required runtime operations on `gso_database`, and set `GSO_RUN_MIGRATIONS=0` after migration. Do not run the web application as MySQL `root`.
+* The web application never alters, backfills, or migrates the schema. Each request only checks that the recorded schema version matches the version the code requires, and answers HTTP 503 until `scripts/migrate.php` has been run. Create a dedicated `gso_app` MySQL account for the application, limit it to the required runtime operations on `gso_database`, and run migrations with a separate deployment account. Do not run the web application as MySQL `root`.
 
 ## Phase 1 roles and permissions
 
-Authorization roles are `Borrower`, `GSO Staff`, `Admin` (the GSO Head), and `Director` (the Campus Director). Borrower classification is stored separately in `users.account_type` as `Student`, `Faculty`, or `University Staff`; legacy Borrowers remain safely unclassified until verified. Apply `database/migrations/20260918_001_expand_roles_and_account_types.sql` once on an existing installation.
+Authorization roles are `Borrower`, `GSO Staff`, `Admin` (the GSO Head), `Director` (the Campus Director), and `Super Admin` (MIS account management only). Borrower classification is stored separately in `users.account_type` as `Student`, `Faculty`, or `University Staff`; legacy Borrowers remain safely unclassified until verified.
 
-Role landing pages are `borrower/browse.php`, `gso_staff/dashboard.php`, `admin/dashboard.php`, and `director/dashboard.php`. Permissions are centralized in `app/models/role_helper.php`. The Director dashboard is intentionally a shell: Adviser endorsement, Director prioritisation/approval, and decision-history workflows are reserved for later phases.
+Role landing pages are `borrower/browse.php`, `gso_staff/dashboard.php`, `admin/dashboard.php`, `admin/accounts_dashboard.php` (MIS), and `director/dashboard.php`. Permissions are centralized in `app/models/role_helper.php`. The Director has a read-only facility schedule and no approval, rejection, or prioritisation action. There is no online Adviser workflow: required signatures are obtained manually on the facility request letter, which GSO verifies.
 
 Run `C:\xampp\php\php.exe scripts\phase1_roles_e2e.php` with local Apache/MySQL to verify role login routing and direct endpoint isolation.
 
@@ -72,7 +72,7 @@ Run `C:\xampp\php\php.exe scripts\phase1_roles_e2e.php` with local Apache/MySQL 
 
 `maintenance_schedules` is the authoritative work-order record. Incident work links through `incident_id`; repair work arising from an inspected return links to the exact `return_submission_items.return_item_id` and, for serialized equipment, its `equipment_units.unit_id`. A planned end date never restores repair inventory: an authorized GSO user must explicitly complete the assigned work order, after which only its recorded aggregate quantity or physical unit is restored once.
 
-Only the Admin/GSO Head may confirm a repair work order from a damaged, needs-repair, or missing-parts return. Lost items cannot enter the repair workflow. `borrower_liabilities` records separate, non-financial GSO findings for damage, loss, or missing parts; it neither presumes borrower fault nor changes stock. Existing installations apply `database/migrations/20260923_001_extend_maintenance_and_accountability.sql`; new installations receive the same structure from `database/schema.sql` and `ensureSystemSchema()`.
+Only the Admin/GSO Head may confirm a repair work order from a damaged, needs-repair, or missing-parts return. Lost items cannot enter the repair workflow. `borrower_liabilities` records separate, non-financial GSO findings for damage, loss, or missing parts; it neither presumes borrower fault nor changes stock.
 
 Equipment-unit mutation requires `inventory.manage_units`. GSO Staff and Admin may register and maintain eligible units, while activation of Serialized tracking remains an exact Admin/GSO Head action. Run `C:\xampp\php\php.exe scripts\phase35c_workorder_accountability_e2e.php` to verify the Phase 3.5C schema, authorization, repair-restoration, idempotency, and accountability controls.
 
@@ -86,7 +86,6 @@ Equipment-unit mutation requires `inventory.manage_units`. GSO Staff and Admin m
 GSO_APP_ENV=production
 GSO_APP_DEBUG=0
 GSO_APP_URL=https://your-gso-host.example/GSO_WebSystem
-GSO_RUN_MIGRATIONS=0
 GSO_SESSION_SECURE=1
 GSO_SESSION_IDLE_TIMEOUT=1800
 GSO_SESSION_ABSOLUTE_TIMEOUT=28800
@@ -135,6 +134,18 @@ There is no background scheduler. The GSO Head generates the due occurrence from
 A Scheduled occurrence reduces availability only for its own dates, unit, or quantity, and does not change current stock. Starting it holds exactly that unit or quantity, and completing it restores exactly what was held. Completion and cancellation are explicit actions. A passed end date never completes maintenance, and `next_due_date` advances only when an occurrence is completed.
 
 Maintenance History (`admin/maintenance_history.php`) lists Completed and Cancelled rows from `maintenance_schedules`. Plan management requires `maintenance.plan.manage` (Admin/GSO Head). GSO Staff may start and complete occurrences assigned to them. Existing installations apply `database/migrations/20261010_006_preventive_maintenance.sql`.
+
+## R10 final cleanup and explicit migrations
+
+Migration `20261010_007_final_cleanup.sql` removes structures retired by earlier revisions: `request_adviser_history`, `request_director_history`, the Adviser and Director routing columns of `resource_requests`, and the legacy header mirror `resource_requests.resource_id` / `quantity`. `request_items` is the only store of a request's resources and quantities. The final schema has 22 tables and 57 foreign keys; `docs/R10_FINAL_SCHEMA_CANDIDATE.md` lists every table.
+
+`scripts/migrate.php` runs a data gate before that migration. It refuses to continue if either history table has rows, if any routing column holds a non-default value, or if a request's header resource and quantity are not reproduced by one of its request lines. The SQL file repeats the essential check so that a manual import also stops.
+
+Schema changes are explicit. `config/db.php` no longer runs any schema initialisation, backfill, or `ALTER TABLE` during a request. The guarded upgrader that used to run on every page load now lives in `app/models/legacy_schema_upgrader.php`, is reachable only from the command line, and runs only for a database with no recorded version. The `GSO_RUN_MIGRATIONS` setting is retired and ignored.
+
+The remaining request-time synchronisation only moves a corrective work order between Scheduled and In Progress when its start date arrives. It never completes or cancels maintenance and never touches preventive occurrences or maintenance history.
+
+The retired Adviser and Director endpoints and helpers are deleted, so those URLs answer 404. The two suites that tested the retired workflows are kept for reference in `scripts/superseded/` and are not part of the active regression.
 
 ## 📁 Project Structure
 

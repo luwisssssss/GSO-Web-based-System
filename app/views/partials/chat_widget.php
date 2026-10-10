@@ -17,6 +17,13 @@ if (empty($_SESSION["user_id"])) {
     return;
 }
 
+require_once dirname(__DIR__, 2) . "/models/role_helper.php";
+
+// The assistant is offered only to roles that are allowed to use it.
+if (!gsoUserHasPermission((string) ($_SESSION["role"] ?? ""), "chatbot.use")) {
+    return;
+}
+
 require_once dirname(__DIR__, 2) . "/models/ai_presentation_helper.php";
 
 if (empty($_SESSION["csrf_token"])) {

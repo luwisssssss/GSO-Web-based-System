@@ -9,7 +9,6 @@ require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/maintenance_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/facility_calendar_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_attachment_helper.php";
-require_once dirname(__DIR__, 3) . "/includes/director_approval_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_line_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/equipment_unit_helper.php";
 
@@ -58,11 +57,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             rr.end_time,
             rr.request_date,
             rr.status,
-            rr.adviser_state,
-            rr.adviser_user_id,
-            rr.director_state,
-            rr.director_required_by,
-            rr.director_required_at,
             rr.due_date,
             rr.return_date,
             rr.notes,
@@ -306,8 +300,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 rr.end_time,
                 rr.request_date,
                 rr.status,
-                rr.adviser_state,
-                rr.director_state,
                 rr.due_date,
                 rr.return_date,
                 rr.notes,
@@ -702,10 +694,6 @@ $listStmt = $pdo->query("
         rr.end_time,
         rr.request_date,
         rr.status,
-        rr.adviser_state,
-        rr.adviser_user_id,
-        rr.director_state,
-        rr.director_required_at,
         rr.reviewed_at,
         rr.approved_at,
         rr.released_at,

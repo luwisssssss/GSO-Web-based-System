@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__).'/config/bootstrap.php';
-if(!preg_match('/^gso_r(?:6|7|8|9)_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R4 requires an isolated test database.');
+if(!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R4 requires an isolated test database.');
 $base=(string)gsoEnv('GSO_R6_BASE_URL','http://127.0.0.1:8098/GSO_WebSystem');if(!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true))throw new RuntimeException('Loopback only.');
 require_once dirname(__DIR__).'/config/db.php';require_once dirname(__DIR__).'/includes/reschedule_helper.php';require_once dirname(__DIR__).'/includes/return_upload_helper.php';require_once __DIR__.'/request_letter_test_helper.php';require_once dirname(__DIR__).'/includes/walkin_helper.php';require_once dirname(__DIR__).'/includes/work_order_helper.php';require_once dirname(__DIR__).'/includes/ai_live_data_helper.php';
 $walkins=[];$checks=0;$users=[];$cookies=[];$csrf=[];$resources=[];$failed=null;
@@ -23,8 +23,7 @@ try{
     $unitIds=[];for($i=0;$i<10;$i++){qExec("INSERT INTO equipment_units(resource_id,asset_tag,status,condition_status,registered_by)VALUES(?,?,'Available','Good',?)",[$serial,$mark.'-unit-'.$i,$users['admin']]);$unitIds[]=(int)$pdo->lastInsertId();}
     $date=fn(int $days)=>date('Y-m-d',strtotime($days.' days'));
     $make=function(string $who,array $lines,int $offset,string $status='Approved',?string $period='AM',string $start='09:00:00',string $end='11:00:00',bool $verified=true)use($pdo,$users,$hall,$otherHall,$paper,$date):int{
-        $mirror=$lines[0][0];foreach($lines as [$id,$qty])if(in_array($id,[$hall,$otherHall],true))$mirror=$id;
-        qExec('INSERT INTO resource_requests(borrower_id,resource_id,quantity,date_needed,start_time,end_time,status,approved_by,approved_at)VALUES(?,?,1,?,?,?,?,?,NOW())',[$users[$who],$mirror,$date($offset),$start,$end,$status,$users['admin']]);$rid=(int)$pdo->lastInsertId();
+        qExec('INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status,approved_by,approved_at)VALUES(?,?,?,?,?,?,NOW())',[$users[$who],$date($offset),$start,$end,$status,$users['admin']]);$rid=(int)$pdo->lastInsertId();
         foreach($lines as [$id,$qty]){$kind=in_array($id,[$hall,$otherHall],true)?'Facility':($id===$paper?'Consumable':'Equipment');qExec('INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity,facility_slot)VALUES(?,?,?,?,?)',[$rid,$id,$kind,$qty,$kind==='Facility'?$period:null]);}
         if($verified)gsoTestVerifiedLetter($pdo,$rid,$users['admin']);return $rid;
     };

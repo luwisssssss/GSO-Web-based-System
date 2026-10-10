@@ -27,11 +27,12 @@ $canReplace=in_array($request['status'],['Pending','Under Review'],true)&&(!$cur
 $pageTitle='Facility Request Letter';$cssFile='../public/assets/css/pages/borrower.css';
 require dirname(__DIR__,3).'/includes/header.php';require dirname(__DIR__,3).'/includes/borrower_sidebar.php';
 ?>
-<div class="main-content"><main class="page-content"><section class="card"><h1>Facility Request Letter</h1>
+<div class="main-content"><?php require_once dirname(__DIR__,3).'/includes/borrower_topbar.php';?><main class="page-content"><section class="card"><h1>Facility Request Letter</h1></section>
+<section class="card">
 <p>Obtain required manual signatures outside the system. GSO verifies the uploaded document for processing; verification does not electronically sign or approve your borrowing request.</p>
 <?php if($message):?><p role="alert"><?php echo htmlspecialchars($message);?></p><?php endif;?>
 <?php if(!empty($_SESSION['flash_message'])):?><p role="status"><?php echo htmlspecialchars((string)$_SESSION['flash_message']);unset($_SESSION['flash_message'],$_SESSION['flash_type']);?></p><?php endif;?>
 <?php require dirname(__DIR__,2).'/views/partials/request_letters.php';?>
-<?php if($canReplace):?><form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']);?>"><label>Signed facility request letter (PDF, JPG, PNG; up to <?php echo htmlspecialchars(gsoFormatBytesLabel(gsoEffectiveUploadLimitBytes(5*1024*1024)));?>)<input type="file" name="request_letter" accept=".pdf,.jpg,.jpeg,.png" required></label><button type="submit" class="request-btn">Upload for verification</button></form><?php endif;?>
+<?php if($canReplace):?><form class="stack-form" method="post" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']);?>"><label>Signed facility request letter (PDF, JPG, PNG; up to <?php echo htmlspecialchars(gsoFormatBytesLabel(gsoEffectiveUploadLimitBytes(5*1024*1024)));?>)<input type="file" name="request_letter" accept=".pdf,.jpg,.jpeg,.png" required></label><button type="submit" class="request-btn">Upload for verification</button></form><?php endif;?>
 <a href="my_requests.php">Back to My Requests</a></section></main></div>
 <?php require dirname(__DIR__,3).'/includes/footer.php';?>

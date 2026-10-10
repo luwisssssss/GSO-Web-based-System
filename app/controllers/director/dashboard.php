@@ -23,6 +23,7 @@ $activePage = "director-dashboard";
 $cssFile = "../public/assets/css/pages/admin.css";
 $showGlobalBackButton = false;
 require_once dirname(__DIR__, 3) . "/includes/header.php";
+require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 ?>
 <div class="main-content"><main class="page-content">
     <section class="card"><h1>Facility Schedules</h1><p>URS Binangonan GSO facility reservations. Schedule viewing is read-only.</p></section>
@@ -46,6 +47,5 @@ require_once dirname(__DIR__, 3) . "/includes/header.php";
         <?php endforeach; ?>
         </tbody></table>
     </div></section>
-    <a class="admin-btn" href="../auth/logout.php">Sign out</a>
 </main></div>
 <?php require_once dirname(__DIR__, 3) . "/includes/footer.php"; ?>

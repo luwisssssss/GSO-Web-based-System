@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__).'/config/bootstrap.php';
-if(!preg_match('/^gso_r[3456789]_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R3 requires an isolated test database.');
+if(!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R3 requires an isolated test database.');
 $base=(string)gsoEnv('GSO_R3_BASE_URL','http://127.0.0.1:8095/GSO_WebSystem');
 if(!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true))throw new RuntimeException('Loopback only.');
 require_once dirname(__DIR__).'/config/db.php';require_once dirname(__DIR__).'/includes/request_line_helper.php';require_once dirname(__DIR__).'/includes/return_upload_helper.php';require_once __DIR__.'/request_letter_test_helper.php';require_once dirname(__DIR__).'/includes/facility_calendar_helper.php';
@@ -78,17 +78,17 @@ try{
     $payload=[];foreach(sRows("SELECT request_item_id FROM request_items WHERE request_id=? AND line_kind<>'Consumable'",[$mixed]) as $row)$payload[$row['request_item_id']]=['condition'=>'Good','returned_quantity'=>1,'lost_quantity'=>0];
     sHttp('a','borrower/return_submit.php?request_id='.$mixed,['csrf_token'=>$csrf['a'],'lines'=>$payload,'proof_photos'=>[new CURLFile($png,'image/png','proof.png')]]);sAssert($status($mixed)==='Return','Facility explicit return did not enter Return');
     $inspection=[];foreach(sRows('SELECT d.return_item_id FROM return_submission_items d JOIN return_submissions r ON r.return_id=d.return_id WHERE r.request_id=?',[$mixed]) as $row)$inspection[$row['return_item_id']]=['condition'=>'Good','remarks'=>'R3 post-use evidence checked'];sHttp('staff','admin/review_return.php?request_id='.$mixed,['csrf_token'=>$csrf['staff'],'action'=>'approve','inspection'=>$inspection]);sAssert($status($mixed)==='Returned','Facility inspection did not enter Returned');
-    $legacyDate=date('Y-m-d',strtotime('+156 days'));sExec("INSERT INTO resource_requests(borrower_id,resource_id,quantity,date_needed,start_time,end_time,status) VALUES(?,?,1,?,'09:15:00','10:45:00','Approved')",[$users['b'],$hall,$legacyDate]);$legacyId=(int)$pdo->lastInsertId();$requests[]=$legacyId;sExec("INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity) VALUES(?,?,'Facility',1)",[$legacyId,$hall]);
+    $legacyDate=date('Y-m-d',strtotime('+156 days'));sExec("INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status) VALUES(?,?,'09:15:00','10:45:00','Approved')",[$users['b'],$legacyDate]);$legacyId=(int)$pdo->lastInsertId();$requests[]=$legacyId;sExec("INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity) VALUES(?,?,'Facility',1)",[$legacyId,$hall]);
     sAssert(sVal('SELECT facility_slot FROM request_items WHERE request_id=?',[$legacyId])===null,'Legacy period fabricated');
     $month=date('Y-m',strtotime($day));$director=sHttp('director','director/dashboard.php?facility_calendar_month='.$month);sAssert(str_contains($director['body'],'AM | 08:00 AM - 09:30 AM')&&str_contains($director['body'],'PM | 01:00 PM - 02:00 PM'),'Director omitted period/exact time');
     sAssert(str_contains($director['body'],'Legacy schedule | 09:15 AM - 10:45 AM'),'Legacy exact times not readable');
-    sAssert(sHttp('director','director/dashboard.php',['action'=>'approve'])['status']===405,'Director schedule gained mutations');sAssert(sHttp('director','director/request.php',['action'=>'approve'])['status']===410,'Director decisions restored');sAssert(sHttp('a','borrower/endorsement_detail.php',['action'=>'endorse'])['status']===410,'Adviser actions restored');
+    sAssert(sHttp('director','director/dashboard.php',['action'=>'approve'])['status']===405,'Director schedule gained mutations');sAssert(sHttp('director','director/request.php',['action'=>'approve'])['status']===404,'Director decisions restored');sAssert(sHttp('a','borrower/endorsement_detail.php',['action'=>'endorse'])['status']===404,'Adviser actions restored');
     foreach(['admin/requests.php','admin/view_request.php?request_id='.$pm,'admin/reports.php'] as $path)sAssert(str_contains(sHttp('admin',$path)['body'],'PM | 01:00 PM - 02:00 PM'),'GSO schedule display lost period '.$path);
     sAssert(str_contains(sHttp('a','borrower/my_requests.php')['body'],'PM | 01:00 PM - 02:00 PM'),'Borrower display lost period');
     $calendar=renderFacilityAvailabilityCalendar($pdo,['month'=>$month,'resource_id'=>$hall]);sAssert(str_contains($calendar,'Reserved intervals; other times may remain available')&&str_contains($calendar,'Pending review (does not reserve)'),'Calendar misrepresented period occupation');
     sAssert(sRows('SELECT * FROM resource_requests WHERE request_id NOT IN ('.implode(',',array_fill(0,count($requests),'?')).') ORDER BY request_id',$requests)===$legacyBefore,'Historical request times changed');
     foreach($historicalItems as $old)sAssert(sRows('SELECT * FROM request_items WHERE request_item_id=?',[$old['request_item_id']])[0]===$old,'Historical line classification changed');
-    sAssert((int)sVal('SELECT COUNT(*) FROM request_adviser_history WHERE request_id IN ('.implode(',',array_fill(0,count($requests),'?')).')',$requests)===0,'Online Adviser history created');
+    sAssert((int)sVal("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN('request_adviser_history','request_director_history')")===0,'Retired Adviser/Director history storage exists');
     echo "PASS: R3 AM/PM classification and exact scheduling E2E ({$checks} checks).\n";
 }catch(Throwable $e){$failed=$e;fwrite(STDERR,'FAIL: '.$e->getMessage()."\n".$e->getTraceAsString()."\n");}
 finally{

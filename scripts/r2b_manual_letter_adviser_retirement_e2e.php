@@ -1,12 +1,11 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__).'/config/bootstrap.php';
-if(!preg_match('/^gso_r(?:2b|3|4|5|6|7|8|9)_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R2B tests require an isolated gso_r2b_test_* database.');
+if(!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R2B tests require an isolated gso_r2b_test_* database.');
 $base=(string)gsoEnv('GSO_R2B_BASE_URL','http://127.0.0.1:8094/GSO_WebSystem');
 if(!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true))throw new RuntimeException('Loopback only.');
 require_once dirname(__DIR__).'/config/db.php';
 require_once __DIR__.'/request_letter_test_helper.php';
-require_once dirname(__DIR__).'/includes/adviser_endorsement_helper.php';
 $checks=0;$users=[];$cookies=[];$csrf=[];$resources=[];$requests=[];$files=[];$failure=null;
 function bAssert(bool $ok,string $message):void{global $checks;$checks++;if(!$ok)throw new RuntimeException($message);}
 function bRows(string $sql,array $args=[]):array{global $pdo;$s=$pdo->prepare($sql);$s->execute($args);return $s->fetchAll(PDO::FETCH_ASSOC);}
@@ -21,7 +20,7 @@ function bHttp(string $who,string $path,?array $data=null):array{
     return ['status'=>$status,'body'=>$body,'headers'=>substr($raw,0,$n)];
 }
 $mark='R2B-'.strtoupper(bin2hex(random_bytes(6)));$password=$mark.'!Secure';
-$adviserBefore=bRows('SELECT * FROM request_adviser_history ORDER BY history_id');$directorBefore=bRows('SELECT * FROM request_director_history ORDER BY director_history_id');
+$retiredTables=fn():int=>(int)bVal("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN('request_adviser_history','request_director_history')");$retiredColumns=fn():int=>(int)bVal("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='resource_requests' AND (column_name LIKE 'adviser%' OR column_name LIKE 'director%' OR column_name IN('resource_id','quantity'))");
 try{
     foreach(['owner'=>['Borrower','Student'],'other'=>['Borrower','University Staff'],'faculty'=>['Borrower','Faculty'],'admin'=>['Admin',null],'staff'=>['GSO Staff',null],'mis'=>['Super Admin',null],'director'=>['Director',null]] as $key=>[$role,$type]){
         $username=strtolower($mark.'_'.$key);bExec("INSERT INTO users(full_name,email,username,password_hash,role,account_type,account_status,email_verified) VALUES(?,?,?,?,?,?,'Approved',1)",[$mark.' '.$key,$username.'@example.invalid',$username,password_hash($password,PASSWORD_DEFAULT),$role,$type]);$users[$key]=(int)$pdo->lastInsertId();$cookies[$key]=tempnam(sys_get_temp_dir(),'r2b_cookie_');
@@ -58,7 +57,7 @@ try{
     bAssert($mixed!==$eq&&(int)bVal('SELECT COUNT(*) FROM request_items WHERE request_id=?',[$mixed])===3,'Mixed request failed');bAssert((int)bVal('SELECT COUNT(*) FROM request_attachments WHERE request_id=?',[$mixed])===1,'Mixed request did not use one request-level letter');
     $first=gsoRequestLetters($pdo,$mixed)[0];$firstPath=gsoRequestLetterPath($first['stored_file_name']);$firstHash=hash_file('sha256',$firstPath);
     bAssert($first['original_file_name']==='signed.png'&&!str_contains($first['stored_file_name'],'signed'),'Unsafe original/generated name handling');
-    foreach($requests as $id){bAssert(bVal('SELECT adviser_state FROM resource_requests WHERE request_id=?',[$id])==='Not Required'&&bVal('SELECT adviser_user_id FROM resource_requests WHERE request_id=?',[$id])===null,'New request assigned an Adviser');bAssert((int)bVal('SELECT COUNT(*) FROM request_adviser_history WHERE request_id=?',[$id])===0,'New Adviser history created');}
+    bAssert($retiredColumns()===0,'Adviser routing columns still exist on requests');bAssert($retiredTables()===0,'Adviser/Director history storage still exists');
     foreach(['owner'=>200,'admin'=>200,'staff'=>200,'other'=>404,'faculty'=>404,'mis'=>404,'director'=>404,'guest'=>302] as $who=>$expected)bAssert(bHttp($who,'borrower/request_document.php?attachment_id='.$first['attachment_id'])['status']===$expected,'Document access violated for '.$who);
     foreach(['../'.$first['attachment_id'],$first['attachment_id'].'/../../x','0','999999999999999999'] as $id)bAssert(bHttp('owner','borrower/request_document.php?attachment_id='.rawurlencode($id))['status']===404,'Document reference tampering accepted');
     $download=bHttp('owner','borrower/request_document.php?attachment_id='.$first['attachment_id']);bAssert(str_contains($download['headers'],'Content-Disposition: attachment')&&str_contains($download['headers'],'no-store'),'Unsafe download headers');
@@ -84,12 +83,12 @@ try{
     $verify('admin',$mixed,(int)$current['attachment_id'],'verify_letter','Manual signatures checked');$verified=gsoRequestLetters($pdo,$mixed)[0];bAssert($verified['verification_status']==='Verified'&&(int)$verified['verified_by']===$users['admin'],'GSO verification failed');bAssert($status($mixed)==='Pending','Letter verification auto-approved borrowing');
     bHttp('owner','borrower/request_letter.php?request_id='.$mixed,['csrf_token'=>$csrf['owner'],'request_letter'=>new CURLFile($png,'image/png','replacement.png')]);bAssert(count(gsoRequestLetters($pdo,$mixed))===2,'Verified letter replaced without rejection');
     $approve('mis',$mixed);$approve('director',$mixed);bAssert($status($mixed)==='Pending','MIS/Director gained operational approval');
-    bExec("UPDATE resource_requests SET adviser_state='Pending Adviser',adviser_user_id=? WHERE request_id=?",[$users['faculty'],$mixed]);
-    bExec("INSERT INTO request_adviser_history(request_id,adviser_user_id,cycle_no,action,remarks,acted_by) VALUES(?,?,1,'Submitted','Historical R2B fixture',?)",[$mixed,$users['faculty'],$users['owner']]);$historical=bRows('SELECT * FROM request_adviser_history ORDER BY history_id');
-    foreach(['adviser_request.php','faculty_search.php','endorsements.php','endorsement_detail.php'] as $path)foreach(['GET','POST'] as $method)bAssert(bHttp('faculty','borrower/'.$path.'?request_id='.$mixed,$method==='POST'?['csrf_token'=>$csrf['faculty'],'action'=>'endorse','request_id'=>$mixed]:null)['status']===410,'Retired Adviser endpoint remains active');
+    $beforeRetired=bRows('SELECT * FROM resource_requests WHERE request_id=?',[$mixed]);
+    foreach(['adviser_request.php','faculty_search.php','endorsements.php','endorsement_detail.php'] as $path)foreach(['GET','POST'] as $method)bAssert(bHttp('faculty','borrower/'.$path.'?request_id='.$mixed,$method==='POST'?['csrf_token'=>$csrf['faculty'],'action'=>'endorse','request_id'=>$mixed]:null)['status']===404,'Retired Adviser endpoint still exists');bAssert(bRows('SELECT * FROM resource_requests WHERE request_id=?',[$mixed])===$beforeRetired,'Retired Adviser endpoint changed a request');
     foreach(['require_adviser','require_director'] as $action)bHttp('admin','admin/requests.php',['csrf_token'=>$csrf['admin'],'request_id'=>$mixed,'action'=>$action]);
-    bAssert(!gsoSendAdviserAssignmentEmail($pdo,$mixed,$users['faculty'],$users['owner']),'Adviser assignment mail remains enabled');bAssert(!gsoAdviserStateBlocksGso(['adviser_state'=>'Revision Required']),'Retired Adviser state still gates GSO');
-    $approve('staff',$mixed);bAssert($status($mixed)==='Approved','Historical Adviser state blocked normal GSO approval');bAssert(bVal('SELECT adviser_state FROM resource_requests WHERE request_id=?',[$mixed])==='Pending Adviser','Historical state silently rewritten');bAssert(bRows('SELECT * FROM request_adviser_history ORDER BY history_id')===$historical,'Historical Adviser decisions changed');
+    foreach(['gsoSendAdviserAssignmentEmail','gsoAdviserStateBlocksGso','gsoFindEligibleFaculty','gsoAdviserHistory'] as $retired)bAssert(!function_exists($retired),'Retired Adviser helper still loaded: '.$retired);
+    foreach(['app/models/adviser_endorsement_helper.php','includes/adviser_endorsement_helper.php','borrower/adviser_request.php','borrower/faculty_search.php','borrower/endorsements.php','borrower/endorsement_detail.php','app/controllers/borrower/endorsements.php'] as $retired)bAssert(!is_file(dirname(__DIR__).'/'.$retired),'Retired Adviser file still present: '.$retired);
+    $approve('staff',$mixed);bAssert($status($mixed)==='Approved','GSO approval did not proceed without an Adviser step');bAssert($retiredTables()===0&&$retiredColumns()===0,'Retired Adviser storage was re-created');
     bHttp('owner','borrower/request_letter.php?request_id='.$mixed,['csrf_token'=>$csrf['owner'],'request_letter'=>new CURLFile($png,'image/png','after-approval.png')]);bAssert(count(gsoRequestLetters($pdo,$mixed))===2,'Approved request accepted replacement');
     bAssert((int)bVal("SELECT COUNT(*) FROM notifications WHERE user_id IN (?,?) AND type LIKE 'adviser%'",[$users['owner'],$users['faculty']])===0,'New Adviser notification created');
     bAssert(bHttp('faculty','borrower/browse.php')['status']===200&&bVal('SELECT account_type FROM users WHERE user_id=?',[$users['faculty']])==='Faculty','Faculty borrower classification changed');
@@ -105,15 +104,14 @@ try{
     bExec("UPDATE users SET account_status='Disabled' WHERE user_id=?",[$users['owner']]);
     bAssert(bHttp('owner','borrower/request_document.php?attachment_id='.$first['attachment_id'])['status']===302,'Disabled owner retained document access');
     bExec("UPDATE users SET account_status='Approved' WHERE user_id=?",[$users['owner']]);
-    bAssert(bRows('SELECT * FROM request_director_history ORDER BY director_history_id')===$directorBefore,'Director history changed');
+    bAssert($retiredTables()===0,'Retired history tables were re-created');
     echo "PASS: R2B manual letter and Adviser retirement E2E ({$checks} checks).\n";
 }catch(Throwable $e){$failure=$e;fwrite(STDERR,'FAIL: '.$e->getMessage()."\n".$e->getTraceAsString()."\n");}
 finally{
     if($pdo->inTransaction())$pdo->rollBack();
     // Sweep only this run's borrower IDs, including requests created before a failed assertion.
-    $ids=array_values($users);if($ids){$marks=implode(',',array_fill(0,count($ids),'?'));$s=$pdo->prepare("SELECT request_id FROM resource_requests WHERE borrower_id IN ($marks)");$s->execute($ids);foreach($s->fetchAll(PDO::FETCH_COLUMN) as $id){gsoTestDeleteLetters($pdo,(int)$id);bExec('DELETE FROM request_adviser_history WHERE request_id=?',[$id]);bExec('DELETE FROM return_submissions WHERE request_id=?',[$id]);bExec('DELETE FROM resource_requests WHERE request_id=?',[$id]);}
+    $ids=array_values($users);if($ids){$marks=implode(',',array_fill(0,count($ids),'?'));$s=$pdo->prepare("SELECT request_id FROM resource_requests WHERE borrower_id IN ($marks)");$s->execute($ids);foreach($s->fetchAll(PDO::FETCH_COLUMN) as $id){gsoTestDeleteLetters($pdo,(int)$id);bExec('DELETE FROM return_submissions WHERE request_id=?',[$id]);bExec('DELETE FROM resource_requests WHERE request_id=?',[$id]);}
         foreach($ids as $id){bExec('DELETE FROM notifications WHERE user_id=?',[$id]);bExec('DELETE FROM activity_logs WHERE user_id=?',[$id]);}bExec("DELETE FROM users WHERE user_id IN ($marks)",$ids);}
     foreach($resources as $id)bExec('DELETE FROM resources WHERE resource_id=?',[$id]);foreach($cookies as $file)@unlink($file);foreach($files as $file)@unlink($file);
-    if(bRows('SELECT * FROM request_adviser_history ORDER BY history_id')!==$adviserBefore)throw new RuntimeException('Historical Adviser fixture cleanup failed');
 }
 exit($failure?1:0);

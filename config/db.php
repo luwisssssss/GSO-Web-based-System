@@ -31,21 +31,29 @@ try {
 require_once __DIR__ . "/../includes/schema_helper.php";
 require_once __DIR__ . "/../includes/maintenance_helper.php";
 
-$runMigrations = gsoEnv("GSO_RUN_MIGRATIONS");
+// Ordinary requests never alter, backfill or migrate the schema. They only
+// confirm that the explicit migration command (scripts/migrate.php) has brought
+// the database to the version this code requires. The migration tool itself
+// connects without this check.
+if (!defined("GSO_SCHEMA_TOOL")) {
+    try {
+        gsoAssertSchemaCurrent($pdo);
 
-try {
-    if ($runMigrations !== "0" && !defined("GSO_CHAT_READ_ONLY")) {
-        ensureSystemSchema($pdo);
+        if (!defined("GSO_CHAT_READ_ONLY")) {
+            syncMaintenanceSchedules($pdo);
+        }
+    } catch (Throwable $e) {
+        error_log("GSO database initialization failed: " . $e->getMessage());
+
+        if (PHP_SAPI !== "cli") {
+            http_response_code(503);
+        }
+
+        if (PHP_SAPI === "cli" || gsoEnvBool("GSO_APP_DEBUG", false)) {
+            die("Database initialization failed: " . $e->getMessage() . PHP_EOL);
+        }
+
+        die("The system is temporarily unavailable while its database is being updated. Please contact the administrator.");
     }
-
-    if (!defined("GSO_CHAT_READ_ONLY")) syncMaintenanceSchedules($pdo);
-} catch (Throwable $e) {
-    error_log("GSO database initialization failed: " . $e->getMessage());
-
-    if (gsoEnvBool("GSO_APP_DEBUG", false)) {
-        die("Database initialization failed: " . $e->getMessage());
-    }
-
-    die("System initialization failed. Please check the database schema and configuration.");
 }
 ?>

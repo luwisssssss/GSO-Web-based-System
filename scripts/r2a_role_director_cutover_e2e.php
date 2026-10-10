@@ -3,7 +3,7 @@ declare(strict_types=1);
 /** R2A regression: isolated database and matching loopback Apache only. */
 $root = dirname(__DIR__);
 require_once $root . '/config/bootstrap.php';
-if (!preg_match('/^gso_r(?:2[ab]|3|4|5|6|7|8|9)_test_[a-zA-Z0-9_]+$/', (string) gsoEnv('GSO_DB_NAME', ''))) {
+if (!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/', (string) gsoEnv('GSO_DB_NAME', ''))) {
     throw new RuntimeException('R2A fixtures require an explicitly isolated gso_r2a_test_* database.');
 }
 $base = (string) gsoEnv('GSO_R2A_BASE_URL', 'http://127.0.0.1:8093/GSO_WebSystem');
@@ -11,7 +11,6 @@ if (!in_array(parse_url($base, PHP_URL_HOST), ['127.0.0.1','localhost','::1'], t
 require_once $root . '/config/db.php';
 require_once $root . '/includes/role_helper.php';
 require_once __DIR__ . '/request_letter_test_helper.php';
-require_once $root . '/includes/director_approval_helper.php';
 require_once $root . '/includes/facility_calendar_helper.php';
 $checks = 0;
 function r2aAssert(bool $ok, string $message): void {
@@ -50,8 +49,7 @@ function r2aLogin(string $who, string $username, string $password): array {
 
 $mark='R2A-'.strtoupper(bin2hex(random_bytes(6)));$password=$mark.'!Secure';
 $users=[];$cookies=[];$csrf=[];$resources=[];$requests=[];$failed=null;
-$historyBefore=r2aRows('SELECT * FROM request_director_history ORDER BY director_history_id');
-$adviserBefore=r2aRows('SELECT * FROM request_adviser_history ORDER BY history_id');
+$retiredTables=fn():int=>(int)r2aValue("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN('request_adviser_history','request_director_history')");$retiredColumns=fn():int=>(int)r2aValue("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='resource_requests' AND (column_name LIKE 'adviser%' OR column_name LIKE 'director%' OR column_name IN('resource_id','quantity'))");
 try {
     r2aAssert(str_contains((string)r2aValue("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='users' AND COLUMN_NAME='role'"),"'Super Admin'"),'Role ENUM missing Super Admin');
     foreach(['admin'=>'Admin','mis'=>'Super Admin','staff'=>'GSO Staff','director'=>'Director','borrower'=>'Borrower'] as $key=>$role){
@@ -67,20 +65,17 @@ try {
         $id=(int)$pdo->lastInsertId();$resources[]=$id;return $id;
     };
     $item=$resource('Private equipment');$facility=$resource('Campus hall','Facility');
-    $makeRequest=function(array $lines,string $state='Not Required')use(&$requests,$users,$pdo):int{
-        r2aExec("INSERT INTO resource_requests(borrower_id,resource_id,quantity,date_needed,start_time,end_time,status,director_state,notes) VALUES(?,?,?,DATE_ADD(CURDATE(),INTERVAL 3 DAY),'08:00:00','10:00:00','Pending',?,'Private borrower purpose')",[$users['borrower'],$lines[0][0],$lines[0][1],$state]);
+    $makeRequest=function(array $lines)use(&$requests,$users,$pdo):int{
+        r2aExec("INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status,notes) VALUES(?,DATE_ADD(CURDATE(),INTERVAL 3 DAY),'08:00:00','10:00:00','Pending','Private borrower purpose')",[$users['borrower']]);
         $id=(int)$pdo->lastInsertId();$requests[]=$id;
         foreach($lines as [$resource,$qty])r2aExec("INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity) SELECT ?,resource_id,CASE WHEN resource_type='Facility' THEN 'Facility' ELSE 'Equipment' END,? FROM resources WHERE resource_id=?",[$id,$qty,$resource]);
         gsoTestVerifiedLetter($pdo,$id,$users['admin']);
         return $id;
     };
     // Facility is deliberately not the legacy mirrored resource.
-    $mixed=$makeRequest([[$item,2],[$facility,1]],'Pending');
-    $equipment=$makeRequest([[$item,1]],'Rejected');
-    r2aExec("UPDATE resource_requests SET director_required_by=?,director_required_at=NOW() WHERE request_id=?",[$users['admin'],$mixed]);
-    r2aExec("INSERT INTO request_director_history(request_id,director_user_id,action,remarks) VALUES(?,?,'Rejected','Historical fixture decision')",[$equipment,$users['director']]);
-    $historical=r2aRows('SELECT * FROM request_director_history ORDER BY director_history_id');
-    $directorFields=r2aRows('SELECT request_id,director_state,director_required_by,director_required_at FROM resource_requests WHERE request_id IN (?,?) ORDER BY request_id',[$mixed,$equipment]);
+    $mixed=$makeRequest([[$item,2],[$facility,1]]);
+    $equipment=$makeRequest([[$item,1]]);
+    $requestSnapshot=r2aRows('SELECT * FROM resource_requests WHERE request_id IN (?,?) ORDER BY request_id',[$mixed,$equipment]);
 
     foreach(['admin/dashboard.php','admin/requests.php','admin/inventory.php','admin/on_loan.php','admin/maintenance.php','admin/reports.php','admin/incidents.php'] as $path)r2aAssert(r2aHttp('admin',$path)['status']===200,'GSO Head lost '.$path);
     foreach(['admin/admin_accounts.php','admin/borrowers_accounts.php','admin/accounts_dashboard.php'] as $path){
@@ -126,48 +121,47 @@ try {
     foreach([$mark.' Private equipment','Private borrower purpose',$mark.' borrower',formatRequestCode($equipment),'name="action"','value="approve"','value="reject"','Prioritize','uploaded_id','accountability'] as $private)r2aAssert(!str_contains($schedule['body'],$private),'Director schedule exposed '.$private);
     r2aAssert(str_contains($schedule['body'],'08:00 AM - 10:00 AM')&&str_contains($schedule['body'],'Pending'),'Director schedule omitted times/status');
     $events=fetchFacilityCalendarEvents($pdo,null,date('Y-m-01',strtotime('+3 days')),date('Y-m-t',strtotime('+3 days')),false,false);
-    r2aAssert(in_array(formatRequestCode($mixed),array_column($events,'request_code'),true)&&!in_array(formatRequestCode($equipment),array_column($events,'request_code'),true),'Schedule depended on legacy resource mirror');
+    r2aAssert(in_array(formatRequestCode($mixed),array_column($events,'request_code'),true)&&!in_array(formatRequestCode($equipment),array_column($events,'request_code'),true),'Schedule did not come from the facility request line');
     foreach(['director','mis','admin'] as $who)foreach(['approve','reject','prioritize','select_winner'] as $action){
         $result=r2aHttp($who,'director/request.php?request_id='.$mixed,['csrf_token'=>$csrf[$who],'request_id'=>$mixed,'action'=>$action,'winner_request_id'=>$mixed]);
-        r2aAssert(in_array($result['status'],[302,403,410],true),'Retired Director POST accepted');
+        r2aAssert($result['status']===404,'Retired Director decision endpoint still exists');
     }
     r2aAssert(r2aHttp('director','director/dashboard.php',['csrf_token'=>$csrf['director'],'action'=>'approve','request_id'=>$mixed])['status']===405,'Schedule accepted mutation');
     r2aAssert(r2aHttp('director','admin/requests.php',['csrf_token'=>$csrf['director'],'action'=>'approve','request_id'=>$mixed])['status']===302,'Director reached GSO approval');
-    r2aAssert(r2aRows('SELECT * FROM request_director_history ORDER BY director_history_id')===$historical,'Historical Director records changed/new decision written');
-    r2aAssert(r2aRows('SELECT request_id,director_state,director_required_by,director_required_at FROM resource_requests WHERE request_id IN (?,?) ORDER BY request_id',[$mixed,$equipment])===$directorFields,'Director fields changed on denied actions');
+    r2aAssert($retiredTables()===0&&$retiredColumns()===0,'Retired Director/Adviser storage still exists');
+    r2aAssert(r2aRows('SELECT * FROM resource_requests WHERE request_id IN (?,?) ORDER BY request_id',[$mixed,$equipment])===$requestSnapshot,'A denied Director action changed a request');
     foreach(['director','mis'] as $who)r2aAssert(r2aHttp($who,'chatbot/history.php',['csrf_token'=>$csrf[$who],'action'=>'list'])['status']===403,'Schedule/account role gained chatbot record access');
-    r2aAssert(!gsoCanRouteRequestToDirector(['status'=>'Pending'])&&!gsoDirectorStateBlocksGso(['director_state'=>'Pending'])&&gsoDirectorGateAllowsRelease(['director_state'=>'Rejected']),'Obsolete helper still gates GSO');
+    foreach(['gsoCanRouteRequestToDirector','gsoDirectorStateBlocksGso','gsoDirectorGateAllowsRelease','gsoSendDirectorAssignmentEmails','gsoNewDirectorDecisionBatch','gsoDirectorHistory'] as $retired)r2aAssert(!function_exists($retired),'Retired Director helper still loaded: '.$retired);
+    foreach(['app/models/director_approval_helper.php','includes/director_approval_helper.php','app/controllers/director/request.php','director/request.php'] as $retired)r2aAssert(!is_file($root.'/'.$retired),'Retired Director file still present: '.$retired);
     $notifications=r2aRows('SELECT * FROM notifications WHERE user_id=? ORDER BY notification_id',[$users['director']]);
-    r2aAssert(!gsoSendDirectorAssignmentEmails($pdo,$mixed,$users['admin'])&&r2aRows('SELECT * FROM notifications WHERE user_id=? ORDER BY notification_id',[$users['director']])===$notifications,'Director approval notifications still sent');
     r2aHttp('admin','admin/requests.php',['csrf_token'=>$csrf['admin'],'request_id'=>$mixed,'action'=>'require_director']);
-    r2aAssert(r2aRows('SELECT request_id,director_state,director_required_by,director_required_at FROM resource_requests WHERE request_id IN (?,?) ORDER BY request_id',[$mixed,$equipment])===$directorFields,'Retired routing changed historical fields');
+    r2aAssert(r2aRows('SELECT * FROM resource_requests WHERE request_id IN (?,?) ORDER BY request_id',[$mixed,$equipment])===$requestSnapshot&&r2aRows('SELECT * FROM notifications WHERE user_id=? ORDER BY notification_id',[$users['director']])===$notifications,'Retired routing action changed a request or notified the Director');
     r2aHttp('admin','admin/requests.php',['csrf_token'=>$csrf['admin'],'request_id'=>$mixed,'action'=>'approve']);
     r2aAssert(r2aValue('SELECT status FROM resource_requests WHERE request_id=?',[$mixed])==='Approved','Historical Pending Director blocked GSO approval');
     r2aHttp('admin','admin/requests.php',['csrf_token'=>$csrf['admin'],'request_id'=>$mixed,'action'=>'release']);
     r2aAssert(r2aValue('SELECT status FROM resource_requests WHERE request_id=?',[$mixed])==='Released','Historical Pending Director blocked release');
     r2aHttp('admin','admin/requests.php',['csrf_token'=>$csrf['admin'],'request_id'=>$equipment,'action'=>'approve']);
     r2aAssert(r2aValue('SELECT status FROM resource_requests WHERE request_id=?',[$equipment])==='Approved','Historical rejected Director state blocked GSO');
-    r2aAssert(r2aRows('SELECT request_id,director_state,director_required_by,director_required_at FROM resource_requests WHERE request_id IN (?,?) ORDER BY request_id',[$mixed,$equipment])===$directorFields,'GSO processing rewrote Director fields');
+    r2aAssert(r2aRows('SELECT * FROM notifications WHERE user_id=? ORDER BY notification_id',[$users['director']])===$notifications,'GSO approval notified the Director');
     $newHall=$resource('New hall','Facility');$newRequest=$makeRequest([[$newHall,1]]);
     r2aHttp('admin','admin/requests.php',['csrf_token'=>$csrf['admin'],'request_id'=>$newRequest,'action'=>'approve']);
-    r2aAssert(r2aValue('SELECT status FROM resource_requests WHERE request_id=?',[$newRequest])==='Approved'&&r2aValue('SELECT director_state FROM resource_requests WHERE request_id=?',[$newRequest])==='Not Required','New facility still requires Director approval');
+    r2aAssert(r2aValue('SELECT status FROM resource_requests WHERE request_id=?',[$newRequest])==='Approved','New facility still requires Director approval');
     // DB role/status revalidation blocks stale MIS and disabled Director sessions.
     r2aExec("UPDATE users SET role='Admin' WHERE user_id=?",[$users['mis']]);
     r2aAssert(r2aHttp('mis','admin/admin_accounts.php')['status']===302,'Stale MIS session retained account authority');
     r2aExec("UPDATE users SET role='Super Admin' WHERE user_id=?",[$users['mis']]);
     r2aExec("UPDATE users SET account_status='Disabled' WHERE user_id=?",[$users['director']]);
     r2aAssert(r2aHttp('director','director/dashboard.php')['status']===302,'Disabled Director retained schedule access');
-    r2aAssert(r2aRows('SELECT * FROM request_adviser_history ORDER BY history_id')===$adviserBefore,'Adviser history changed');
+    r2aAssert($retiredTables()===0,'Retired history tables were re-created');
     echo "PASS: R2A role/Director cutover E2E ({$checks} checks).\n";
 }catch(Throwable $e){$failed=$e;fwrite(STDERR,'FAIL: '.$e->getMessage()."\n".$e->getTraceAsString()."\n");}
 finally{
     if($pdo->inTransaction())$pdo->rollBack();
-    foreach($requests as $id){gsoTestDeleteLetters($pdo,$id);r2aExec('DELETE FROM notifications WHERE link IN (?,?)',['review_return.php?request_id='.$id,'view_request.php?request_id='.$id]);r2aExec('DELETE FROM request_director_history WHERE request_id=?',[$id]);r2aExec('DELETE FROM resource_requests WHERE request_id=? AND borrower_id=?',[$id,$users['borrower']]);}
+    foreach($requests as $id){gsoTestDeleteLetters($pdo,$id);r2aExec('DELETE FROM notifications WHERE link IN (?,?)',['review_return.php?request_id='.$id,'view_request.php?request_id='.$id]);r2aExec('DELETE FROM resource_requests WHERE request_id=? AND borrower_id=?',[$id,$users['borrower']]);}
     foreach($resources as $id)r2aExec('DELETE FROM resources WHERE resource_id=?',[$id]);
     // Delete MIS-created accounts first; actor IDs on other fixture rows remain
     // valid until their dependent records have been removed.
     foreach(array_reverse($users,true) as $id){r2aExec('DELETE FROM notifications WHERE user_id=?',[$id]);r2aExec('DELETE FROM activity_logs WHERE user_id=?',[$id]);r2aExec('DELETE FROM users WHERE user_id=?',[$id]);}
     foreach($cookies as $file)@unlink($file);
-    if(r2aRows('SELECT * FROM request_director_history ORDER BY director_history_id')!==$historyBefore)throw new RuntimeException('Director fixture history cleanup failed');
 }
 exit($failed?1:0);

@@ -28,9 +28,9 @@ try{
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM request_items ri LEFT JOIN resource_requests rr ON rr.request_id=ri.request_id WHERE rr.request_id IS NULL")===0,"Orphan request line found.");
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM resources WHERE (resource_type='Facility')<>(tracking_mode='Facility')")===0,"tracking_mode incoherent with resource_type.");
  $checks+=5;
- // Legacy requests still mirror exactly one line; multi-line requests created
+ // The request header carries no resource or quantity; request_items is the only store. Requests created
  // later in this run are excluded because they legitimately hold more.
- p35a((int)p35v($pdo,"SELECT COUNT(*) FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE (SELECT COUNT(*) FROM request_items x WHERE x.request_id=rr.request_id)=1 AND (ri.resource_id<>rr.resource_id OR ri.requested_quantity<>GREATEST(1,COALESCE(rr.quantity,1)))")===0,"Legacy mirror parity broken.");$checks++;
+ p35a((int)p35v($pdo,"SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='resource_requests' AND (column_name LIKE 'adviser%' OR column_name LIKE 'director%' OR column_name IN('resource_id','quantity'))")===0,"Legacy request header mirror or retired routing columns still exist.");$checks++;
  $stockBefore=(string)p35v($pdo,"SELECT GROUP_CONCAT(CONCAT(resource_id,':',IFNULL(total_stock,'N'),'/',IFNULL(available_stock,'N'),'/',under_repair_stock) ORDER BY resource_id) FROM resources");
  $linesBefore=(int)p35v($pdo,"SELECT COUNT(*) FROM request_items");
  require_once $root."/includes/schema_helper.php";
@@ -87,8 +87,8 @@ try{
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM request_items WHERE request_id=?",[$reqC])===3,"Combined request did not create three lines.");
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM request_items WHERE request_id=? AND line_kind='Facility'",[$reqC])===1,"Combined request lost its facility line.");
  p35a((int)p35v($pdo,"SELECT COUNT(DISTINCT request_id) FROM request_items WHERE request_id=?",[$reqC])===1,"Combined request spans more than one reference.");
- // The legacy mirror must point at the facility and must not be mistaken for the whole request.
- p35a((int)p35v($pdo,"SELECT resource_id FROM resource_requests WHERE request_id=?",[$reqC])===$hallB,"Mirror did not prefer the facility line.");
+ // The facility is a request line like every other resource of the request.
+ p35a((int)p35v($pdo,"SELECT resource_id FROM request_items WHERE request_id=? AND line_kind='Facility'",[$reqC])===$hallB,"Combined request did not store its facility as a request line.");
  $checks+=4;
 
  // ---- D/E. Consumable-bearing shapes ----------------------------------
@@ -142,15 +142,14 @@ try{
  $equipConflicts=array_map(static fn(array $r):int=>(int)$r["request_id"],findScheduleConflicts($pdo,$itemB,"Item",$day,"08:00:00","10:00:00",null,0));
  p35a(in_array($reqA,$equipConflicts,true)&&in_array($reqC,$equipConflicts,true),"Extra equipment lines are invisible to availability.");
  p35a(!in_array($reqB,$equipConflicts,true),"An unrelated request appeared in the equipment conflict set.");
- // Reserved quantity must count every line, not just the mirrored one.
+ // Reserved quantity must count every request line.
  $reserved=calculateReservedItemQuantity($pdo,$itemB,$day,"08:00:00","10:00:00",null,null);
- p35a($reserved>=4,"Reserved quantity ignored non-mirrored lines (got {$reserved}).");
+ p35a($reserved>=4,"Reserved quantity ignored some request lines (got {$reserved}).");
  $checks+=4;
  // An equipment-only request has no facility line, so it never enters
  // facility prioritisation.
- require_once $root."/includes/director_approval_helper.php";
  $rowA=$pdo->query("SELECT * FROM resource_requests WHERE request_id={$reqA}")->fetch(PDO::FETCH_ASSOC);
- p35a(gsoFacilityConflictsForRequest($pdo,$rowA)===[],"Equipment-only request entered facility prioritisation.");
+ p35a(gsoRequestFacilityLine($pdo,(int)$rowA["request_id"])===null,"Equipment-only request gained a facility line.");
  $rowC=$pdo->query("SELECT * FROM resource_requests WHERE request_id={$reqC}")->fetch(PDO::FETCH_ASSOC);
  p35a(gsoRequestFacilityLine($pdo,$reqC)!==null,"Facility line not resolvable for a combined request.");
  $fcfs=findEarlierFirstComeFirstServedRequest($pdo,$rowC,["Pending","Under Review"]);
@@ -159,13 +158,15 @@ try{
  p35a(str_contains((string)$rollup,"{$mark} Hall B")&&str_contains((string)$rollup,"{$mark} Item A")&&str_contains((string)$rollup,"{$mark} Item B"),"Request rollup omitted a secondary resource line.");
  $checks+=4;
 
- // ---- Adviser and Director routing are retired; historical schema stays ---
+ // ---- Adviser and Director routing are retired and their storage is removed ---
+ $statusBeforeAdviser=(string)p35v($pdo,"SELECT status FROM resource_requests WHERE request_id=?",[$reqE]);
  p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqE,"action"=>"require_adviser"]);
- p35a((string)p35v($pdo,"SELECT adviser_state FROM resource_requests WHERE request_id=?",[$reqE])==="Not Required","Retired Adviser routing changed the request.");
+ p35a((string)p35v($pdo,"SELECT status FROM resource_requests WHERE request_id=?",[$reqE])===$statusBeforeAdviser,"Retired Adviser routing changed the request.");
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='request_items' AND COLUMN_NAME LIKE '%adviser%'")===0,"Adviser state leaked onto request lines.");
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='request_items' AND COLUMN_NAME LIKE '%director%'")===0,"Director state leaked onto request lines.");
+ $statusBeforeDirector=(string)p35v($pdo,"SELECT status FROM resource_requests WHERE request_id=?",[$reqC]);
  p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqC,"action"=>"require_director"]);
- p35a((string)p35v($pdo,"SELECT director_state FROM resource_requests WHERE request_id=?",[$reqC])==="Not Required","Retired Director routing changed the request.");
+ p35a((string)p35v($pdo,"SELECT status FROM resource_requests WHERE request_id=?",[$reqC])===$statusBeforeDirector&&(int)p35v($pdo,"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN('request_adviser_history','request_director_history')")===0,"Retired Director routing changed the request or its storage still exists.");
  p35a((int)p35v($pdo,"SELECT COUNT(*) FROM request_items WHERE request_id=?",[$reqC])===3,"Routing changed the request's lines.");
  $checks+=5;
 
@@ -217,7 +218,7 @@ try{
  // One table row per request: the reference cell is what would multiply if
  // request lines were joined instead of summarized.
  p35a(substr_count($mine["body"],"<td>REQ-".str_pad((string)$reqA,3,"0",STR_PAD_LEFT)."</td>")===1,"Borrower list showed a combined request more than once.");
- p35a(str_contains($mine["body"],htmlspecialchars("{$mark} Item B")),"Borrower list hid a non-mirrored resource line.");
+ p35a(str_contains($mine["body"],htmlspecialchars("{$mark} Item B")),"Borrower list hid a resource line.");
  $hist=p35h($base,"borrower/history.php",$cookies["student"]);
  p35a(substr_count($hist["body"],"<td>REQ-".str_pad((string)$reqA,3,"0",STR_PAD_LEFT)."</td>")<=1,"Borrower history duplicated a combined request.");
  $adminList=p35h($base,"admin/requests.php?status=Pending",$cookies["admin"]);
@@ -259,8 +260,6 @@ finally{
   foreach($fixtureRequests as $rid){
    gsoTestDeleteLetters($pdo,(int)$rid);
    $pdo->prepare("DELETE FROM notifications WHERE link LIKE :l")->execute([":l"=>"%request_id={$rid}"]);
-   $pdo->prepare("DELETE FROM request_director_history WHERE request_id=:r")->execute([":r"=>$rid]);
-   $pdo->prepare("DELETE FROM request_adviser_history WHERE request_id=:r")->execute([":r"=>$rid]);
    $pdo->prepare("DELETE FROM return_submissions WHERE request_id=:r")->execute([":r"=>$rid]);
    $pdo->prepare("DELETE FROM request_items WHERE request_id=:r")->execute([":r"=>$rid]);
    $pdo->prepare("DELETE FROM resource_requests WHERE request_id=:r")->execute([":r"=>$rid]);

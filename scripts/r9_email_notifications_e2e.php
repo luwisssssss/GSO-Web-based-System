@@ -2,7 +2,7 @@
 declare(strict_types=1);
 /** R9: real HTTP business transitions, isolated DB and private test mail capture. */
 require_once dirname(__DIR__).'/config/bootstrap.php';
-if (!preg_match('/^gso_r9_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')) || gsoEnv('GSO_MAIL_TEST_TRANSPORT','')!=='outbox') throw new RuntimeException('Isolated R9 database and outbox transport required.');
+if (!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')) || gsoEnv('GSO_MAIL_TEST_TRANSPORT','')!=='outbox') throw new RuntimeException('Isolated R9 database and outbox transport required.');
 $base=(string)gsoEnv('GSO_R9_BASE_URL','http://127.0.0.1:8100/GSO_WebSystem');
 if (!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true)) throw new RuntimeException('Loopback only.');
 require_once dirname(__DIR__).'/config/db.php';
@@ -47,7 +47,7 @@ try {
     $item=$resource('Equipment <script>alert(1)</script>');$hall=$resource('Hall','Facility','Facility',1);$paper=$resource('Paper','Item','Consumable',50);
     $day=fn(int $offset)=>date('Y-m-d',strtotime('+'.$offset.' days'));
     $make=function(int $res,int $offset,string $mode='Registered',?string $email=null,int $qty=2)use($day,$users,$hall,$paper):int{global $pdo,$requests;
-        qExec('INSERT INTO resource_requests(borrower_id,resource_id,quantity,date_needed,start_time,end_time,status,requester_type,encoded_by,walkin_full_name,walkin_email,walkin_contact_number,notes)VALUES(?,?,?,?,?,?,\'Pending\',?,?,?,?,?,?)',[$mode==='Registered'?$users['a']:null,$res,$qty,$day($offset),'09:00:00','11:00:00',$mode,$mode==='Walk-in'?$users['staff']:null,$mode==='Walk-in'?'External <script>private()</script>':null,$mode==='Walk-in'?$email:null,$mode==='Walk-in'?'09123456789':null,'INTERNAL-PRIVATE-NOTE']);
+        qExec('INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status,requester_type,encoded_by,walkin_full_name,walkin_email,walkin_contact_number,notes)VALUES(?,?,?,?,\'Pending\',?,?,?,?,?,?)',[$mode==='Registered'?$users['a']:null,$day($offset),'09:00:00','11:00:00',$mode,$mode==='Walk-in'?$users['staff']:null,$mode==='Walk-in'?'External <script>private()</script>':null,$mode==='Walk-in'?$email:null,$mode==='Walk-in'?'09123456789':null,'INTERNAL-PRIVATE-NOTE']);
         $id=(int)$pdo->lastInsertId();$requests[]=$id;qExec('INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity,facility_slot)VALUES(?,?,?,?,?)',[$id,$res,$res===$hall?'Facility':($res===$paper?'Consumable':'Equipment'),$qty,$res===$hall?'AM':null]);return $id;
     };
     $process=fn(int $id,string $action,array $extra=[],string $who='admin')=>qHttp($who,'admin/requests.php',array_replace(['csrf_token'=>$csrf[$who]??'','request_id'=>$id,'action'=>$action],$extra));

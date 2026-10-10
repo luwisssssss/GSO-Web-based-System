@@ -5,8 +5,6 @@ require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__,3)."/includes/return_detail_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
-require_once dirname(__DIR__, 3) . "/includes/adviser_endorsement_helper.php";
-require_once dirname(__DIR__, 3) . "/includes/director_approval_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_line_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_attachment_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/reschedule_helper.php";
@@ -63,12 +61,6 @@ $stmt = $pdo->prepare("
         rr.approved_by,
         rr.reviewed_by,
         rr.released_by,
-        rr.adviser_state,
-        rr.adviser_user_id,
-        rr.adviser_required_at,
-        rr.director_state,
-        rr.director_required_by,
-        rr.director_required_at,
         rr.approved_at,
         rr.reviewed_at,
         rr.released_at,
@@ -89,10 +81,6 @@ $stmt = $pdo->prepare("
         reviewer.full_name AS reviewed_by_name,
         approver.full_name AS approved_by_name,
         releaser.full_name AS released_by_name,
-        adviser.full_name AS adviser_name,
-        adviser.department AS adviser_department,
-        requirer.full_name AS adviser_required_by_name,
-        director_requirer.full_name AS director_required_by_name,
 
         r.resource_name,
         r.resource_type,
@@ -110,9 +98,6 @@ $stmt = $pdo->prepare("
     LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN users approver ON rr.approved_by = approver.user_id
     LEFT JOIN users releaser ON rr.released_by = releaser.user_id
-    LEFT JOIN users adviser ON rr.adviser_user_id = adviser.user_id
-    LEFT JOIN users requirer ON rr.adviser_required_by = requirer.user_id
-    LEFT JOIN users director_requirer ON rr.director_required_by = director_requirer.user_id
     LEFT JOIN return_submissions rs ON rr.request_id = rs.request_id
     WHERE rr.request_id = :request_id
     LIMIT 1
@@ -358,75 +343,6 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
             </div>
         </div>
 
-        <?php
-        $adviserState = (string) ($request["adviser_state"] ?? "Not Required");
-        $adviserHistory = gsoAdviserHistory($pdo, (int) $request["request_id"]);
-        ?>
-        <?php if ($adviserState !== "Not Required" || $adviserHistory): ?>
-            <div class="card detail-block">
-                <h3 class="section-title">Historical Adviser Workflow</h3>
-                <div class="detail-list">
-                    <div class="detail-row">
-                        <span>Endorsement State</span>
-                        <strong><span class="status-badge <?php echo htmlspecialchars(getStatusCssClass($adviserState)); ?>"><?php echo htmlspecialchars($adviserState); ?></span></strong>
-                    </div>
-
-                    <div class="detail-row">
-                        <span>Assigned Adviser</span>
-                        <strong><?php echo !empty($request["adviser_name"]) ? htmlspecialchars((string) $request["adviser_name"]) : "No historical assignment"; ?></strong>
-                    </div>
-
-                    <div class="detail-row">
-                        <span>Adviser Department</span>
-                        <strong><?php echo !empty($request["adviser_department"]) ? htmlspecialchars((string) $request["adviser_department"]) : "N/A"; ?></strong>
-                    </div>
-
-                    <div class="detail-row">
-                        <span>Required By</span>
-                        <strong><?php echo !empty($request["adviser_required_by_name"]) ? htmlspecialchars((string) $request["adviser_required_by_name"]) : "N/A"; ?></strong>
-                    </div>
-
-                    <div class="detail-row">
-                        <span>Required At</span>
-                        <strong><?php echo !empty($request["adviser_required_at"]) ? htmlspecialchars(formatDateTimeDisplay($request["adviser_required_at"])) : "N/A"; ?></strong>
-                    </div>
-                </div>
-
-                <h4 class="section-title mt-12">Endorsement History</h4>
-                <?php if (!$adviserHistory): ?>
-                    <div class="note-box">No historical endorsement events recorded.</div>
-                <?php else: ?>
-                    <div class="table-wrapper">
-                        <table class="request-table">
-                            <thead>
-                                <tr>
-                                    <th>Cycle</th>
-                                    <th>Event</th>
-                                    <th>Actor</th>
-                                    <th>Recorded</th>
-                                    <th>Remarks</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($adviserHistory as $event): ?>
-                                    <tr>
-                                        <td><?php echo (int) $event["cycle_no"]; ?></td>
-                                        <td><?php echo htmlspecialchars((string) $event["action"]); ?></td>
-                                        <td><?php echo htmlspecialchars((string) $event["actor_name"]); ?></td>
-                                        <td><?php echo htmlspecialchars(formatDateTimeDisplay($event["acted_at"])); ?></td>
-                                        <td><?php echo $event["remarks"] !== null ? nl2br(htmlspecialchars((string) $event["remarks"])) : "&mdash;"; ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php endif; ?>
-                <p class="mini-muted mt-12">
-                    The online Adviser workflow is retired. These historical records do not gate GSO processing.
-                </p>
-            </div>
-        <?php endif; ?>
-
         <?php if(gsoRequestHasFacility($pdo,$requestId)): $letters=gsoRequestLetters($pdo,$requestId);$currentLetter=$letters[0]??null;?>
         <section class="card"><h3>Manually Signed Facility Request Letter</h3>
         <p>Verification confirms the submitted document is acceptable for processing. Manual signatures happen outside the system; request approval is a separate action.</p>
@@ -439,24 +355,6 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
         <?php if(gsoIsWalkin($request)):?><section class="card"><h3>Walk-in / External Client</h3><p>Organization: <?php echo htmlspecialchars((string)$request['walkin_organization']);?></p><p>Encoded by GSO user #<?php echo (int)$request['encoded_by'];?></p><a class="admin-btn" href="walkin_actions.php?request_id=<?php echo $requestId;?>">Manage Client Actions / Letter / Reschedule / Return</a></section><?php endif;?>
         <?php $rescheduleHistory=gsoRescheduleHistory($pdo,$requestId);if($rescheduleHistory):require dirname(__DIR__,2)."/views/partials/reschedule_history.php";?><a class="admin-btn" href="reschedules.php?request_id=<?php echo $requestId;?>">Review Reschedule Proposals</a><?php endif;?>
-        <?php $directorHistory=gsoDirectorHistory($pdo,(int)$request["request_id"]); $directorState=(string)($request["director_state"]??"Not Required"); ?>
-        <?php if($directorState!=="Not Required"||$directorHistory): ?>
-        <div class="card detail-block"><h3 class="section-title">Historical Campus Director Workflow</h3><div class="detail-list">
-            <div class="detail-row"><span>Director State</span><strong><?php echo htmlspecialchars($directorState); ?></strong></div>
-            <div class="detail-row"><span>Required By</span><strong><?php echo htmlspecialchars((string)($request["director_required_by_name"]??"N/A")); ?></strong></div>
-            <div class="detail-row"><span>Required At</span><strong><?php echo !empty($request["director_required_at"])?htmlspecialchars(formatDateTimeDisplay($request["director_required_at"])):"N/A"; ?></strong></div>
-        </div><h4 class="section-title mt-12">Director Decision History</h4>
-        <?php if(!$directorHistory): ?><div class="note-box">No historical decision was recorded. Director approval is no longer required.</div><?php else: ?><div class="table-wrapper"><table class="request-table"><thead><tr><th>Decision</th><th>Director</th><th>Recorded</th><th>Conflict Outcome</th><th>Remarks</th></tr></thead><tbody><?php foreach($directorHistory as $event):?><tr><td><?php echo htmlspecialchars((string)$event["action"]); ?></td><td><?php echo htmlspecialchars((string)$event["director_name"]); ?></td><td><?php echo htmlspecialchars(formatDateTimeDisplay($event["decided_at"])); ?></td><td><?php
-            if (empty($event["winner_request_id"])) {
-                echo "Not a conflict decision";
-            } elseif ((int) $event["winner_request_id"] === (int) $request["request_id"]) {
-                echo "Prioritized over competing requests";
-            } else {
-                echo "Lost prioritisation to " . htmlspecialchars(formatRequestCode((int) $event["winner_request_id"]));
-            }
-        ?></td><td><?php echo nl2br(htmlspecialchars((string)($event["remarks"]??"—"))); ?></td></tr><?php endforeach;?></tbody></table></div><?php endif; ?></div>
-        <?php endif; ?>
-
         <?php $returnHeader=$pdo->prepare('SELECT return_id FROM return_submissions WHERE request_id=?');$returnHeader->execute([$requestId]);$rid=$returnHeader->fetchColumn();if($rid){$returnDetails=gsoReturnDetailRows($pdo,(int)$rid);require dirname(__DIR__,2).'/views/partials/return_outcomes.php';}?>
         <?php $requestLines = gsoRequestLines($pdo, (int) $request["request_id"]); ?>
         <div class="card detail-block">
@@ -491,7 +389,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
             </div>
             <p class="mini-muted mt-12">
                 All lines belong to this one request reference and share a single
-                approval workflow and one request-level facility letter when required. Adviser and Director workflow records are historical.
+                approval workflow and one request-level facility letter when required.
             </p>
         </div>
 

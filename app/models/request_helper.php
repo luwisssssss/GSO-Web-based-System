@@ -338,13 +338,11 @@ if (!function_exists("fetchActiveScheduleRequests")) {
         ?int $excludeRequestId = null,
         ?int $borrowerId = null
     ): array {
-        // Phase 3.5A: request lines are authoritative, so this reads the line
-        // that actually competes for the resource rather than the request
-        // header's legacy mirror. The returned shape is deliberately unchanged
-        // - request_id/quantity/schedule/status - so every consumer above
+        // Request lines are the only store of a request's resources, so this
+        // reads the line that actually competes for the resource. The returned
+        // shape is request_id/quantity/schedule/status for every consumer
         // (findScheduleConflicts, calculateReservedItemQuantity,
-        // checkResourceAvailability, the director conflict service and the
-        // maintenance overlap checks) keeps working without modification.
+        // checkResourceAvailability and the maintenance overlap checks).
         $sql = "
             SELECT
                 rr.request_id,

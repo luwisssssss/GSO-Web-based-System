@@ -169,9 +169,6 @@ $listSql = "
         rr.end_time,
         rr.request_date,
         rr.status,
-        rr.adviser_state,
-        rr.adviser_user_id,
-        rr.director_state,
         rr.reviewed_by,
         rr.reviewed_at,
         rr.due_date,
@@ -184,14 +181,7 @@ $listSql = "
         r.resource_name,
         r.resource_type,
         r.category,
-        reviewer.full_name AS reviewed_by_name,
-        (
-            SELECT h.action
-            FROM request_director_history h
-            WHERE h.request_id = rr.request_id
-            ORDER BY h.decided_at DESC, h.director_history_id DESC
-            LIMIT 1
-        ) AS director_last_action
+        reviewer.full_name AS reviewed_by_name
     " . $baseWhereSql . "
     ORDER BY rr.request_date DESC, rr.request_id DESC
     LIMIT {$perPage} OFFSET {$offset}

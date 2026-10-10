@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__).'/config/bootstrap.php';
-if(!preg_match('/^gso_r(?:5|6|7|8|9)_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R4 requires an isolated test database.');
+if(!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R4 requires an isolated test database.');
 $base=(string)gsoEnv('GSO_R5_BASE_URL','http://127.0.0.1:8097/GSO_WebSystem');if(!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true))throw new RuntimeException('Loopback only.');
 require_once dirname(__DIR__).'/config/db.php';require_once dirname(__DIR__).'/includes/reschedule_helper.php';require_once dirname(__DIR__).'/includes/return_upload_helper.php';require_once __DIR__.'/request_letter_test_helper.php';require_once dirname(__DIR__).'/includes/walkin_helper.php';require_once dirname(__DIR__).'/includes/work_order_helper.php';
 $walkins=[];$checks=0;$users=[];$cookies=[];$csrf=[];$resources=[];$failed=null;
@@ -23,8 +23,7 @@ try{
     $unitIds=[];for($i=0;$i<2;$i++){qExec("INSERT INTO equipment_units(resource_id,asset_tag,status,condition_status,registered_by)VALUES(?,?,'Available','Good',?)",[$serial,$mark.'-unit-'.$i,$users['admin']]);$unitIds[]=(int)$pdo->lastInsertId();}
     $date=fn(int $days)=>date('Y-m-d',strtotime($days.' days'));
     $make=function(string $who,array $lines,int $offset,string $status='Approved',?string $period='AM',string $start='09:00:00',string $end='11:00:00',bool $verified=true)use($pdo,$users,$hall,$otherHall,$paper,$date):int{
-        $mirror=$lines[0][0];foreach($lines as [$id,$qty])if(in_array($id,[$hall,$otherHall],true))$mirror=$id;
-        qExec('INSERT INTO resource_requests(borrower_id,resource_id,quantity,date_needed,start_time,end_time,status,approved_by,approved_at)VALUES(?,?,1,?,?,?,?,?,NOW())',[$users[$who],$mirror,$date($offset),$start,$end,$status,$users['admin']]);$rid=(int)$pdo->lastInsertId();
+        qExec('INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status,approved_by,approved_at)VALUES(?,?,?,?,?,?,NOW())',[$users[$who],$date($offset),$start,$end,$status,$users['admin']]);$rid=(int)$pdo->lastInsertId();
         foreach($lines as [$id,$qty]){$kind=in_array($id,[$hall,$otherHall],true)?'Facility':($id===$paper?'Consumable':'Equipment');qExec('INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity,facility_slot)VALUES(?,?,?,?,?)',[$rid,$id,$kind,$qty,$kind==='Facility'?$period:null]);}
         if($verified)gsoTestVerifiedLetter($pdo,$rid,$users['admin']);return $rid;
     };
@@ -92,7 +91,7 @@ try{
     $inspection=[];foreach(qRows('SELECT * FROM return_submission_items WHERE return_id=?',[$rs['return_id']]) as $detail)$inspection[$detail['return_item_id']]=['condition'=>$detail['reported_condition'],'remarks'=>'GSO physically inspected walk-in return'];qHttp('admin','admin/review_return.php?request_id='.$mixed,['csrf_token'=>$csrf['admin'],'action'=>'approve','inspection'=>$inspection]);qAssert($state($mixed)==='Returned','Walk-in inspection failed');qAssert((int)qVal('SELECT admin_id FROM return_submissions WHERE request_id=?',[$mixed])===$users['admin'],'Inspector actor missing');
     $lost=(int)qVal("SELECT return_item_id FROM return_submission_items WHERE return_id=? AND inspection_condition='Lost'",[$rs['return_id']]);$damage=(int)qVal("SELECT return_item_id FROM return_submission_items WHERE return_id=? AND inspection_condition='Damaged'",[$rs['return_id']]);$account=gsoRecordBorrowerAccountability($pdo,$lost,$users['admin'],'Confirmed','External client non-financial review');qAssert($account['ok'],'Accountless liability failed');qAssert(qVal('SELECT borrower_id FROM borrower_liabilities WHERE return_item_id=?',[$lost])===null&&(int)qVal('SELECT request_id FROM borrower_liabilities WHERE return_item_id=?',[$lost])===$mixed,'Liability missing transaction identity');qAssert(!gsoCreateReturnRepairWorkOrder($pdo,$lost,$users['admin'],$users['staff'],1)['ok'],'Lost created repair work order');qAssert(gsoCreateReturnRepairWorkOrder($pdo,$damage,$users['admin'],$users['staff'],1)['ok'],'Damaged walk-in repair failed');
     qAssert(str_contains(qHttp('admin','admin/maintenance.php')['body'],$client['walkin_full_name']),'Maintenance candidates omitted walk-in');qAssert((int)qVal('SELECT COUNT(*) FROM notifications WHERE user_id IS NULL OR user_id=0')===0,'Fake in-app recipient');
-    qAssert(qHttp('a','borrower/endorsement_detail.php',['action'=>'endorse'])['status']===410&&qHttp('director','director/request.php',['action'=>'approve'])['status']===410,'Retired workflows restored');
+    qAssert(qHttp('a','borrower/endorsement_detail.php',['action'=>'endorse'])['status']===404&&qHttp('director','director/request.php',['action'=>'approve'])['status']===404,'Retired workflows restored');
     qAssert(qRows('SELECT * FROM resource_requests WHERE borrower_id NOT IN ('.implode(',',array_fill(0,count($users),'?')).') ORDER BY request_id',array_values($users))===$legacyBefore,'Historical schedules or identities changed');
     echo "PASS: R5 GSO walk-in integration E2E ({$checks} checks).\n";
 }catch(Throwable $e){$failed=$e;fwrite(STDERR,'FAIL: '.$e->getMessage()."\n".$e->getTraceAsString()."\n");}

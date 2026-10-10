@@ -207,8 +207,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 INSERT INTO resource_requests
                 (
                     borrower_id,
-                    resource_id,
-                    quantity,
                     contact_number,
                     date_needed,
                     start_time,
@@ -224,8 +222,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 VALUES
                 (
                     :borrower_id,
-                    :resource_id,
-                    :quantity,
                     :contact_number,
                     :date_needed,
                     :start_time,
@@ -240,20 +236,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 )
             ");
 
-            // Legacy compatibility mirror only: the primary line is written to
-            // resource_requests.resource_id/quantity so paths that have not yet
-            // migrated still render something truthful. It is NOT the complete
-            // request - request_items is authoritative for every decision.
-            $mirrorLine = gsoPrimaryMirrorLine($requestLines);
-
+            // The request header carries no resource or quantity: request_items
+            // is the only place a request's resources are stored.
             $storedLetter=null;
             try {
             $pdo->beginTransaction();
 
             $success = $insertStmt->execute([
                 ":borrower_id" => $borrowerId,
-                ":resource_id" => (int) ($mirrorLine["resource_id"] ?? $resourceId),
-                ":quantity" => (int) ($mirrorLine["quantity"] ?? $quantity),
                 ":contact_number" => $contactNumber,
                 ":date_needed" => $dateNeeded,
                 ":start_time" => $startTime !== "" ? $startTime : null,

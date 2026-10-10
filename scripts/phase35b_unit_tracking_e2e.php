@@ -95,8 +95,8 @@ try{
  $day=date("Y-m-d",strtotime("+25 days"));
  $newReq=function(int $uid,array $lines,string $date)use($pdo):int{
    $primary=$lines[0];
-   $s=$pdo->prepare("INSERT INTO resource_requests(borrower_id,resource_id,quantity,contact_number,date_needed,start_time,end_time,status,notes)VALUES(:u,:r,:q,'09123456789',:d,'08:00:00','10:00:00','Approved','Phase 3.5B')");
-   $s->execute([":u"=>$uid,":r"=>$primary[0],":q"=>$primary[1],":d"=>$date]);$rid=(int)$pdo->lastInsertId();
+   $s=$pdo->prepare("INSERT INTO resource_requests(borrower_id,contact_number,date_needed,start_time,end_time,status,notes)VALUES(:u,'09123456789',:d,'08:00:00','10:00:00','Approved','Phase 3.5B')");
+   $s->execute([":u"=>$uid,":d"=>$date]);$rid=(int)$pdo->lastInsertId();
    $ls=$pdo->prepare("INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity) SELECT :rid,:res,CASE WHEN r.resource_type='Facility' THEN 'Facility' WHEN r.tracking_mode='Consumable' THEN 'Consumable' ELSE 'Equipment' END,:qty FROM resources r WHERE r.resource_id=:res2");
    foreach($lines as $l)$ls->execute([":rid"=>$rid,":res"=>$l[0],":qty"=>$l[1],":res2"=>$l[0]]);
    return $rid;};
@@ -167,19 +167,17 @@ try{
  p5a((int)p5v($pdo,"SELECT COALESCE(SUM(released_quantity),0) FROM request_items WHERE request_id=?",[$rFail])===0,"Rollback left lines marked released.");
  $checks+=4;
 
- // ---- Historical Adviser/Director states no longer gate GSO release ---
+ // ---- Release needs GSO authority only; no Adviser or Director state exists ---
  $rGate=$newReq($ids["other"],[[$chair,1]],date("Y-m-d",strtotime("+29 days")));
- $pdo->prepare("UPDATE resource_requests SET adviser_state='Pending Adviser' WHERE request_id=?")->execute([$rGate]);
  $release("borrower",$rGate);p5a($status($rGate)==="Approved","Borrower gained release authority.");$checks++;
- $pdo->prepare("UPDATE resource_requests SET director_state='Pending' WHERE request_id=?")->execute([$rGate]);
  $release("director",$rGate);p5a($status($rGate)==="Approved","Director gained release authority.");$checks++;
  foreach(["borrower","other","director"] as $who){$release($who,$rGate);p5a($status($rGate)==="Approved","{$who} released a request.");$checks++;}
  p5h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>"forged","request_id"=>$rGate,"action"=>"release"]);
  p5a($status($rGate)==="Approved","Release CSRF bypassed.");$checks++;
  $release("staff",$rGate);p5a($status($rGate)==="Released","GSO Staff could not release an ordinary request.");$checks++;
- p5a((string)p5v($pdo,"SELECT director_state FROM resource_requests WHERE request_id=?",[$rGate])==="Pending","Release rewrote historical Director state.");$checks++;
+ p5a((int)p5v($pdo,"SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='resource_requests' AND (column_name LIKE 'adviser%' OR column_name LIKE 'director%' OR column_name IN('resource_id','quantity'))")===0,"Retired routing or header mirror columns still exist.");$checks++;
 
- p5a((string)p5v($pdo,"SELECT adviser_state FROM resource_requests WHERE request_id=?",[$rGate])==="Pending Adviser","Release rewrote historical Adviser state.");$checks++;
+ p5a((int)p5v($pdo,"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN('request_adviser_history','request_director_history')")===0,"Retired Adviser/Director history tables still exist.");$checks++;
 
  // ---- Aggregate mixed-condition return ---------------------------------
  $chairLine=$lineId($rMixed,$chair);$hallLine=$lineId($rMixed,$hall);
@@ -280,8 +278,6 @@ finally{
    $pdo->prepare("DELETE FROM return_submission_items WHERE return_id IN (SELECT return_id FROM return_submissions WHERE request_id=:r)")->execute([":r"=>$rid]);
    $pdo->prepare("DELETE FROM return_submissions WHERE request_id=:r")->execute([":r"=>$rid]);
    $pdo->prepare("DELETE FROM request_item_units WHERE request_item_id IN (SELECT request_item_id FROM request_items WHERE request_id=:r)")->execute([":r"=>$rid]);
-   $pdo->prepare("DELETE FROM request_director_history WHERE request_id=:r")->execute([":r"=>$rid]);
-   $pdo->prepare("DELETE FROM request_adviser_history WHERE request_id=:r")->execute([":r"=>$rid]);
    $pdo->prepare("DELETE FROM request_items WHERE request_id=:r")->execute([":r"=>$rid]);
    $pdo->prepare("DELETE FROM resource_requests WHERE request_id=:r")->execute([":r"=>$rid]);
   }
