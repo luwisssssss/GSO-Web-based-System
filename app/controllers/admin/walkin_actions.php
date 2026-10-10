@@ -1,0 +1,22 @@
+<?php
+define('GSO_REQUIRED_PERMISSION','walk_in.create');require_once dirname(__DIR__,3).'/includes/admin_check.php';require_once dirname(__DIR__,3).'/config/db.php';require_once dirname(__DIR__,3).'/includes/walkin_helper.php';
+$id=(int)($_GET['request_id']??0);$s=$pdo->prepare("SELECT * FROM resource_requests WHERE request_id=? AND requester_type='Walk-in' AND borrower_id IS NULL");$s->execute([$id]);$request=$s->fetch(PDO::FETCH_ASSOC);if(!$request){http_response_code(404);exit('Walk-in request not found.');}
+if(empty($_SESSION['csrf_token']))$_SESSION['csrf_token']=bin2hex(random_bytes(32));$error='';
+if(($_SERVER['REQUEST_METHOD']??'GET')==='POST')try{
+    if(!hash_equals((string)$_SESSION['csrf_token'],(string)($_POST['csrf_token']??'')))throw new DomainException('Invalid request token.');$actor=(int)$_SESSION['user_id'];
+    switch($_POST['action']??''){
+    case 'cancel':gsoCancelWalkin($pdo,$actor,$id,(string)($_POST['reason']??''));break;
+    case 'upload_letter':gsoUploadWalkinLetter($pdo,$actor,$id,$_FILES['request_letter']??[]);break;
+    case 'reschedule':gsoCreateReschedule($pdo,$actor,$id,$_POST,true);break;
+    case 'cancel_reschedule':gsoCancelReschedule($pdo,$actor,$id,(int)($_POST['reschedule_id']??0),true);break;
+    default:throw new DomainException('Invalid walk-in action.');}
+    redirectWithFlash('view_request.php?request_id='.$id,'Walk-in client action recorded.','success');
+}catch(Throwable $e){$error=$e instanceof DomainException?$e->getMessage():'The action could not be saved. Refresh and retry.';}
+$pageTitle='Manage Walk-in';$cssFile='../public/assets/css/pages/admin.css';require dirname(__DIR__,3).'/includes/header.php';require dirname(__DIR__,3).'/includes/admin_sidebar.php';$pending=gsoPendingReschedule($pdo,$id);$eligible=gsoRescheduleEligible($pdo,$request);?>
+<div class="main-content"><main class="page-content"><section class="card"><h1>Manage Walk-in <?php echo htmlspecialchars(formatRequestCode($id));?></h1><p><?php echo htmlspecialchars($request['walkin_full_name']);?> ? Walk-in / External Client</p><?php if($error):?><p role="alert"><?php echo htmlspecialchars($error);?></p><?php endif;?>
+<?php $token=htmlspecialchars($_SESSION['csrf_token']);if(in_array($request['status'],['Pending','Under Review'],true)):?>
+<form method="post"><input type="hidden" name="csrf_token" value="<?php echo $token;?>"><label>Client cancellation reason<textarea name="reason" maxlength="1000" required></textarea></label><button name="action" value="cancel">Record Client Cancellation</button></form>
+<?php if(gsoRequestHasFacility($pdo,$id)):?><form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="<?php echo $token;?>"><label>Corrected manually signed letter<input type="file" name="request_letter" accept=".pdf,.png,.jpg,.jpeg" required></label><p>Replacement requires a rejected current letter. Each upload retains the previous version.</p><button name="action" value="upload_letter">Upload Letter for Verification</button></form><?php endif;endif;?>
+<?php if($eligible):?><form method="post"><input type="hidden" name="csrf_token" value="<?php echo $token;?>"><h2>Record Client-requested Reschedule</h2><p>The original reservation remains active until GSO approves this proposal.</p><label>New date<input type="date" name="date_needed" required></label><label>Period<select name="facility_slot" required><option>AM</option><option>PM</option></select></label><label>Exact start<input type="time" name="start_time" required></label><label>Exact end<input type="time" name="end_time" required></label><label>Client reason<textarea name="reason" required maxlength="1000"></textarea></label><label><input type="checkbox" name="request_extended_hours" value="1"> Request GSO extended-hours review</label><button name="action" value="reschedule">Record Pending Proposal</button></form><?php endif;?>
+<?php if($pending):?><form method="post"><input type="hidden" name="csrf_token" value="<?php echo $token;?>"><input type="hidden" name="reschedule_id" value="<?php echo (int)$pending['reschedule_id'];?>"><button name="action" value="cancel_reschedule">Record Cancellation of Pending Proposal</button></form><?php endif;?>
+<?php if($request['status']==='Released'):?><a href="walkin_return.php?request_id=<?php echo $id;?>">Encode Post-use / Equipment Return</a><?php endif;?> <a href="view_request.php?request_id=<?php echo $id;?>">Request Details</a></section></main></div><?php require dirname(__DIR__,3).'/includes/footer.php';?>

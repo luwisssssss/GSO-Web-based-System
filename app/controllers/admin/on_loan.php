@@ -40,16 +40,16 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $reminderStmt = $pdo->prepare("
         SELECT
             rr.request_id,
-            rr.borrower_id,
+            rr.borrower_id, rr.requester_type, rr.walkin_organization, rr.encoded_by,
             rr.contact_number,
             rr.status,
             rr.due_date,
             rr.last_reminded_at,
             rr.reminder_count,
-            borrower.full_name AS borrower_name,
+            " . gsoRequesterSql("full_name","rr","borrower") . " AS borrower_name,
             r.resource_name
         FROM resource_requests rr
-        INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
+        LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id
         INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
         WHERE rr.request_id = :request_id
           AND rr.status = 'Released'
@@ -66,6 +66,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         exit();
     }
 
+    if(gsoIsWalkin($reminderRow)){redirectWithFlash('on_loan.php','Walk-in clients have no in-app mailbox. Contact the client using the recorded contact details.');}
     $dueDate = (string) ($reminderRow["due_date"] ?? "");
     if ($dueDate === "" || strtotime($dueDate) > time()) {
         $_SESSION["flash_message"] = "Reminder is available only for overdue borrowings.";
@@ -138,7 +139,7 @@ if ($loanStateFilter === "On Loan") {
 $sql = "
     SELECT
         rr.request_id,
-        rr.borrower_id,
+        rr.borrower_id, rr.requester_type, rr.walkin_organization, rr.encoded_by,
         r.quantity,
         rr.request_date,
         rr.date_needed,
@@ -155,9 +156,9 @@ $sql = "
         rr.reminder_count,
         rr.notes,
 
-        borrower.full_name AS borrower_name,
-        borrower.email AS borrower_email,
-        borrower.username AS borrower_username,
+        " . gsoRequesterSql("full_name","rr","borrower") . " AS borrower_name,
+        " . gsoRequesterSql("email","rr","borrower") . " AS borrower_email,
+        " . gsoRequesterSql("username","rr","borrower") . " AS borrower_username,
 
         releaser.full_name AS released_by_name,
 
@@ -170,7 +171,7 @@ $sql = "
 
         rs.status AS return_status
     FROM resource_requests rr
-    INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
+    LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id
     INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     LEFT JOIN users releaser ON rr.released_by = releaser.user_id
     LEFT JOIN return_submissions rs ON rs.request_id = rr.request_id
@@ -183,9 +184,9 @@ $params = [];
 if ($search !== "") {
     $sql .= " AND (
         rr.request_id LIKE :search_id
-        OR borrower.full_name LIKE :search_name
-        OR borrower.username LIKE :search_username
-        OR borrower.email LIKE :search_email
+        OR " . gsoRequesterSql("full_name","rr","borrower") . " LIKE :search_name
+        OR " . gsoRequesterSql("username","rr","borrower") . " LIKE :search_username
+        OR " . gsoRequesterSql("email","rr","borrower") . " LIKE :search_email
         OR r.resource_name LIKE :search_resource
         OR r.resource_type LIKE :search_type
         OR r.category LIKE :search_category
@@ -404,6 +405,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                     <span>View details</span>
                                                 </a>
 
+                                                <?php if(gsoIsWalkin($row) && $row['status']==='Released'):?><a class="row-action-item" role="menuitem" href="walkin_return.php?request_id=<?php echo (int)$row['request_id'];?>">Encode Walk-in Return</a><?php endif;?>
                                                 <?php if ($contactNumber !== "" && $phoneHref !== ""): ?>
                                                     <a
                                                         href="<?php echo htmlspecialchars($phoneHref); ?>"

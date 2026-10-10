@@ -282,12 +282,12 @@ if (!function_exists("gsoUnitBorrowingHistory")) {
     function gsoUnitBorrowingHistory(PDO $pdo, int $unitId): array
     {
         $stmt = $pdo->prepare("
-            SELECT ru.*, ri.request_id, rr.borrower_id, b.full_name AS borrower_name,
+            SELECT ru.*, ri.request_id, rr.borrower_id, rr.requester_type, rr.walkin_organization, rr.encoded_by, " . gsoRequesterSql("full_name","rr","b") . " AS borrower_name,
                    a.full_name AS allocated_by_name
             FROM request_item_units ru
             INNER JOIN request_items ri ON ri.request_item_id = ru.request_item_id
             INNER JOIN resource_requests rr ON rr.request_id = ri.request_id
-            INNER JOIN users b ON b.user_id = rr.borrower_id
+            LEFT JOIN users b ON b.user_id = rr.borrower_id
             LEFT JOIN users a ON a.user_id = ru.allocated_by
             WHERE ru.unit_id = :unit_id
             ORDER BY ru.allocated_at DESC, ru.allocation_id DESC

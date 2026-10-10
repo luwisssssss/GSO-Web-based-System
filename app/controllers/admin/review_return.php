@@ -37,16 +37,16 @@ $infoStmt = $pdo->prepare("
         rs.reviewed_at,
 
         rr.request_id,
-        rr.borrower_id,
+        rr.borrower_id, rr.requester_type, rr.walkin_organization, rr.encoded_by,
         r.quantity,
         rr.status AS request_status,
         rr.released_at,
         rr.due_date,
         rr.return_date,
 
-        b.full_name AS borrower_name,
-        b.username AS borrower_username,
-        b.email AS borrower_email,
+        " . gsoRequesterSql("full_name","rr","b") . " AS borrower_name,
+        " . gsoRequesterSql("username","rr","b") . " AS borrower_username,
+        " . gsoRequesterSql("email","rr","b") . " AS borrower_email,
 
         r.resource_name,
         r.resource_type,
@@ -59,7 +59,7 @@ $infoStmt = $pdo->prepare("
         r.condition_notes AS resource_condition_notes
     FROM return_submissions rs
     INNER JOIN resource_requests rr ON rs.request_id = rr.request_id
-    INNER JOIN users b ON rr.borrower_id = b.user_id
+    LEFT JOIN users b ON rr.borrower_id = b.user_id
     INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     WHERE rr.request_id = :request_id
     LIMIT 1
@@ -121,7 +121,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $lockStmt = $pdo->prepare("
             SELECT
                 rr.request_id,
-                rr.borrower_id,
+                rr.borrower_id, rr.requester_type, rr.walkin_organization, rr.encoded_by,
                 rr.status AS request_status,
                 rr.return_date,
                 rs.return_id,

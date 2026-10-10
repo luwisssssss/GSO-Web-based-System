@@ -49,7 +49,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $checkStmt = $pdo->prepare("
         SELECT
             rr.request_id,
-            rr.borrower_id,
+            rr.borrower_id, rr.requester_type, rr.walkin_organization, rr.encoded_by,
             rr.contact_number,
             rr.date_needed,
             rr.start_time,
@@ -66,9 +66,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             rr.return_date,
             rr.notes,
             " . gsoRequestLineSummarySql("rr") . " AS line_summary,
-            borrower.account_type AS borrower_account_type
+            " . gsoRequesterSql("account_type","rr","borrower") . " AS borrower_account_type
         FROM resource_requests rr
-        INNER JOIN users borrower ON borrower.user_id = rr.borrower_id
+        LEFT JOIN users borrower ON borrower.user_id = rr.borrower_id
         WHERE rr.request_id = :request_id
         LIMIT 1
     ");
@@ -307,7 +307,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $lockStmt = $pdo->prepare("
             SELECT
                 rr.request_id,
-                rr.borrower_id,
+                rr.borrower_id, rr.requester_type, rr.walkin_organization, rr.encoded_by,
                 rr.contact_number,
                 rr.date_needed,
                 rr.start_time,
@@ -714,7 +714,7 @@ $perPage = 10;
 $listStmt = $pdo->query("
     SELECT
         rr.request_id,
-        rr.borrower_id,
+        rr.borrower_id, rr.requester_type, rr.walkin_organization, rr.encoded_by,
         rr.contact_number,
         rr.date_needed,
         rr.start_time,
@@ -732,10 +732,10 @@ $listStmt = $pdo->query("
         rr.due_date,
         rr.return_date,
         rr.notes,
-        borrower.full_name AS borrower_name,
-        borrower.email AS borrower_email,
-        borrower.username AS borrower_username,
-        borrower.account_type AS borrower_account_type,
+        " . gsoRequesterSql("full_name","rr","borrower") . " AS borrower_name,
+        " . gsoRequesterSql("email","rr","borrower") . " AS borrower_email,
+        " . gsoRequesterSql("username","rr","borrower") . " AS borrower_username,
+        " . gsoRequesterSql("account_type","rr","borrower") . " AS borrower_account_type,
         reviewer.full_name AS reviewed_by_name,
         (SELECT GROUP_CONCAT(CONCAT(lr.resource_name, CASE WHEN li.line_kind = 'Facility' THEN '' ELSE CONCAT(' x', li.requested_quantity) END) ORDER BY FIELD(li.line_kind,'Facility','Equipment','Consumable'), lr.resource_name SEPARATOR ', ') FROM request_items li INNER JOIN resources lr ON lr.resource_id = li.resource_id WHERE li.request_id = rr.request_id) AS line_summary,
         (SELECT COUNT(*) FROM request_items lc WHERE lc.request_id = rr.request_id) AS line_count,
@@ -744,7 +744,7 @@ $listStmt = $pdo->query("
         rs.inspection_condition,
         rs.status AS return_submission_status
     FROM resource_requests rr
-    INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
+    LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id
     LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN return_submissions rs ON rr.request_id = rs.request_id
     ORDER BY rr.request_date DESC, rr.request_id DESC

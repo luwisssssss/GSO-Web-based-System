@@ -3,7 +3,9 @@
  * File: /borrower/return_submit.php
  */
 
-require_once dirname(__DIR__, 3) . "/includes/borrower_check.php";
+$walkinReturn = defined('GSO_WALKIN_RETURN') && GSO_WALKIN_RETURN === true;
+if ($walkinReturn) { define('GSO_REQUIRED_PERMISSION','walk_in.create'); require_once dirname(__DIR__,3).'/includes/admin_check.php'; }
+else { require_once dirname(__DIR__,3).'/includes/borrower_check.php'; }
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/notification_helper.php";
@@ -18,11 +20,14 @@ if (empty($_SESSION["csrf_token"])) {
 $pageTitle = "Return Submission";
 $activePage = "borrowed";
 
-$borrowerId = (int)($_SESSION["user_id"] ?? 0);
+$submitterId = (int)($_SESSION["user_id"] ?? 0);
+$borrowerId = $walkinReturn ? null : $submitterId;
+$returnHome = $walkinReturn ? 'on_loan.php' : 'my_borrowed.php';
+if($walkinReturn)gsoWalkinActor($pdo,$submitterId);
 $requestId = isset($_GET["request_id"]) ? (int)$_GET["request_id"] : 0;
 
-if ($borrowerId <= 0 || $requestId <= 0) {
-    redirectWithFlash("my_borrowed.php", "Invalid return request.");
+if ($submitterId <= 0 || $requestId <= 0) {
+    redirectWithFlash($returnHome, "Invalid return request.");
 }
 
 $reqStmt = $pdo->prepare("
@@ -43,19 +48,19 @@ $reqStmt = $pdo->prepare("
     FROM resource_requests rr
     INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     WHERE rr.request_id = :request_id
-      AND rr.borrower_id = :borrower_id
+      AND " . ($walkinReturn ? "rr.requester_type='Walk-in' AND rr.borrower_id IS NULL" : "rr.requester_type='Registered' AND rr.borrower_id = :borrower_id") . "
       AND rr.status = 'Released'
       AND rr.return_date IS NULL
     LIMIT 1
 ");
 $reqStmt->execute([
     ":request_id" => $requestId,
-    ":borrower_id" => $borrowerId,
+    ...($walkinReturn ? [] : [":borrower_id" => $borrowerId]),
 ]);
 $requestRow = $reqStmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$requestRow) {
-    redirectWithFlash("my_borrowed.php", "Borrowed request not found or not eligible for return.");
+    redirectWithFlash($returnHome, "Borrowed request not found or not eligible for return.");
 }
 
 // Phase 3.5B: the borrower accounts for every returnable resource of the
@@ -65,7 +70,7 @@ $returnableLines = gsoReturnableLines($pdo, $requestId);
 
 if ($returnableLines === []) {
     redirectWithFlash(
-        "my_borrowed.php",
+        $returnHome,
         "This request contains only issued materials, so there is nothing to return."
     );
 }
@@ -88,7 +93,7 @@ if ($facilityReturnLine !== null) {
 
     if ($facilityRange !== null && strtotime($facilityRange["end"]) > time()) {
         redirectWithFlash(
-            "my_borrowed.php",
+            $returnHome,
             "Facility completion can be submitted after the scheduled end time."
         );
     }
@@ -105,7 +110,7 @@ $existing = $subStmt->fetch(PDO::FETCH_ASSOC);
 
 if (($existing["status"] ?? "") === "Pending") {
     redirectWithFlash(
-        "my_borrowed.php",
+        $returnHome,
         "Your return is already awaiting GSO review.",
         "error"
     );
@@ -164,8 +169,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 // Recheck ownership and eligibility under the request lock.
                 // A concurrent submission must not overwrite pending evidence.
-                $lock = $pdo->prepare("SELECT status, return_date FROM resource_requests WHERE request_id = ? AND borrower_id = ? FOR UPDATE");
-                $lock->execute([$requestId, $borrowerId]);
+                $lock = $pdo->prepare("SELECT status, return_date FROM resource_requests WHERE request_id = ? AND " . ($walkinReturn ? "requester_type='Walk-in' AND borrower_id IS NULL" : "requester_type='Registered' AND borrower_id = ?") . " FOR UPDATE");
+                $lock->execute($walkinReturn?[$requestId]:[$requestId,$borrowerId]);
+                if($walkinReturn)gsoWalkinActor($pdo,$submitterId);
                 $locked = $lock->fetch(PDO::FETCH_ASSOC);
                 if (!$locked || $locked["status"] !== "Released" || $locked["return_date"] !== null) {
                     throw new DomainException("This request is no longer eligible for return submission.");
@@ -184,7 +190,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 // The single submission header is reused. Preserve the previous
                 // rejection remarks in the existing append-only activity log.
                 if ($existing) {
-                    addActivityLog($pdo, $borrowerId, "Rejected Return Resubmitted",
+                    addActivityLog($pdo, $submitterId, "Rejected Return Resubmitted",
                         "Request #{$requestId}; previous rejection: " . mb_substr((string) ($existing["admin_notes"] ?? ""), 0, 170));
                 }
 
@@ -202,11 +208,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             inspection_condition = NULL,
                             inspection_remarks = NULL,
                             reviewed_at = NULL,
+                            submitted_by = :submitted_by,
                             submitted_at = NOW()
                         WHERE return_id = :return_id
                         LIMIT 1
                     ")->execute([
                         ":notes" => ($notes === "" ? null : $notes),
+                        ":submitted_by" => $walkinReturn ? $submitterId : null,
                         ":reported_condition" => $reportedCondition,
                         ":return_id" => $returnId,
                     ]);
@@ -226,14 +234,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 } else {
                     $insStmt = $pdo->prepare("
                         INSERT INTO return_submissions
-                            (request_id, borrower_id, condition_notes, reported_condition, status)
+                            (request_id, borrower_id, submitted_by, condition_notes, reported_condition, status)
                         VALUES
-                            (:request_id, :borrower_id, :notes, :reported_condition, 'Pending')
+                            (:request_id, :borrower_id, :submitted_by, :notes, :reported_condition, 'Pending')
                     ");
                     $insStmt->execute([
                         ":request_id" => $requestId,
                         ":borrower_id" => $borrowerId,
                         ":notes" => ($notes === "" ? null : $notes),
+                        ":submitted_by" => $walkinReturn ? $submitterId : null,
                         ":reported_condition" => $reportedCondition,
                     ]);
                     $returnId = (int)$pdo->lastInsertId();
@@ -281,8 +290,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     ]);
                 }
 
-                $transition = $pdo->prepare("UPDATE resource_requests SET status = 'Return' WHERE request_id = ? AND borrower_id = ? AND status = 'Released' AND return_date IS NULL");
-                $transition->execute([$requestId, $borrowerId]);
+                $transition = $pdo->prepare("UPDATE resource_requests SET status = 'Return' WHERE request_id = ? AND " . ($walkinReturn ? "requester_type='Walk-in' AND borrower_id IS NULL" : "requester_type='Registered' AND borrower_id = ?") . " AND status = 'Released'  AND return_date IS NULL");
+                $transition->execute($walkinReturn?[$requestId]:[$requestId,$borrowerId]);
                 if ($transition->rowCount() !== 1) {
                     throw new DomainException("The request changed. Refresh and try again.");
                 }
@@ -303,16 +312,16 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         (int)$a["user_id"],
                         "RETURN_SUBMITTED",
                         "Return Submitted",
-                        "Borrower submitted return proof for {$borrowNo}.",
+                        ($walkinReturn ? "GSO encoded external client return proof for {$borrowNo}" : "Borrower submitted return proof for {$borrowNo}") . ".",
                         "review_return.php?request_id=" . $requestId
                     );
                 }
 
                 addActivityLog(
                     $pdo,
-                    $borrowerId,
+                    $submitterId,
                     "Return Submitted",
-                    "Borrower submitted return proof for {$borrowNo} with reported condition {$reportedCondition}."
+                    ($walkinReturn ? "GSO encoded external client return proof for {$borrowNo}" : "Borrower submitted return proof for {$borrowNo}") . " with reported condition {$reportedCondition}."
                 );
 
                 $pdo->commit();
@@ -325,7 +334,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 $_SESSION["flash_message"] = "Return submitted successfully. Wait for admin confirmation.";
                 $_SESSION["flash_type"] = "success";
-                header("Location: my_borrowed.php");
+                header("Location: ".$returnHome);
                 exit();
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {
@@ -343,10 +352,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 }
 
 require_once dirname(__DIR__, 3) . "/includes/header.php";
-require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
+require_once dirname(__DIR__,3).($walkinReturn?"/includes/admin_sidebar.php":"/includes/borrower_sidebar.php");
 ?>
 <div class="main-content">
-    <?php require_once dirname(__DIR__, 3) . "/includes/borrower_topbar.php"; ?>
+    <?php if(!$walkinReturn)require_once dirname(__DIR__,3)."/includes/borrower_topbar.php"; ?>
 
     <main class="page-content">
         <div class="card">
@@ -471,7 +480,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
 
                 <div class="action-row mt-16">
                     <button type="submit" class="request-btn">Submit Return</button>
-                    <a href="my_borrowed.php" class="request-btn neutral-action">Back</a>
+                    <a href="<?php echo htmlspecialchars($returnHome);?>" class="request-btn neutral-action">Back</a>
                 </div>
             </form>
         </div>

@@ -25,7 +25,7 @@ function gsoPendingReschedule(PDO $pdo,int $requestId): ?array
 
 function gsoRescheduleHistory(PDO $pdo,int $requestId): array
 {
-    $s=$pdo->prepare('SELECT h.*,u.full_name AS requester_name,v.full_name AS reviewer_name FROM request_reschedule_history h JOIN users u ON u.user_id=h.requested_by LEFT JOIN users v ON v.user_id=h.reviewed_by WHERE h.request_id=? ORDER BY h.created_at DESC,h.reschedule_id DESC');$s->execute([$requestId]);return $s->fetchAll(PDO::FETCH_ASSOC);
+    $s=$pdo->prepare('SELECT h.*,CASE WHEN h.requested_by IS NULL THEN CONCAT(parent.walkin_full_name," (Walk-in)") ELSE u.full_name END AS requester_name,encoder.full_name AS encoder_name,v.full_name AS reviewer_name FROM request_reschedule_history h LEFT JOIN users u ON u.user_id=h.requested_by LEFT JOIN users encoder ON encoder.user_id=h.encoded_by JOIN resource_requests parent ON parent.request_id=h.request_id LEFT JOIN users v ON v.user_id=h.reviewed_by WHERE h.request_id=? ORDER BY h.created_at DESC,h.reschedule_id DESC');$s->execute([$requestId]);return $s->fetchAll(PDO::FETCH_ASSOC);
 }
 
 function gsoRescheduleSchedule(array $row,string $prefix): string
@@ -58,7 +58,7 @@ function gsoRescheduleAudit(PDO $pdo,int $actor,string $action,string $details):
     if(!addActivityLog($pdo,$actor,$action,mb_substr($details,0,255)))throw new RuntimeException('The reschedule audit could not be saved.');
 }
 
-function gsoNotifyRescheduleOperators(PDO $pdo,int $requestId,int $attempt): void
+function gsoNotifyRescheduleOperators(PDO $pdo,int $requestId,int $attempt,bool $walkin=false): void
 {
     $roles=[];foreach(gsoRolePermissions() as $role=>$permissions)if(in_array('request.reschedule.manage',$permissions,true))$roles[]=$role;
     if(!$roles)return;
@@ -66,32 +66,32 @@ function gsoNotifyRescheduleOperators(PDO $pdo,int $requestId,int $attempt): voi
     foreach($s->fetchAll(PDO::FETCH_COLUMN) as $id)createNotification($pdo,(int)$id,'reschedule_pending','Facility Reschedule Requested',formatRequestCode($requestId).' has a new client-requested schedule proposal #'.$attempt.'. The original reservation remains active.','reschedules.php?request_id='.$requestId);
 }
 
-function gsoCreateReschedule(PDO $pdo,int $actor,int $requestId,array $data): array
+function gsoCreateReschedule(PDO $pdo,int $actor,int $requestId,array $data,bool $walkin=false): array
 {
-    gsoRescheduleActor($pdo,$actor,'request.view_own');
+    gsoRescheduleActor($pdo,$actor,$walkin?'walk_in.create':'request.view_own');
     $proposal=gsoValidateRescheduleProposal($pdo,$data,($data['request_extended_hours']??'')==='1');
     $reason=trim((string)($data['reason']??''));if($reason===''||mb_strlen($reason)>1000)throw new DomainException('Provide a client reason of up to 1,000 characters.');
     try{
-        $pdo->beginTransaction();$s=$pdo->prepare('SELECT * FROM resource_requests WHERE request_id=? AND borrower_id=? FOR UPDATE');$s->execute([$requestId,$actor]);$request=$s->fetch(PDO::FETCH_ASSOC);
+        $pdo->beginTransaction();$s=$pdo->prepare($walkin?"SELECT * FROM resource_requests WHERE request_id=? AND requester_type='Walk-in' AND borrower_id IS NULL FOR UPDATE":"SELECT * FROM resource_requests WHERE request_id=? AND borrower_id=? AND requester_type='Registered' FOR UPDATE");$s->execute($walkin?[$requestId]:[$requestId,$actor]);$request=$s->fetch(PDO::FETCH_ASSOC);
         if(!$request||!gsoRescheduleEligible($pdo,$request))throw new DomainException('Only your approved future facility reservation with no pending reschedule is eligible.');
         $facility=gsoRequestFacilityLine($pdo,$requestId);
         if([$request['date_needed'],$request['start_time'],$request['end_time'],$facility['facility_slot']]===array_values($proposal))throw new DomainException('Choose a different proposed schedule.');
         $preview=gsoReschedulePreview($pdo,$request,$proposal);
-        $s=$pdo->prepare('INSERT INTO request_reschedule_history(request_id,requested_by,old_date_needed,old_start_time,old_end_time,old_facility_slot,new_date_needed,new_start_time,new_end_time,new_facility_slot,client_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
-        $s->execute([$requestId,$actor,$request['date_needed'],$request['start_time'],$request['end_time'],$facility['facility_slot'],$proposal['date_needed'],$proposal['start_time'],$proposal['end_time'],$proposal['facility_slot'],$reason]);$id=(int)$pdo->lastInsertId();
+        $s=$pdo->prepare('INSERT INTO request_reschedule_history(request_id,requested_by,encoded_by,old_date_needed,old_start_time,old_end_time,old_facility_slot,new_date_needed,new_start_time,new_end_time,new_facility_slot,client_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
+        $s->execute([$requestId,$walkin?null:$actor,$walkin?$actor:null,$request['date_needed'],$request['start_time'],$request['end_time'],$facility['facility_slot'],$proposal['date_needed'],$proposal['start_time'],$proposal['end_time'],$proposal['facility_slot'],$reason]);$id=(int)$pdo->lastInsertId();
         gsoRescheduleAudit($pdo,$actor,'Facility Reschedule Requested','Request #'.$requestId.'; proposal #'.$id.' submitted. Original confirmed interval preserved.');
-        createNotification($pdo,$actor,'reschedule_submitted','Reschedule Proposal Submitted',formatRequestCode($requestId).' proposal #'.$id.' is pending GSO review. Your original reservation remains active; the proposed time is not reserved.','reschedule.php?request_id='.$requestId);
+        if(!$walkin)createNotification($pdo,$actor,'reschedule_submitted','Reschedule Proposal Submitted',formatRequestCode($requestId).' proposal #'.$id.' is pending GSO review. Your original reservation remains active; the proposed time is not reserved.','reschedule.php?request_id='.$requestId);
         gsoNotifyRescheduleOperators($pdo,$requestId,$id);$pdo->commit();return ['reschedule_id'=>$id,'availability_error'=>$preview];
     }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
 }
 
-function gsoCancelReschedule(PDO $pdo,int $actor,int $requestId,int $attempt): void
+function gsoCancelReschedule(PDO $pdo,int $actor,int $requestId,int $attempt,bool $walkin=false): void
 {
-    gsoRescheduleActor($pdo,$actor,'request.view_own');
+    gsoRescheduleActor($pdo,$actor,$walkin?'walk_in.create':'request.view_own');
     try{
-        $pdo->beginTransaction();$s=$pdo->prepare('SELECT request_id FROM resource_requests WHERE request_id=? AND borrower_id=? FOR UPDATE');$s->execute([$requestId,$actor]);if(!$s->fetchColumn())throw new DomainException('Reservation not found.');
-        $s=$pdo->prepare("UPDATE request_reschedule_history SET status='Cancelled',processed_at=NOW() WHERE reschedule_id=? AND request_id=? AND requested_by=? AND status='Pending'");$s->execute([$attempt,$requestId,$actor]);if($s->rowCount()!==1)throw new DomainException('Only your pending reschedule can be cancelled.');
-        gsoRescheduleAudit($pdo,$actor,'Facility Reschedule Cancelled','Request #'.$requestId.'; proposal #'.$attempt.' cancelled by its requester. Original reservation preserved.');$pdo->commit();
+        $pdo->beginTransaction();$s=$pdo->prepare($walkin?"SELECT request_id FROM resource_requests WHERE request_id=? AND requester_type='Walk-in' AND borrower_id IS NULL FOR UPDATE":"SELECT request_id FROM resource_requests WHERE request_id=? AND borrower_id=? AND requester_type='Registered' FOR UPDATE");$s->execute($walkin?[$requestId]:[$requestId,$actor]);if(!$s->fetchColumn())throw new DomainException('Reservation not found.');
+        $s=$pdo->prepare("UPDATE request_reschedule_history SET status='Cancelled',processed_at=NOW() WHERE reschedule_id=? AND request_id=? AND ".($walkin?"requested_by IS NULL AND encoded_by IS NOT NULL":"requested_by=? AND encoded_by IS NULL")." AND status='Pending'");$s->execute($walkin?[$attempt,$requestId]:[$attempt,$requestId,$actor]);if($s->rowCount()!==1)throw new DomainException('Only your pending reschedule can be cancelled.');
+        gsoRescheduleAudit($pdo,$actor,'Facility Reschedule Cancelled','Request #'.$requestId.'; proposal #'.$attempt.' cancelled on the client request. Original reservation preserved.');$pdo->commit();
     }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
 }
 
@@ -125,7 +125,7 @@ function gsoReviewReschedule(PDO $pdo,int $actor,int $requestId,int $attempt,str
         $status=$decision==='approve'?'Approved':'Rejected';
         $s=$pdo->prepare("UPDATE request_reschedule_history SET status=?,reviewed_by=?,reviewed_at=NOW(),review_remarks=?,processed_at=NOW() WHERE reschedule_id=? AND request_id=? AND status='Pending'");$s->execute([$status,$actor,$remarks!==''?$remarks:null,$attempt,$requestId]);if($s->rowCount()!==1)throw new DomainException('Another action already processed this proposal.');
         gsoRescheduleAudit($pdo,$actor,'Facility Reschedule '.$status,'Request #'.$requestId.'; proposal #'.$attempt.' '.$status.'. '.gsoRescheduleSchedule($row,'old').' -> '.gsoRescheduleSchedule($row,'new'));
-        createNotification($pdo,(int)$request['borrower_id'],'reschedule_'.strtolower($status),'Facility Reschedule '.$status,formatRequestCode($requestId).' proposal #'.$attempt.' was '.strtolower($status).'. '.($status==='Approved'?'The new schedule is now confirmed.':'Your original reservation remains unchanged.'),'reschedule.php?request_id='.$requestId);
+        if(!gsoIsWalkin($request))createNotification($pdo,(int)$request['borrower_id'],'reschedule_'.strtolower($status),'Facility Reschedule '.$status,formatRequestCode($requestId).' proposal #'.$attempt.' was '.strtolower($status).'. '.($status==='Approved'?'The new schedule is now confirmed.':'Your original reservation remains unchanged.'),'reschedule.php?request_id='.$requestId);
         $pdo->commit();
     }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
 }

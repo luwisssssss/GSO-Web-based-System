@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__."/requester_helper.php";
 
 require_once __DIR__ . "/maintenance_helper.php";
 require_once __DIR__ . "/facility_schedule_helper.php";
@@ -775,8 +776,8 @@ if (!function_exists("getEarlierFirstComeFirstServedRequests")) {
                 rr.request_date,
                 rr.status,
                 rr.due_date,
-                borrower.full_name AS borrower_name,
-                borrower.username AS borrower_username,
+                " . gsoRequesterSql("full_name") . " AS borrower_name,
+                " . gsoRequesterSql("username") . " AS borrower_username,
                 r.resource_type
             FROM resource_requests rr
             INNER JOIN request_items ri ON ri.request_id = rr.request_id

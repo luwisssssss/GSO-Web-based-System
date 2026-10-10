@@ -8,6 +8,7 @@ $workspaceLabel = match ($currentRole) { "Super Admin" => "Super Admin / MIS", "
 $links = [
     [getRoleHomePath($currentRole), "Dashboard", "chart-line", ""],
     [$adminBase."requests.php", "Requests", "clipboard-check", "request.view_queue"],
+    [$adminBase."create_walkin.php", "Create Walk-in", "user-plus", "walk_in.create"],
     [$adminBase."reschedules.php", "Reschedule Review", "calendar", "request.reschedule.manage"],
     [$adminBase."on_loan.php", "Release / Return", "box-open", "release.manage"],
     ["incidents.php", "Incident Reports", "triangle-exclamation", "gso.admin_workspace"],

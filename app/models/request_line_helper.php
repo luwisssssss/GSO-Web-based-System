@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__."/requester_helper.php";
 
 /**
  * Phase 3.5A — combined borrowing request lines.

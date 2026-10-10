@@ -4,5 +4,5 @@
 <?php if(!$rescheduleHistory):?><tr><td colspan="6">No reschedule attempts.</td></tr><?php endif;?>
 <?php foreach($rescheduleHistory as $attempt):?><tr><td><?php echo (int)$attempt['reschedule_id'];?><br><?php echo htmlspecialchars($attempt['created_at']);?></td>
 <td><?php echo htmlspecialchars(gsoRescheduleSchedule($attempt,'old'));?></td><td><?php echo htmlspecialchars(gsoRescheduleSchedule($attempt,'new'));?></td>
-<td><?php echo htmlspecialchars($attempt['client_reason']);?></td><td><?php echo htmlspecialchars($attempt['status'].' | '.($attempt['reviewer_name']??''));?></td>
+<td><?php echo htmlspecialchars($attempt['client_reason']);?><?php if(!empty($attempt['encoder_name'])):?><br>Encoded by: <?php echo htmlspecialchars($attempt['encoder_name']);?><?php endif;?></td><td><?php echo htmlspecialchars($attempt['status'].' | '.($attempt['reviewer_name']??''));?></td>
 <td><?php echo htmlspecialchars((string)$attempt['review_remarks'].' | '.(string)$attempt['processed_at']);?></td></tr><?php endforeach;?></tbody></table></div></section>

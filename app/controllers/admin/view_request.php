@@ -49,7 +49,7 @@ if (($_SERVER["REQUEST_METHOD"]??"GET")==="POST") {
 $stmt = $pdo->prepare("
     SELECT
         rr.request_id,
-        rr.borrower_id,
+        rr.borrower_id, rr.requester_type, rr.walkin_organization, rr.encoded_by,
         r.quantity,
         rr.contact_number,
         rr.date_needed,
@@ -76,12 +76,12 @@ $stmt = $pdo->prepare("
         rs.inspection_condition,
         rs.inspection_remarks,
 
-        borrower.full_name AS borrower_name,
-        borrower.email AS borrower_email,
-        borrower.username AS borrower_username,
-        borrower.department AS borrower_department,
-        borrower.university_id AS borrower_university_id,
-        borrower.account_type AS borrower_account_type,
+        " . gsoRequesterSql("full_name","rr","borrower") . " AS borrower_name,
+        " . gsoRequesterSql("email","rr","borrower") . " AS borrower_email,
+        " . gsoRequesterSql("username","rr","borrower") . " AS borrower_username,
+        " . gsoRequesterSql("department","rr","borrower") . " AS borrower_department,
+        " . gsoRequesterSql("university_id","rr","borrower") . " AS borrower_university_id,
+        " . gsoRequesterSql("account_type","rr","borrower") . " AS borrower_account_type,
 
         reviewer.full_name AS reviewed_by_name,
         approver.full_name AS approved_by_name,
@@ -102,7 +102,7 @@ $stmt = $pdo->prepare("
         r.status AS resource_status,
         r.is_archived
     FROM resource_requests rr
-    INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
+    LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id
     INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     LEFT JOIN users reviewer ON rr.reviewed_by = reviewer.user_id
     LEFT JOIN users approver ON rr.approved_by = approver.user_id
@@ -434,6 +434,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
         <button name="action" value="verify_letter" class="admin-btn primary-btn">Mark Document Verified</button><button name="action" value="reject_letter" class="admin-btn">Reject Document (remarks required)</button></form>
         <?php endif;?></section><?php endif;?>
 
+        <?php if(gsoIsWalkin($request)):?><section class="card"><h3>Walk-in / External Client</h3><p>Organization: <?php echo htmlspecialchars((string)$request['walkin_organization']);?></p><p>Encoded by GSO user #<?php echo (int)$request['encoded_by'];?></p><a class="admin-btn" href="walkin_actions.php?request_id=<?php echo $requestId;?>">Manage Client Actions / Letter / Reschedule / Return</a></section><?php endif;?>
         <?php $rescheduleHistory=gsoRescheduleHistory($pdo,$requestId);if($rescheduleHistory):require dirname(__DIR__,2)."/views/partials/reschedule_history.php";?><a class="admin-btn" href="reschedules.php?request_id=<?php echo $requestId;?>">Review Reschedule Proposals</a><?php endif;?>
         <?php $directorHistory=gsoDirectorHistory($pdo,(int)$request["request_id"]); $directorState=(string)($request["director_state"]??"Not Required"); ?>
         <?php if($directorState!=="Not Required"||$directorHistory): ?>

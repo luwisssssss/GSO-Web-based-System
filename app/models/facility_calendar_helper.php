@@ -66,7 +66,7 @@ if (!function_exists("fetchFacilityCalendarEvents")) {
         bool $includeBorrowerName = false,
         bool $includeMaintenanceReason = true
     ): array {
-        $borrowerSelect = $includeBorrowerName ? "borrower.full_name" : "''";
+        $borrowerSelect = $includeBorrowerName ? gsoRequesterSql("full_name") : "''";
         $borrowerJoin = $includeBorrowerName ? "LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id" : "";
         $sql = "
             SELECT

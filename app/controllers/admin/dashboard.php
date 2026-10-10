@@ -153,13 +153,13 @@ $recentRequestsStmt = $pdo->query("
         rr.request_date,
         rr.status,
         rr.due_date,
-        borrower.full_name AS borrower_name,
-        borrower.username AS borrower_username,
+        " . gsoRequesterSql("full_name","rr","borrower") . " AS borrower_name,
+        " . gsoRequesterSql("username","rr","borrower") . " AS borrower_username,
         r.resource_name,
         r.resource_type,
         rs.inspection_condition
     FROM resource_requests rr
-    INNER JOIN users borrower ON rr.borrower_id = borrower.user_id
+    LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id
     INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
     LEFT JOIN return_submissions rs ON rr.request_id = rs.request_id
     WHERE {$activeRequestWhereForAlias}

@@ -991,6 +991,9 @@ if (!function_exists("ensureSystemSchema")) {
                 CONSTRAINT fk_liability_unit FOREIGN KEY(equipment_unit_id) REFERENCES equipment_units(unit_id) ON DELETE RESTRICT,
                 CONSTRAINT fk_liability_reviewer FOREIGN KEY(reviewed_by) REFERENCES users(user_id) ON DELETE RESTRICT
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            if (!columnExists($pdo, "resource_requests", "requester_type")) {
+                $pdo->exec(file_get_contents(dirname(__DIR__,2)."/database/migrations/20261010_005_walkin_requests.sql"));
+            }
         } catch (Throwable $e) {
             $hasRun = false;
             throw new RuntimeException("Schema initialization failed: " . $e->getMessage(), 0, $e);
