@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__,3)."/includes/client_notification_helper.php";
 define("GSO_REQUIRED_PERMISSION", "return.inspect");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
@@ -219,14 +220,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 ":return_id" => (int) $locked["return_id"]
             ]);
 
-            createNotification(
-                $pdo,
-                $borrowerId,
-                "RETURN_APPROVED",
-                "Return Completed",
-                "Your return for {$borrowNo} was approved with condition: {$inspectionCondition}.",
-                "history.php"
-            );
 
             addActivityLog(
                 $pdo,
@@ -257,14 +250,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 ":return_id" => (int) $locked["return_id"]
             ]);
 
-            createNotification(
-                $pdo,
-                $borrowerId,
-                "RETURN_REJECTED",
-                "Return Rejected",
-                "Your return for {$borrowNo} was rejected. Please resubmit your proof.",
-                "return_submit.php?request_id=" . $requestId
-            );
 
             addActivityLog(
                 $pdo,
@@ -287,7 +272,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $_SESSION["flash_type"] = "success";
         }
 
+        $event=gsoPrepareClientEvent($pdo,$requestId,$action==='approve'?'return_accepted':'return_rejected',(string)$locked['return_id'].':'.(string)$pdo->query('SELECT COALESCE(MAX(return_item_id),0) FROM return_submission_items WHERE return_id='.(int)$locked['return_id'])->fetchColumn());
         $pdo->commit();
+        gsoDeliverClientEvent($pdo,$event);
 
         header("Location: on_loan.php");
         exit();

@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__,3)."/includes/client_notification_helper.php";
 /**
  * File: /borrower/return_submit.php
  */
@@ -324,7 +325,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     ($walkinReturn ? "GSO encoded external client return proof for {$borrowNo}" : "Borrower submitted return proof for {$borrowNo}") . " with reported condition {$reportedCondition}."
                 );
 
+                $event=gsoPrepareClientEvent($pdo,$requestId,'return_submitted',(string)$returnId.':'.(string)$pdo->query('SELECT COALESCE(MAX(return_item_id),0) FROM return_submission_items WHERE return_id='.(int)$returnId)->fetchColumn());
                 $pdo->commit();
+                gsoDeliverClientEvent($pdo,$event);
 
                 foreach ($oldPhotos as $p) {
                     if (!empty($p["filename"])) {

@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__,3)."/includes/client_notification_helper.php";
 define("GSO_REQUIRED_PERMISSION", "request.view_queue");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
@@ -140,6 +141,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             redirectRequestsPage();
         }
 
+        $pdo->beginTransaction();
         $updateStmt = $pdo->prepare("
             UPDATE resource_requests
             SET
@@ -166,16 +168,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 "Admin rejected request #{$requestId} for: {$requestSummary}"
             );
 
-            createNotification(
-                $pdo,
-                (int) $requestRow["borrower_id"],
-                "rejected",
-                "Request Rejected",
-                "Your request for {$requestSummary} has been rejected.",
-                "my_requests.php"
-            );
         }
 
+        $event=$success?gsoPrepareClientEvent($pdo,$requestId,'rejected'):null;
+        $pdo->commit();
+        gsoDeliverClientEvent($pdo,$event);
         $_SESSION["flash_message"] = $success ? "Request rejected successfully." : "Failed to reject request.";
         $_SESSION["flash_type"] = $success ? "success" : "error";
         redirectRequestsPage();
@@ -253,20 +250,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 "Admin approved request #{$requestId} for: {$requestSummary}"
             );
 
-            createNotification(
-                $pdo,
-                (int) $requestRow["borrower_id"],
-                "approved",
-                "Request Approved",
-                "Your request for {$requestSummary} has been approved.",
-                "my_requests.php"
-            );
         }
 
         if($success && $facilityLine && $facilityLine["facility_slot"]!==null && gsoFacilityNeedsExtendedHours($pdo,$requestRow["start_time"],$requestRow["end_time"])) {
             if(!addActivityLog($pdo,$adminUserId,"Extended Facility Hours Authorized","Request #{$requestId}; {$dateNeeded}; ".gsoRequestScheduleDisplay($requestRow)."; GSO authorization: ".$extendedHoursRemarks))throw new RuntimeException("Extended-hours authorization audit could not be recorded.");
         }
+        $event=$success?gsoPrepareClientEvent($pdo,$requestId,'approved'):null;
         $pdo->commit();
+        gsoDeliverClientEvent($pdo,$event);
         $_SESSION["flash_message"] = $success ? "Request approved successfully." : "Failed to approve request.";
         $_SESSION["flash_type"] = $success ? "success" : "error";
         redirectRequestsPage();
@@ -642,21 +633,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             "Admin released request #{$requestId} for: " . ($requestRow["line_summary"] ?? "requested resources")
         );
 
-        $releaseMessage = substr(
-            "Your approved request for " . ($requestRow["line_summary"] ?? "requested resources") . " has been released. Due date: " . formatDateTimeDisplay($generatedDueDate) . ".",
-            0,
-            255
-        );
-
-        createNotification(
-            $pdo,
-            (int) $requestRow["borrower_id"],
-            "system",
-            "Request Released",
-            $releaseMessage,
-            "my_borrowed.php"
-        );
-
         $lowStockLines = [];
         $stockStmt = $pdo->prepare("SELECT resource_name, available_stock FROM resources WHERE resource_id = :resource_id");
         foreach ($releaseLines as $releaseLine) {
@@ -692,7 +668,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             }
         }
 
+        $event=gsoPrepareClientEvent($pdo,$requestId,'released');
         $pdo->commit();
+        gsoDeliverClientEvent($pdo,$event);
 
         $_SESSION["flash_message"] = "Request released successfully. Due date generated: " . formatDateTimeDisplay($generatedDueDate) . ".";
         $_SESSION["flash_type"] = "success";

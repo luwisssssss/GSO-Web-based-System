@@ -6,7 +6,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 require_once $root . '/config/bootstrap.php';
 $database = (string) gsoEnv('GSO_DB_NAME', '');
-if (!preg_match('/^gso_r(?:1|2a|2b|3|4|5|6|7|8)_test_[a-zA-Z0-9_]+$/', $database)) {
+if (!preg_match('/^gso_r(?:1|2a|2b|3|4|5|6|7|8|9)_test_[a-zA-Z0-9_]+$/', $database)) {
     throw new RuntimeException('R1 fixtures require an explicitly isolated gso_r1_test_* or gso_r2a_test_* or gso_r2b_test_* database.');
 }
 $base = (string) gsoEnv('GSO_R1_BASE_URL', 'http://127.0.0.1:8091/GSO_WebSystem');

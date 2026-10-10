@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__,3)."/includes/client_notification_helper.php";
 define("GSO_REQUIRED_PERMISSION", "release.manage");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
@@ -66,7 +67,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         exit();
     }
 
-    if(gsoIsWalkin($reminderRow)){redirectWithFlash('on_loan.php','Walk-in clients have no in-app mailbox. Contact the client using the recorded contact details.');}
     $dueDate = (string) ($reminderRow["due_date"] ?? "");
     if ($dueDate === "" || strtotime($dueDate) > time()) {
         $_SESSION["flash_message"] = "Reminder is available only for overdue borrowings.";
@@ -87,18 +87,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $borrowNo = "BRW-" . str_pad((string) $requestId, 3, "0", STR_PAD_LEFT);
     $resourceName = (string) ($reminderRow["resource_name"] ?? "resource");
     $contactNumber = trim((string) ($reminderRow["contact_number"] ?? ""));
-    $link = "my_borrowed.php?loan_state=Overdue&focus_request_id=" . $requestId;
-    $notificationMessage = substr("{$borrowNo} is overdue. Please return {$resourceName} immediately.", 0, 255);
-
-    createNotification(
-        $pdo,
-        (int) $reminderRow["borrower_id"],
-        "OVERDUE_REMINDER",
-        "Return Reminder",
-        $notificationMessage,
-        $link
-    );
-
     $updateReminderStmt = $pdo->prepare("
         UPDATE resource_requests
         SET
@@ -120,11 +108,16 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             . "."
     );
 
+    $event=gsoPrepareClientEvent($pdo,$requestId,'overdue','reminder:'.((int)$reminderRow['reminder_count']+1));
     $pdo->commit();
+    $delivery=gsoDeliverClientEvent($pdo,$event);
 
-    $_SESSION["flash_message"] = $contactNumber !== ""
-        ? "Reminder sent. Borrower contact number: {$contactNumber}."
-        : "Reminder sent. No contact number was recorded for this request.";
+    $reminderResult=!empty($delivery['skipped'])
+        ? 'Reminder recorded. No valid client email was available.'
+        : (!empty($delivery['success']) ? 'Reminder sent.' : 'Reminder recorded, but email delivery could not be confirmed.');
+    $_SESSION["flash_message"] = $reminderResult . ($contactNumber !== ""
+        ? " Client contact number: {$contactNumber}."
+        : " No contact number was recorded for this request.");
     $_SESSION["flash_type"] = "success";
     header("Location: on_loan.php?loan_state=Overdue");
     exit();

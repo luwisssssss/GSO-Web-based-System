@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/client_notification_helper.php';
 require_once __DIR__.'/request_line_helper.php';
 require_once __DIR__.'/request_attachment_helper.php';
 require_once __DIR__.'/reschedule_helper.php';
@@ -29,14 +30,14 @@ function gsoCreateWalkin(PDO $pdo,int $actor,array $data,array $file): int
         gsoRescheduleAudit($pdo,$actor,'Walk-in Request Created','Request #'.$id.' encoded on behalf of an external client; '.count($lines).' resource line(s). No account created.');
         $roles=[];foreach(gsoRolePermissions() as $role=>$permissions)if(in_array('walk_in.create',$permissions,true))$roles[]=$role;
         $s=$pdo->prepare("SELECT user_id FROM users WHERE role IN(".implode(',',array_fill(0,count($roles),'?')).") AND account_status='Approved' AND email_verified=1");$s->execute($roles);foreach($s->fetchAll(PDO::FETCH_COLUMN) as $user)createNotification($pdo,(int)$user,'walkin_request','Walk-in Request Created',formatRequestCode($id).' requires GSO review.','view_request.php?request_id='.$id);
-        $pdo->commit();return $id;
+        $event=gsoPrepareClientEvent($pdo,$id,'submitted');$pdo->commit();gsoDeliverClientEvent($pdo,$event);return $id;
     }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();if($stored)@unlink($stored['path']);throw $e;}
 }
 function gsoCancelWalkin(PDO $pdo,int $actor,int $id,string $reason): void
 {
     gsoWalkinActor($pdo,$actor);$reason=trim($reason);if($reason===''||mb_strlen($reason)>1000)throw new DomainException('Provide the client cancellation reason (up to 1,000 characters).');
     try{$pdo->beginTransaction();$s=$pdo->prepare("SELECT status FROM resource_requests WHERE request_id=? AND requester_type='Walk-in' AND borrower_id IS NULL FOR UPDATE");$s->execute([$id]);if(!in_array($s->fetchColumn(),['Pending','Under Review'],true))throw new DomainException('Only pending or under-review walk-in requests may be cancelled.');
-        $pdo->prepare("UPDATE resource_requests SET status='Cancelled',cancellation_reason=? WHERE request_id=?")->execute([$reason,$id]);gsoRescheduleAudit($pdo,$actor,'Walk-in Request Cancelled','Request #'.$id.'; client reason: '.$reason);$pdo->commit();
+        $pdo->prepare("UPDATE resource_requests SET status='Cancelled',cancellation_reason=? WHERE request_id=?")->execute([$reason,$id]);gsoRescheduleAudit($pdo,$actor,'Walk-in Request Cancelled','Request #'.$id.'; client reason: '.$reason);$event=gsoPrepareClientEvent($pdo,$id,'cancelled');$pdo->commit();gsoDeliverClientEvent($pdo,$event);
     }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
 }
 function gsoUploadWalkinLetter(PDO $pdo,int $actor,int $id,array $file): void

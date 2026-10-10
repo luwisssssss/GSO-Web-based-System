@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__,3)."/includes/client_notification_helper.php";
 define("GSO_REQUIRED_PERMISSION", "request.view_queue");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
@@ -39,8 +40,8 @@ if (($_SERVER["REQUEST_METHOD"]??"GET")==="POST") {
         $update=$pdo->prepare("UPDATE request_attachments SET verification_status=?,verified_by=?,verified_at=NOW(),verification_remarks=? WHERE attachment_id=? AND verification_status='Pending'");
         $update->execute([$next,(int)$_SESSION["user_id"],$remarks!==""?$remarks:null,$letter["attachment_id"]]);
         addActivityLog($pdo,(int)$_SESSION["user_id"],"Request Letter ".$next,"Document verification for request #".$requestId);
-        createNotification($pdo,(int)$locked["borrower_id"],"request_letter_".strtolower($next),"Request Letter ".$next,$next==="Rejected"?"Your facility request letter was rejected. Upload a corrected letter: ".mb_substr($remarks,0,140):"Your manually signed facility request letter was verified for GSO processing. Request approval remains a separate action.","request_letter.php?request_id=".$requestId);
-        $pdo->commit();redirectWithFlash("view_request.php?request_id=".$requestId,"Request letter ".strtolower($next).".","success");
+        $event=gsoPrepareClientEvent($pdo,$requestId,'letter_'.strtolower($next),(string)$letter['attachment_id'],['client_reason'=>$next==='Rejected'?$remarks:'']);
+        $pdo->commit();gsoDeliverClientEvent($pdo,$event);redirectWithFlash("view_request.php?request_id=".$requestId,"Request letter ".strtolower($next).".","success");
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         redirectWithFlash("view_request.php?request_id=".$requestId,$e instanceof DomainException?$e->getMessage():"Document verification could not be saved.");

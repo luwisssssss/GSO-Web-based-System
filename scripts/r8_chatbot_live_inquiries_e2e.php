@@ -2,7 +2,7 @@
 declare(strict_types=1);
 /** R8 real HTTP/authentication and authoritative live-query regression; isolated DB only. */
 require_once dirname(__DIR__).'/config/bootstrap.php';
-if (!preg_match('/^gso_r8_test_[a-zA-Z0-9_]+$/', (string)gsoEnv('GSO_DB_NAME',''))) throw new RuntimeException('R8 requires an isolated database.');
+if (!preg_match('/^gso_r[89]_test_[a-zA-Z0-9_]+$/', (string)gsoEnv('GSO_DB_NAME',''))) throw new RuntimeException('R8 requires an isolated database.');
 $base=(string)gsoEnv('GSO_R8_BASE_URL','http://127.0.0.1:8099/GSO_WebSystem');
 if (!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true)) throw new RuntimeException('Loopback only.');
 define('GSO_CHAT_READ_ONLY',true);

@@ -1,4 +1,5 @@
 <?php
+require_once dirname(__DIR__,3)."/includes/client_notification_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/borrower_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
 require_once dirname(__DIR__, 3) . "/includes/activity_log_helper.php";
@@ -325,7 +326,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     );
                 }
 
+                $event=gsoPrepareClientEvent($pdo,$newRequestId,"submitted");
                 $pdo->commit();
+                gsoDeliverClientEvent($pdo,$event);
 
                 $message = "Request submitted successfully. "
                     . formatRequestCode($newRequestId) . " covers " . count($requestLines)

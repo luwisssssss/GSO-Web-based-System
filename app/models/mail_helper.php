@@ -267,6 +267,21 @@ if (!function_exists("gsoSendEmail")) {
         string $htmlBody,
         string $altBody
     ): array {
+        // Deterministic transport is restricted to isolated local regression.
+        // It bypasses SMTP even if a developer has real credentials configured.
+        if (gsoEnv('GSO_MAIL_TEST_TRANSPORT', '') === 'outbox'
+            && preg_match('/^gso_r9_test_[a-zA-Z0-9_]+$/', (string)gsoEnv('GSO_DB_NAME', ''))
+            && in_array(strtolower((string)gsoEnv('GSO_APP_ENV', 'production')), ['test','development'], true)
+            && gsoIsLoopbackRequest()) {
+            try {
+                if (is_file(gsoMailOutboxDirectory() . DIRECTORY_SEPARATOR . '.simulate_failure')) {
+                    return ['success'=>false, 'channel'=>'test_transport', 'message'=>'Email delivery could not be confirmed.'];
+                }
+                return gsoWriteLocalMailOutbox($toEmail, $subject, $htmlBody, $altBody) + ['channel'=>'test_outbox'];
+            } catch (Throwable $e) {
+                return ['success'=>false, 'channel'=>'test_transport', 'message'=>'Email delivery could not be confirmed.'];
+            }
+        }
         $configurationIssue = gsoGetMailConfigurationIssue($mailConfig);
 
         if ($configurationIssue !== "") {

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__).'/config/bootstrap.php';
-if(!preg_match('/^gso_r(?:4|5|6|7|8)_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R4 requires an isolated test database.');
+if(!preg_match('/^gso_r(?:4|5|6|7|8|9)_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R4 requires an isolated test database.');
 $base=(string)gsoEnv('GSO_R4_BASE_URL','http://127.0.0.1:8096/GSO_WebSystem');if(!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true))throw new RuntimeException('Loopback only.');
 require_once dirname(__DIR__).'/config/db.php';require_once dirname(__DIR__).'/includes/reschedule_helper.php';require_once dirname(__DIR__).'/includes/return_upload_helper.php';require_once __DIR__.'/request_letter_test_helper.php';
 $checks=0;$users=[];$cookies=[];$csrf=[];$resources=[];$failed=null;
