@@ -58,6 +58,7 @@ $stmt = $pdo->prepare("
         rr.end_time,
         rr.request_date,
         rr.status,
+        rr.claim_slip_code,
         rr.approved_by,
         rr.reviewed_by,
         rr.released_by,
@@ -342,6 +343,20 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                 </div>
             </div>
         </div>
+
+        <?php if (!empty($request["claim_slip_code"])): ?>
+        <?php $claimSlipActive = (string) $request["status"] === "Approved"; ?>
+        <section class="card claim-slip-card" id="claim-slip">
+            <h3>Claim Slip Code</h3>
+            <p class="claim-slip-code"><?php echo htmlspecialchars((string) $request["claim_slip_code"]); ?></p>
+            <?php if ($claimSlipActive): ?>
+                <p>The client presents this code at the GSO Office. GSO enters it on the Requests page to release <?php echo htmlspecialchars(formatRequestCode($requestId)); ?>. Give it only to the client of this request.</p>
+                <button type="button" class="admin-btn neutral-btn claim-slip-print" onclick="window.print()">Print Claim Slip</button>
+            <?php else: ?>
+                <p>Kept for record. This request is <?php echo htmlspecialchars((string) $request["status"]); ?>, so the code no longer authorizes a release.</p>
+            <?php endif; ?>
+        </section>
+        <?php endif; ?>
 
         <?php if(gsoRequestHasFacility($pdo,$requestId)): $letters=gsoRequestLetters($pdo,$requestId);$currentLetter=$letters[0]??null;?>
         <section class="card"><h3>Manually Signed Facility Request Letter</h3>

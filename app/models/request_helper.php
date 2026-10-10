@@ -3,6 +3,7 @@ require_once __DIR__."/requester_helper.php";
 
 require_once __DIR__ . "/maintenance_helper.php";
 require_once __DIR__ . "/facility_schedule_helper.php";
+require_once __DIR__ . "/claim_slip_helper.php";
 
 if (!function_exists("gsoRequestResourceRollupSql")) {
     /** Request-level display projection built exclusively from request_items. */

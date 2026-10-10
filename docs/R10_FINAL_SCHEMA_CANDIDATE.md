@@ -1,16 +1,20 @@
 # R10 candidate final schema
 
-Generated from the live database after migration `20261010_007_final_cleanup`. This is the starting point for the R11 read-only schema freeze. No ERD is included.
+Generated from the live database after migration `20261010_008_claim_slip_code`. This is the starting point for the R11 read-only schema freeze. No ERD is included.
 
 | Measure | Count |
 |---|---:|
 | Tables | 22 |
 | Foreign keys | 57 |
-| Indexes (including primary keys) | 103 |
-| UNIQUE constraints (excluding primary keys) | 17 |
-| CHECK constraints | 10 |
+| Indexes (including primary keys) | 104 |
+| UNIQUE constraints (excluding primary keys) | 18 |
+| CHECK constraints | 11 |
 | Generated columns | 3 |
 | Triggers, views, routines, events | 0 |
+
+## Added in R10A
+
+`resource_requests.claim_slip_code` (nullable `varchar(20)`), UNIQUE key `uq_requests_claim_slip_code`, and CHECK constraint `chk_requests_claim_slip`. No table and no foreign key was added.
 
 ## Removed in R10
 
@@ -141,7 +145,7 @@ Individually tracked physical units of Serialized equipment.
 
 ### `resource_requests`
 
-Request header: requester (registered borrower or walk-in snapshot), schedule, status and audit actors. Holds no resource or quantity.
+Request header: requester (registered borrower or walk-in snapshot), schedule, status, Claim Slip Code and audit actors. Holds no resource or quantity.
 
 **Primary key:** `request_id`
 
@@ -155,6 +159,7 @@ Request header: requester (registered borrower or walk-in snapshot), schedule, s
 | `end_time` | `time` | yes | `NULL` |  |
 | `request_date` | `datetime` | no | `current_timestamp()` |  |
 | `status` | `enum('Pending','Under Review','Approved','Rejected','Cancelled','Released','Return','Returned','Completed')` | no | `Pending` |  |
+| `claim_slip_code` | `varchar(20)` | yes | `NULL` |  |
 | `approved_by` | `int(11)` | yes | `NULL` |  |
 | `reviewed_by` | `int(11)` | yes | `NULL` |  |
 | `released_by` | `int(11)` | yes | `NULL` |  |
@@ -181,10 +186,12 @@ Request header: requester (registered borrower or walk-in snapshot), schedule, s
 - `fk_rr_released_by`: `released_by` references `users`(`user_id`), on delete SET NULL
 - `fk_rr_reviewed_by`: `reviewed_by` references `users`(`user_id`), on delete SET NULL
 
-**UNIQUE constraints:** none
+**UNIQUE constraints:**
+- `uq_requests_claim_slip_code` (`claim_slip_code`)
 
 **CHECK constraints:**
 - `chk_requester_mode`: ``requester_type` = 'Registered' and `borrower_id` is not null and `encoded_by` is null and `walkin_full_name` is null and `walkin_organization` is null and `walkin_email` is null and `walkin_contact_number` is null or `requester_type` = 'Walk-in' and `borrower_id` is null and `encoded_by` is not null and `walkin_full_name` is not null and char_length(trim(`walkin_full_name`)) > 0`
+- `chk_requests_claim_slip`: `(`claim_slip_code` is null or `claim_slip_code` regexp '^GSO-[2-9A-HJ-NP-Z]{8}$') and (`status` not in ('Pending','Under Review') or `claim_slip_code` is null) and (`status` <> 'Approved' or `claim_slip_code` is not null)`
 
 **Other indexes:**
 - `fk_resource_requests_approved_by` (`approved_by`)

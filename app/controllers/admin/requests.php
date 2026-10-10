@@ -217,10 +217,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             redirectRequestsPage();
         }
 
+        // The Claim Slip Code is issued by the same statement that approves
+        // the request, so a failed or rolled-back approval never leaves a
+        // code behind and an approved request never exists without one.
         $updateStmt = $pdo->prepare("
             UPDATE resource_requests
             SET
                 status = 'Approved',
+                claim_slip_code = COALESCE(claim_slip_code, :claim_slip_code),
                 reviewed_by = :reviewed_by,
                 reviewed_at = NOW(),
                 approved_by = :approved_by,
@@ -231,6 +235,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         ");
 
         $success = $updateStmt->execute([
+            ":claim_slip_code" => gsoNewUniqueClaimSlipCode($pdo),
             ":reviewed_by" => $adminUserId,
             ":approved_by" => $adminUserId,
             ":request_id" => $requestId
@@ -241,7 +246,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $pdo,
                 $adminUserId,
                 "Request Approved",
-                "Admin approved request #{$requestId} for: {$requestSummary}"
+                "Admin approved request #{$requestId} for: {$requestSummary}. Claim Slip Code issued."
             );
 
         }
@@ -300,6 +305,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 rr.end_time,
                 rr.request_date,
                 rr.status,
+                rr.claim_slip_code,
                 rr.due_date,
                 rr.return_date,
                 rr.notes,
@@ -320,6 +326,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         if (($lockedRequest["status"] ?? "") !== "Approved") {
             throw new Exception("Only approved requests can be released.");
+        }
+
+        // The client presents the Claim Slip Code at the GSO Office. It is
+        // compared with the code stored on this exact locked request before
+        // any stock, unit, consumable or status change.
+        if (!gsoClaimSlipMatches($lockedRequest["claim_slip_code"] ?? null, $_POST["claim_slip_code"] ?? null)) {
+            $claimSlipDenied = true;
+            throw new Exception("Release denied. Enter the Claim Slip Code presented by the client; it must match this request.");
         }
 
         // Phase 3.5A: serialized allocation, consumable issuance and per-line
@@ -622,7 +636,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $pdo,
             $adminUserId,
             "Request Released",
-            "Admin released request #{$requestId} for: " . ($requestRow["line_summary"] ?? "requested resources")
+            "Admin released request #{$requestId} for: " . ($requestRow["line_summary"] ?? "requested resources") . ". Claim Slip Code verified."
         );
 
         $lowStockLines = [];
@@ -669,6 +683,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
+        }
+
+        if (!empty($claimSlipDenied)) {
+            // Recorded after the rollback, and without the presented value.
+            addActivityLog($pdo, $adminUserId, "Claim Slip Verification Failed", "Release of request #{$requestId} was denied: the presented Claim Slip Code did not match.");
         }
 
         $_SESSION["flash_message"] = $e->getMessage();
@@ -1071,6 +1090,9 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
                                                         <input type="hidden" name="request_id" value="<?php echo htmlspecialchars((string) $request["request_id"]); ?>">
                                                         <input type="hidden" name="action" value="release">
+                                                        <label class="claim-slip-entry">Claim Slip Code presented by the client
+                                                            <input type="text" name="claim_slip_code" required maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="GSO-XXXXXXXX" pattern="\s*[Gg][Ss][Oo]-[2-9A-HJ-NP-Za-hj-np-z]{8}\s*" title="Enter the code as GSO- followed by 8 letters or digits">
+                                                        </label>
                                                         <?php foreach ($serializedReleaseLines as $serializedLine): ?>
                                                             <?php
                                                             $serializedLineId = (int) $serializedLine["request_item_id"];

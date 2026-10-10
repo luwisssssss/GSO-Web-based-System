@@ -3,7 +3,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__).'/config/bootstrap.php';
 if(!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R4 requires an isolated test database.');
 $base=(string)gsoEnv('GSO_R5_BASE_URL','http://127.0.0.1:8097/GSO_WebSystem');if(!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true))throw new RuntimeException('Loopback only.');
-require_once dirname(__DIR__).'/config/db.php';require_once dirname(__DIR__).'/includes/reschedule_helper.php';require_once dirname(__DIR__).'/includes/return_upload_helper.php';require_once __DIR__.'/request_letter_test_helper.php';require_once dirname(__DIR__).'/includes/walkin_helper.php';require_once dirname(__DIR__).'/includes/work_order_helper.php';
+require_once dirname(__DIR__).'/config/db.php';require_once __DIR__.'/claim_slip_test_helper.php';require_once dirname(__DIR__).'/includes/reschedule_helper.php';require_once dirname(__DIR__).'/includes/return_upload_helper.php';require_once __DIR__.'/request_letter_test_helper.php';require_once dirname(__DIR__).'/includes/walkin_helper.php';require_once dirname(__DIR__).'/includes/work_order_helper.php';
 $walkins=[];$checks=0;$users=[];$cookies=[];$csrf=[];$resources=[];$failed=null;
 function qAssert(bool $v,string $m):void{global $checks;$checks++;if(!$v)throw new RuntimeException($m);}
 function qRows(string $q,array $a=[]):array{global $pdo;$s=$pdo->prepare($q);$s->execute($a);return $s->fetchAll(PDO::FETCH_ASSOC);}
@@ -23,7 +23,7 @@ try{
     $unitIds=[];for($i=0;$i<2;$i++){qExec("INSERT INTO equipment_units(resource_id,asset_tag,status,condition_status,registered_by)VALUES(?,?,'Available','Good',?)",[$serial,$mark.'-unit-'.$i,$users['admin']]);$unitIds[]=(int)$pdo->lastInsertId();}
     $date=fn(int $days)=>date('Y-m-d',strtotime($days.' days'));
     $make=function(string $who,array $lines,int $offset,string $status='Approved',?string $period='AM',string $start='09:00:00',string $end='11:00:00',bool $verified=true)use($pdo,$users,$hall,$otherHall,$paper,$date):int{
-        qExec('INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status,approved_by,approved_at)VALUES(?,?,?,?,?,?,NOW())',[$users[$who],$date($offset),$start,$end,$status,$users['admin']]);$rid=(int)$pdo->lastInsertId();
+        qExec('INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status,claim_slip_code,approved_by,approved_at)VALUES(?,?,?,?,?,?,?,NOW())',[$users[$who],$date($offset),$start,$end,$status,gsoTestClaimSlipFor($status),$users['admin']]);$rid=(int)$pdo->lastInsertId();
         foreach($lines as [$id,$qty]){$kind=in_array($id,[$hall,$otherHall],true)?'Facility':($id===$paper?'Consumable':'Equipment');qExec('INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity,facility_slot)VALUES(?,?,?,?,?)',[$rid,$id,$kind,$qty,$kind==='Facility'?$period:null]);}
         if($verified)gsoTestVerifiedLetter($pdo,$rid,$users['admin']);return $rid;
     };
@@ -38,7 +38,7 @@ try{
         $data=['csrf_token'=>$csrf[$who]??'','lines'=>array_map(fn($l)=>['resource_id'=>$l[0],'quantity'=>$l[1]],$lines),'date_needed'=>$date($offset),'start_time'=>'09:00','end_time'=>'11:00','facility_slot'=>$facility?'AM':'']+$client;
         $data=array_replace($data,$extra);if($facility&&$letter)$data['request_letter']=new CURLFile(gsoTestLetterImage(),'image/png','signed-external.png');$before=$last();qHttp($who,'admin/create_walkin.php',$data);$id=$last();if($id>$before){$walkins[]=$id;return $id;}return 0;
     };
-    $process=function(string $who,int $id,string $action,array $extra=[])use(&$csrf){return qHttp($who,'admin/requests.php',['csrf_token'=>$csrf[$who],'request_id'=>$id,'action'=>$action]+$extra);};
+    $process=function(string $who,int $id,string $action,array $extra=[])use(&$csrf){return qHttp($who,'admin/requests.php',['csrf_token'=>$csrf[$who],'request_id'=>$id,'action'=>$action]+$extra+($action==='release'?['claim_slip_code'=>gsoTestPresentedClaimSlip($id)]:[]));};
     $verify=function(int $id,string $action='verify_letter')use(&$csrf,$pdo){$letter=gsoRequestLetters($pdo,$id)[0];return qHttp('staff','admin/view_request.php?request_id='.$id,['csrf_token'=>$csrf['staff'],'action'=>$action,'attachment_id'=>$letter['attachment_id'],'verification_remarks'=>$action==='reject_letter'?'Upload a corrected signed version':'Evidence reviewed']);};
     $action=function(string $who,int $id,string $action,array $extra=[])use(&$csrf){return qHttp($who,'admin/walkin_actions.php?request_id='.$id,array_replace(['csrf_token'=>$csrf[$who]??'','action'=>$action],$extra));};
     $state=fn(int $id)=>qVal('SELECT status FROM resource_requests WHERE request_id=?',[$id]);

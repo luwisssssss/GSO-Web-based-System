@@ -169,6 +169,7 @@ $listSql = "
         rr.end_time,
         rr.request_date,
         rr.status,
+        rr.claim_slip_code,
         rr.reviewed_by,
         rr.reviewed_at,
         rr.due_date,
@@ -315,6 +316,17 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                             <span class="ui-timeline-step <?php echo in_array((string) $request["status"], ["Return", "Returned"], true) ? "done" : ""; ?>">Return submitted</span>
                                             <span class="ui-timeline-step <?php echo in_array((string) $request["status"], ["Returned", "Completed"], true) ? "done" : ""; ?>">Finished</span>
                                         </div>
+                                        <?php if (!empty($request["claim_slip_code"])): ?>
+                                            <?php if ((string) $request["status"] === "Approved"): ?>
+                                                <div class="claim-slip-box">
+                                                    <span>Claim Slip Code</span>
+                                                    <strong class="claim-slip-code"><?php echo htmlspecialchars((string) $request["claim_slip_code"]); ?></strong>
+                                                    <small>Present this Claim Slip Code at the GSO Office when claiming your approved request.</small>
+                                                </div>
+                                            <?php else: ?>
+                                                <small class="claim-slip-used">Claim Slip Code <?php echo htmlspecialchars((string) $request["claim_slip_code"]); ?> (kept for record)</small>
+                                            <?php endif; ?>
+                                        <?php endif; ?>
                                     </td>
 
                                     <td>

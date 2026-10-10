@@ -15,7 +15,7 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 require_once $root . "/config/bootstrap.php";
-require_once $root . "/config/db.php";
+require_once $root . "/config/db.php";require_once __DIR__.'/claim_slip_test_helper.php';
 require_once $root . "/includes/request_helper.php";
 require_once $root . "/includes/return_upload_helper.php";
 require_once $root . "/includes/notification_helper.php";
@@ -478,7 +478,7 @@ try {
     $approvedNoticeCount = step8NotificationCount($pdo, $borrowerA, "Request Approved", "my_requests.php");
     step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $itemRequestId, "action" => "approve"]);
     step8Assert(step8NotificationCount($pdo, $borrowerA, "Request Approved", "my_requests.php") === $approvedNoticeCount, "Repeated approval duplicated a notification.");
-    $release = step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $itemRequestId, "action" => "release"]);
+    $release = step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $itemRequestId, "action" => "release",'claim_slip_code'=>gsoTestPresentedClaimSlip((int)$itemRequestId)]);
     step8Assert(in_array($release["status"], [302, 303], true) && step8Status($pdo, $itemRequestId) === "Released", "Request release failed.");
     $releaseAudit = step8Rows($pdo, "SELECT approved_by,approved_at,released_by,released_at FROM resource_requests WHERE request_id=:id", [":id" => $itemRequestId])[0] ?? [];
     step8Assert(
@@ -489,7 +489,7 @@ try {
         "Release overwrote approval accountability or omitted release accountability."
     );
     step8Assert((int) step8Value($pdo, "SELECT available_stock FROM resources WHERE resource_id=:id", [":id" => $itemId]) === 3, "Release did not decrement stock exactly once.");
-    step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $itemRequestId, "action" => "release"]);
+    step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $itemRequestId, "action" => "release",'claim_slip_code'=>gsoTestPresentedClaimSlip((int)$itemRequestId)]);
     step8Assert((int) step8Value($pdo, "SELECT available_stock FROM resources WHERE resource_id=:id", [":id" => $itemId]) === 3, "Repeated release decremented stock twice.");
     $pdo->prepare("UPDATE resource_requests SET due_date=DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE request_id=:id")->execute([":id" => $itemRequestId]);
     $loanPage = step8Http($baseUrl, "borrower/my_borrowed.php", "GET", $cookies["a"]);
@@ -553,7 +553,7 @@ try {
     step8Assert($rejectedReturnRequestId > 0, "Could not create the return-rejection fixture.");
     $requestIds[] = $rejectedReturnRequestId;
     step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $rejectedReturnRequestId, "action" => "approve"]);
-    step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $rejectedReturnRequestId, "action" => "release"]);
+    step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $rejectedReturnRequestId, "action" => "release",'claim_slip_code'=>gsoTestPresentedClaimSlip((int)$rejectedReturnRequestId)]);
     step8Assert(step8Status($pdo, $rejectedReturnRequestId) === "Released" && (int) step8Value($pdo, "SELECT available_stock FROM resources WHERE resource_id=:id", [":id" => $itemId]) === 4, "Return-rejection fixture was not released correctly.");
     step8Http($baseUrl, "borrower/return_submit.php?request_id={$rejectedReturnRequestId}", "POST", $cookies["b"], [
         "csrf_token" => $bSession["csrf_token"], "condition_notes" => "Needs clearer evidence {$marker}",
@@ -693,7 +693,7 @@ try {
     $nonOverlapId = (int) step8Value($pdo, "SELECT rr.request_id FROM resource_requests rr JOIN request_items ri ON ri.request_id=rr.request_id WHERE rr.borrower_id=:b AND ri.resource_id=:r AND rr.status='Pending' ORDER BY rr.request_id DESC LIMIT 1", [":b" => $borrowerB, ":r" => $facilityId]);
     step8Assert($nonOverlapId > 0, "Boundary non-overlapping facility request was blocked.");
     $requestIds[] = $nonOverlapId;
-    step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $facilityApprovedId, "action" => "release"]);
+    step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $facilityApprovedId, "action" => "release",'claim_slip_code'=>gsoTestPresentedClaimSlip((int)$facilityApprovedId)]);
     step8Assert(step8Status($pdo, $facilityApprovedId) === "Released", "Approved facility reservation could not be released.");
     $earlyFacilityReturn = step8Http($baseUrl, "borrower/return_submit.php?request_id={$facilityApprovedId}", "POST", $cookies["a"], [
         "csrf_token" => $aSession["csrf_token"], "condition_notes" => "Too early {$marker}",
@@ -742,7 +742,7 @@ try {
     step8Assert($damagedRequestId > 0, "Damaged-return fixture request was not created.");
     $requestIds[] = $damagedRequestId;
     step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $damagedRequestId, "action" => "approve"]);
-    step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $damagedRequestId, "action" => "release"]);
+    step8Http($baseUrl, "admin/requests.php", "POST", $cookies["admin"], ["csrf_token" => $adminSession["csrf_token"], "request_id" => $damagedRequestId, "action" => "release",'claim_slip_code'=>gsoTestPresentedClaimSlip((int)$damagedRequestId)]);
     step8Assert(
         (int) step8Value($pdo, "SELECT available_stock FROM resources WHERE resource_id=:id", [":id" => $damagedId]) === 8,
         "Releasing 2 of 10 units did not leave 8 available."

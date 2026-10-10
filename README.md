@@ -147,6 +147,16 @@ The remaining request-time synchronisation only moves a corrective work order be
 
 The retired Adviser and Director endpoints and helpers are deleted, so those URLs answer 404. The two suites that tested the retired workflows are kept for reference in `scripts/superseded/` and are not part of the active regression.
 
+## R10A Claim Slip Code
+
+When GSO approves a request the system issues one Claim Slip Code for it, in the form `GSO-XXXXXXXX`. The code is drawn from a cryptographically secure random source, is not derived from the request or borrower, and is stored in `resource_requests.claim_slip_code` under a UNIQUE key. It is written by the same statement that approves the request, so a failed approval leaves no code and an approved request always has one. There is no QR code.
+
+A registered borrower sees the code on their own request in My Requests and receives it in the approval email. For a walk-in client, GSO reads or prints the code from the request details, and the approval email carries it when the client gave an email address. The in-app notice only tells the borrower to view the request; it does not contain the code.
+
+Release requires the code. The GSO user enters the code the client presents, and the server compares it with the code stored on that exact request inside the release transaction, before any stock, unit, or status change. A wrong, blank, or foreign code denies the release and records an audit entry that does not contain the presented value. Rescheduling keeps the same code. The code is kept for record after release, return, or cancellation, but only an Approved request can be released.
+
+Existing installations apply `database/migrations/20261010_008_claim_slip_code.sql` through `scripts/migrate.php`. Requests closed before that migration keep no code. The migration stops and reports any request that is Approved at that moment, instead of inventing a code for it.
+
 ## 📁 Project Structure
 
 ```text

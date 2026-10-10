@@ -9,7 +9,7 @@ function gsoClientEventCatalog(): array
 {
     return [
         'submitted'=>['Pending','request_submitted','Request Received','Your request was received for GSO review.'],
-        'approved'=>['Approved','approved','Request Approved','Your request is approved. Coordinate with GSO for claim/release.'],
+        'approved'=>['Approved','approved','Request Approved','Your request is approved. A Claim Slip Code was issued for it. Present that code at the GSO Office when claiming your approved request.'],
         'rejected'=>['Rejected','rejected','Request Rejected','GSO declined this request. Contact GSO for guidance.'],
         'cancelled'=>['Cancelled','request_cancelled','Request Cancelled','GSO recorded the cancellation of this request.'],
         'reschedule_submitted'=>['Approved','reschedule_submitted','Reschedule Proposal Received','Your proposed schedule was recorded for GSO review. It is not guaranteed or reserved. The original confirmed reservation remains active.'],
@@ -61,6 +61,8 @@ function gsoPrepareClientEvent(PDO $pdo, int $requestId, string $event, string $
     if ($row['start_time'] && $row['end_time']) $schedule.=' | '.substr($row['start_time'],0,5).' to '.substr($row['end_time'],0,5);
     $plain=$spec[2]."\nReference: ".$code."\nStatus: ".$row['status']."\nResources: ".implode(', ',$summary)."\n".($schedule!==''?'Current request schedule: '.$schedule."\n":'').$text;
     if (in_array($event,['released','overdue'],true) && $row['due_date']) $plain.="\nDue: ".$row['due_date'];
+    // The code itself goes only into the approval email to the stored client address, never into the in-app text.
+    if ($event==='approved' && !empty($row['claim_slip_code'])) $plain.="\nClaim Slip Code: ".$row['claim_slip_code']."\nGSO verifies this code before release. Do not share it with anyone who is not claiming this request for you.";
     $registered=$row['requester_type']==='Registered' && (int)$row['borrower_id']>0 && $row['registered_email']!==null;
     if (!$registered && !($row['requester_type']==='Walk-in' && $row['borrower_id']===null && $actor>0)) throw new LogicException('Invalid client relationship.');
     $link='my_requests.php';

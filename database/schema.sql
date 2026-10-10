@@ -1,5 +1,5 @@
 -- GSO Request and Maintenance Management System
--- Complete current schema, version 20261010_007: 22 tables, 57 foreign keys.
+-- Complete current schema, version 20261010_008: 22 tables, 57 foreign keys.
 --
 -- FRESH INSTALL ONLY. Import into an EMPTY database, or run scripts/migrate.php
 -- against an empty database, which loads this file. The plain CREATE TABLE
@@ -101,6 +101,7 @@ CREATE TABLE `resource_requests` (
   `end_time` time DEFAULT NULL,
   `request_date` datetime NOT NULL DEFAULT current_timestamp(),
   `status` enum('Pending','Under Review','Approved','Rejected','Cancelled','Released','Return','Returned','Completed') NOT NULL DEFAULT 'Pending',
+  `claim_slip_code` varchar(20) DEFAULT NULL,
   `approved_by` int(11) DEFAULT NULL,
   `reviewed_by` int(11) DEFAULT NULL,
   `released_by` int(11) DEFAULT NULL,
@@ -120,6 +121,7 @@ CREATE TABLE `resource_requests` (
   `cancellation_reason` varchar(1000) DEFAULT NULL,
   `encoded_by` int(11) DEFAULT NULL,
   PRIMARY KEY (`request_id`),
+  UNIQUE KEY `uq_requests_claim_slip_code` (`claim_slip_code`),
   KEY `fk_resource_requests_approved_by` (`approved_by`),
   KEY `fk_resource_requests_reviewed_by` (`reviewed_by`),
   KEY `idx_requests_borrower_return` (`borrower_id`,`return_date`),
@@ -131,7 +133,8 @@ CREATE TABLE `resource_requests` (
   CONSTRAINT `fk_rr_encoder` FOREIGN KEY (`encoded_by`) REFERENCES `users` (`user_id`),
   CONSTRAINT `fk_rr_released_by` FOREIGN KEY (`released_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
   CONSTRAINT `fk_rr_reviewed_by` FOREIGN KEY (`reviewed_by`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
-  CONSTRAINT `chk_requester_mode` CHECK (`requester_type` = 'Registered' and `borrower_id` is not null and `encoded_by` is null and `walkin_full_name` is null and `walkin_organization` is null and `walkin_email` is null and `walkin_contact_number` is null or `requester_type` = 'Walk-in' and `borrower_id` is null and `encoded_by` is not null and `walkin_full_name` is not null and char_length(trim(`walkin_full_name`)) > 0)
+  CONSTRAINT `chk_requester_mode` CHECK (`requester_type` = 'Registered' and `borrower_id` is not null and `encoded_by` is null and `walkin_full_name` is null and `walkin_organization` is null and `walkin_email` is null and `walkin_contact_number` is null or `requester_type` = 'Walk-in' and `borrower_id` is null and `encoded_by` is not null and `walkin_full_name` is not null and char_length(trim(`walkin_full_name`)) > 0),
+  CONSTRAINT `chk_requests_claim_slip` CHECK ((`claim_slip_code` is null or `claim_slip_code` regexp '^GSO-[2-9A-HJ-NP-Z]{8}$') and (`status` not in ('Pending','Under Review') or `claim_slip_code` is null) and (`status` <> 'Approved' or `claim_slip_code` is not null))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- request_items: Resource lines of a request. The only store of requested resources and quantities.
@@ -550,4 +553,4 @@ INSERT INTO system_settings (setting_key, setting_value) VALUES
     ('facility_operating_end', '17:00');
 
 -- Version of this schema. The application refuses to run against any other version.
-INSERT INTO system_settings (setting_key, setting_value) VALUES ('schema_version', '20261010_007');
+INSERT INTO system_settings (setting_key, setting_value) VALUES ('schema_version', '20261010_008');

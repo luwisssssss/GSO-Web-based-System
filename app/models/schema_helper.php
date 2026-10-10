@@ -115,7 +115,7 @@ if (!defined("GSO_SCHEMA_VERSION")) {
      * database/migrations. It is recorded in system_settings.schema_version by
      * scripts/migrate.php or by a fresh database/schema.sql import.
      */
-    define("GSO_SCHEMA_VERSION", "20261010_007");
+    define("GSO_SCHEMA_VERSION", "20261010_008");
 }
 
 if (!function_exists("gsoRecordedSchemaVersion")) {

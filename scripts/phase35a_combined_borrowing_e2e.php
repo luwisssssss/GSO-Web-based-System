@@ -7,7 +7,7 @@ declare(strict_types=1);
  * The suite never touches a real request, resource or user: every row it reads
  * or writes carries its own run marker.
  */
-$root=dirname(__DIR__);require_once $root."/config/bootstrap.php";require_once $root."/config/db.php";
+$root=dirname(__DIR__);require_once $root."/config/bootstrap.php";require_once $root."/config/db.php";require_once __DIR__.'/claim_slip_test_helper.php';
 require_once $root."/includes/request_helper.php";require_once $root."/includes/request_line_helper.php";
 final class P35Fail extends RuntimeException{}
 function p35a(bool $v,string $m):void{if(!$v)throw new P35Fail($m);}
@@ -185,18 +185,18 @@ try{
  $checks+=4;
  // A release that cannot be fulfilled must mutate nothing at all. The serialized
  // line has no registered units, so the whole request must roll back.
- $pdo->prepare("UPDATE resource_requests SET status='Approved' WHERE request_id=?")->execute([$reqSerial]);
+ $pdo->prepare("UPDATE resource_requests SET status='Approved',claim_slip_code=COALESCE(claim_slip_code,'".gsoGenerateClaimSlipCode()."') WHERE request_id=?")->execute([$reqSerial]);
  $stockPre=(string)p35v($pdo,"SELECT CONCAT(IFNULL(available_stock,'N'),'/',IFNULL(total_stock,'N')) FROM resources WHERE resource_id=?",[$serial]);
- p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqSerial,"action"=>"release"]);
+ p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqSerial,"action"=>"release",'claim_slip_code'=>gsoTestPresentedClaimSlip((int)$reqSerial)]);
  p35a((string)p35v($pdo,"SELECT status FROM resource_requests WHERE request_id=?",[$reqSerial])==="Approved","An unfulfillable request was released.");
  p35a((string)p35v($pdo,"SELECT CONCAT(IFNULL(available_stock,'N'),'/',IFNULL(total_stock,'N')) FROM resources WHERE resource_id=?",[$serial])===$stockPre,"A failed release left a partial stock deduction.");
  p35a((int)p35v($pdo,"SELECT COALESCE(SUM(released_quantity),0) FROM request_items WHERE request_id=?",[$reqSerial])===0,"A failed release marked lines as released.");
- $pdo->prepare("UPDATE resource_requests SET status='Pending' WHERE request_id=?")->execute([$reqSerial]);
+ $pdo->prepare("UPDATE resource_requests SET status='Pending',claim_slip_code=NULL WHERE request_id=?")->execute([$reqSerial]);
  $checks+=3;
  // Positive control: a single-line request still releases and deducts once.
- $pdo->prepare("UPDATE resource_requests SET status='Approved' WHERE request_id=?")->execute([$reqMerge]);
+ $pdo->prepare("UPDATE resource_requests SET status='Approved',claim_slip_code=COALESCE(claim_slip_code,'".gsoGenerateClaimSlipCode()."') WHERE request_id=?")->execute([$reqMerge]);
  $availPre=(int)p35v($pdo,"SELECT available_stock FROM resources WHERE resource_id=?",[$itemA]);
- p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqMerge,"action"=>"release"]);
+ p35h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>$csrf["admin"],"request_id"=>$reqMerge,"action"=>"release",'claim_slip_code'=>gsoTestPresentedClaimSlip((int)$reqMerge)]);
  p35a((string)p35v($pdo,"SELECT status FROM resource_requests WHERE request_id=?",[$reqMerge])==="Released","Single-line release regressed.");
  p35a((int)p35v($pdo,"SELECT available_stock FROM resources WHERE resource_id=?",[$itemA])===$availPre-5,"Release deducted the wrong quantity.");
  p35a((int)p35v($pdo,"SELECT released_quantity FROM request_items WHERE request_id=?",[$reqMerge])===5,"Release did not record the line quantity.");
@@ -208,7 +208,7 @@ try{
  $ret=p35h($base,"borrower/return_submit.php?request_id={$reqA}",$cookies["student"]);
  p35a(!str_contains($ret["body"],"Reported Condition"),"A combined request still shows a single request-wide condition.");
  p35a(str_contains($ret["body"],htmlspecialchars("{$mark} Item A"))&&str_contains($ret["body"],htmlspecialchars("{$mark} Item B")),"The return form omitted a returnable resource.");
- $pdo->prepare("UPDATE resource_requests SET status='Pending' WHERE request_id=?")->execute([$reqA]);
+ $pdo->prepare("UPDATE resource_requests SET status='Pending',claim_slip_code=NULL WHERE request_id=?")->execute([$reqA]);
  $pdo->prepare("UPDATE request_items SET released_quantity=0 WHERE request_id=?")->execute([$reqA]);
  $checks+=2;
 

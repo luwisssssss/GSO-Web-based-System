@@ -9,7 +9,7 @@ declare(strict_types=1);
  * marked borrower before anything is deleted, so a real request that merely
  * shares a resource is never touched.
  */
-$root=dirname(__DIR__);require_once $root."/config/bootstrap.php";require_once $root."/config/db.php";
+$root=dirname(__DIR__);require_once $root."/config/bootstrap.php";require_once $root."/config/db.php";require_once __DIR__.'/claim_slip_test_helper.php';
 require_once $root."/includes/request_helper.php";require_once $root."/includes/request_line_helper.php";
 require_once $root."/includes/equipment_unit_helper.php";require_once $root."/includes/return_detail_helper.php";
 final class P35bFail extends RuntimeException{}
@@ -95,13 +95,13 @@ try{
  $day=date("Y-m-d",strtotime("+25 days"));
  $newReq=function(int $uid,array $lines,string $date)use($pdo):int{
    $primary=$lines[0];
-   $s=$pdo->prepare("INSERT INTO resource_requests(borrower_id,contact_number,date_needed,start_time,end_time,status,notes)VALUES(:u,'09123456789',:d,'08:00:00','10:00:00','Approved','Phase 3.5B')");
-   $s->execute([":u"=>$uid,":d"=>$date]);$rid=(int)$pdo->lastInsertId();
+   $s=$pdo->prepare("INSERT INTO resource_requests(borrower_id,contact_number,date_needed,start_time,end_time,status,claim_slip_code,notes)VALUES(:u,'09123456789',:d,'08:00:00','10:00:00','Approved',:c,'Phase 3.5B')");
+   $s->execute([":u"=>$uid,":d"=>$date,":c"=>gsoGenerateClaimSlipCode()]);$rid=(int)$pdo->lastInsertId();
    $ls=$pdo->prepare("INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity) SELECT :rid,:res,CASE WHEN r.resource_type='Facility' THEN 'Facility' WHEN r.tracking_mode='Consumable' THEN 'Consumable' ELSE 'Equipment' END,:qty FROM resources r WHERE r.resource_id=:res2");
    foreach($lines as $l)$ls->execute([":rid"=>$rid,":res"=>$l[0],":qty"=>$l[1],":res2"=>$l[0]]);
    return $rid;};
  $release=function(string $who,int $rid,array $unitIds=[])use($base,&$cookies,&$csrf):array{
-   $d=["csrf_token"=>$csrf[$who],"request_id"=>$rid,"action"=>"release"];
+   $d=["csrf_token"=>$csrf[$who],"request_id"=>$rid,"action"=>"release",'claim_slip_code'=>gsoTestPresentedClaimSlip((int)$rid)];
    foreach($unitIds as $lineId=>$us){foreach(array_values($us) as $i=>$u)$d["unit_ids"][$lineId][$i]=$u;}
    return p5h($base,"admin/requests.php",$cookies[$who],"POST",$d);};
  $lineId=function(int $rid,int $resourceId)use($pdo):int{return (int)p5v($pdo,"SELECT request_item_id FROM request_items WHERE request_id=? AND resource_id=?",[$rid,$resourceId]);};
@@ -172,7 +172,7 @@ try{
  $release("borrower",$rGate);p5a($status($rGate)==="Approved","Borrower gained release authority.");$checks++;
  $release("director",$rGate);p5a($status($rGate)==="Approved","Director gained release authority.");$checks++;
  foreach(["borrower","other","director"] as $who){$release($who,$rGate);p5a($status($rGate)==="Approved","{$who} released a request.");$checks++;}
- p5h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>"forged","request_id"=>$rGate,"action"=>"release"]);
+ p5h($base,"admin/requests.php",$cookies["admin"],"POST",["csrf_token"=>"forged","request_id"=>$rGate,"action"=>"release",'claim_slip_code'=>gsoTestPresentedClaimSlip((int)$rGate)]);
  p5a($status($rGate)==="Approved","Release CSRF bypassed.");$checks++;
  $release("staff",$rGate);p5a($status($rGate)==="Released","GSO Staff could not release an ordinary request.");$checks++;
  p5a((int)p5v($pdo,"SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='resource_requests' AND (column_name LIKE 'adviser%' OR column_name LIKE 'director%' OR column_name IN('resource_id','quantity'))")===0,"Retired routing or header mirror columns still exist.");$checks++;

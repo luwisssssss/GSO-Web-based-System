@@ -13,7 +13,7 @@ $base = (string) gsoEnv('GSO_R1_BASE_URL', 'http://127.0.0.1:8091/GSO_WebSystem'
 if (!in_array(parse_url($base, PHP_URL_HOST), ['127.0.0.1', 'localhost', '::1'], true)) {
     throw new RuntimeException('R1 HTTP target must be loopback.');
 }
-require_once $root . '/config/db.php';
+require_once $root . '/config/db.php';require_once __DIR__.'/claim_slip_test_helper.php';
 require_once $root . '/includes/return_detail_helper.php';
 require_once $root . '/includes/overdue_helper.php';
 require_once $root . '/includes/ai_live_data_helper.php';
@@ -89,7 +89,7 @@ try {
         $id = (int) $pdo->lastInsertId(); $resources[] = $id; return $id;
     };
     $request = function(array $lines) use (&$requests, $users, $pdo): int {
-        r1exec("INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status) VALUES(?,DATE_ADD(CURDATE(),INTERVAL 8 DAY),'08:00:00','10:00:00','Approved')", [$users['borrower']]);
+        r1exec("INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status,claim_slip_code) VALUES(?,DATE_ADD(CURDATE(),INTERVAL 8 DAY),'08:00:00','10:00:00','Approved',?)", [$users['borrower'], gsoGenerateClaimSlipCode()]);
         $id = (int) $pdo->lastInsertId(); $requests[] = $id;
         foreach ($lines as [$resource, $quantity]) r1exec("INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity) SELECT ?,resource_id,CASE WHEN tracking_mode='Facility' THEN 'Facility' WHEN tracking_mode='Consumable' THEN 'Consumable' ELSE 'Equipment' END,? FROM resources WHERE resource_id=?", [$id,$quantity,$resource]);
         return $id;
@@ -98,7 +98,7 @@ try {
     $stock = fn(int $id): array => r1rows('SELECT total_stock,available_stock,under_repair_stock FROM resources WHERE resource_id=?', [$id])[0];
     $line = fn(int $id, int $resource): int => (int) r1value('SELECT request_item_id FROM request_items WHERE request_id=? AND resource_id=?', [$id,$resource]);
     $release = function(int $id, array $units = []) use (&$csrf): void {
-        r1http('admin', 'admin/requests.php', ['csrf_token'=>$csrf['admin'],'request_id'=>$id,'action'=>'release','unit_ids'=>$units]);
+        r1http('admin', 'admin/requests.php', ['csrf_token'=>$csrf['admin'],'request_id'=>$id,'action'=>'release','claim_slip_code'=>gsoTestPresentedClaimSlip((int)$id),'unit_ids'=>$units]);
     };
     $submit = function(int $id, array $lines, string $who = 'borrower', bool $photo = false) use (&$csrf, $proof): array {
         $data = ['csrf_token'=>$csrf[$who], 'condition_notes'=>'R1 proof', 'lines'=>$lines];

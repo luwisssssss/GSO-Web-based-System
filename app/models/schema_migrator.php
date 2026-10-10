@@ -167,6 +167,34 @@ function gsoFinalCleanupBlockers(PDO $pdo): array
 }
 
 /**
+ * Gate for 20261010_008_claim_slip_code.
+ *
+ * An Approved request must hold a Claim Slip Code once the migration is in
+ * place. Codes are issued only by an approval, never fabricated by a migration,
+ * so any request that is already Approved is reported for an explicit decision
+ * instead of being changed silently.
+ */
+function gsoClaimSlipBlockers(PDO $pdo): array
+{
+    if (columnExists($pdo, "resource_requests", "claim_slip_code")) {
+        $sql = "SELECT request_id FROM resource_requests WHERE status = 'Approved' AND claim_slip_code IS NULL ORDER BY request_id";
+    } else {
+        $sql = "SELECT request_id FROM resource_requests WHERE status = 'Approved' ORDER BY request_id";
+    }
+    $ids = $pdo->query($sql)->fetchAll(PDO::FETCH_COLUMN);
+
+    if ($ids === []) {
+        return [];
+    }
+
+    return [
+        count($ids) . " request(s) are currently Approved and unreleased without a Claim Slip Code: #"
+        . implode(", #", array_map("intval", $ids))
+        . ". Release, cancel or re-approve them under the previous version first, or decide explicitly how each should receive a code.",
+    ];
+}
+
+/**
  * Bring the connected database to GSO_SCHEMA_VERSION.
  *
  * @return string[] progress lines for the operator
@@ -210,14 +238,14 @@ function gsoRunSchemaMigrations(PDO $pdo, string $projectRoot): array
         throw new RuntimeException("Database version {$version} is newer than this code ({" . GSO_SCHEMA_VERSION . "}).");
     }
 
-    $gates = ["20261010_007" => "gsoFinalCleanupBlockers"];
+    $gates = ["20261010_007" => "gsoFinalCleanupBlockers", "20261010_008" => "gsoClaimSlipBlockers"];
 
     foreach (gsoPendingMigrations($projectRoot . "/database/migrations", $version) as $identifier => $path) {
         if (isset($gates[$identifier])) {
             $blockers = $gates[$identifier]($pdo);
             if ($blockers !== []) {
                 throw new RuntimeException(
-                    basename($path) . " was NOT applied. Nothing was dropped. Historical data must be preserved:\n  - "
+                    basename($path) . " was NOT applied and the schema is unchanged:\n  - "
                     . implode("\n  - ", $blockers)
                 );
             }

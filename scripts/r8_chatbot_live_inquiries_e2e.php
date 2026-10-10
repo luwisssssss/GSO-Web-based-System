@@ -6,7 +6,7 @@ if (!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/', (string)gsoEnv('GSO_D
 $base=(string)gsoEnv('GSO_R8_BASE_URL','http://127.0.0.1:8099/GSO_WebSystem');
 if (!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true)) throw new RuntimeException('Loopback only.');
 define('GSO_CHAT_READ_ONLY',true);
-require_once dirname(__DIR__).'/config/db.php';
+require_once dirname(__DIR__).'/config/db.php';require_once __DIR__.'/claim_slip_test_helper.php';
 require_once dirname(__DIR__).'/includes/ai_chat_helper.php';
 require_once dirname(__DIR__).'/includes/reschedule_helper.php';
 require_once dirname(__DIR__).'/includes/preventive_maintenance_helper.php';
@@ -52,7 +52,7 @@ try {
     $auth=['user_id'=>$users['a'],'role'=>'Borrower'];$date=date('Y-m-d',strtotime('+30 days'));$proposed=date('Y-m-d',strtotime('+31 days'));
     $make=function(int $res,string $status='Approved',string $who='a',string $mode='Registered',int $qty=1)use($users,$date,$hall,$paper):int {
         global $pdo,$requests;
-        qExec('INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status,requester_type,encoded_by,walkin_full_name,walkin_contact_number,notes)VALUES(?,?,?,?,?,?,?,?,?,?)',[$mode==='Registered'?$users[$who]:null,$date,'09:00:00','10:00:00',$status,$mode,$mode==='Walk-in'?$users['admin']:null,$mode==='Walk-in'?'PRIVATE-WALKIN-NAME':null,$mode==='Walk-in'?'PRIVATE-PHONE':null,'PRIVATE-STAFF-NOTE']);
+        qExec('INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status,claim_slip_code,requester_type,encoded_by,walkin_full_name,walkin_contact_number,notes)VALUES(?,?,?,?,?,?,?,?,?,?,?)',[$mode==='Registered'?$users[$who]:null,$date,'09:00:00','10:00:00',$status,gsoTestClaimSlipFor($status),$mode,$mode==='Walk-in'?$users['admin']:null,$mode==='Walk-in'?'PRIVATE-WALKIN-NAME':null,$mode==='Walk-in'?'PRIVATE-PHONE':null,'PRIVATE-STAFF-NOTE']);
         $id=(int)$pdo->lastInsertId();$requests[]=$id;
         qExec('INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity,facility_slot)VALUES(?,?,?,?,?)',[$id,$res,$res===$hall?'Facility':($res===$paper?'Consumable':'Equipment'),$qty,$res===$hall?'AM':null]);return $id;
     };
@@ -66,9 +66,9 @@ try {
     qAssert(!$fa($date,'00:00:00','01:00:00')['success'],'Configured opening not respected');
     $hours=gsoFacilityOperatingHours($pdo);$late=$fa($date,$hours['start'],'23:59:00');qAssert($late['facts']['extended_hours_required']&&str_contains($late['message'],'GSO review')&&!str_contains($late['message'],'Director'),'Extended hours not GSO controlled');
     $reservation=$make($hall);
-    foreach(['Approved','Released','Return'] as $state){qExec('UPDATE resource_requests SET status=? WHERE request_id=?',[$state,$reservation]);qAssert(!$fa($date)['facts']['available'],$state.' failed to block');qAssert($fa($date,'10:00:00','11:00:00')['facts']['available'],'Same AM nonoverlap blocked for '.$state);}
-    foreach(['Pending','Under Review','Rejected','Cancelled','Returned','Completed'] as $state){qExec('UPDATE resource_requests SET status=? WHERE request_id=?',[$state,$reservation]);qAssert($fa($date)['facts']['available'],$state.' falsely blocked');}
-    qExec("UPDATE resource_requests SET status='Approved' WHERE request_id=?",[$reservation]);
+    foreach(['Approved','Released','Return'] as $state){qExec("UPDATE resource_requests SET status=?,claim_slip_code=IF(? IN('Pending','Under Review'),NULL,claim_slip_code) WHERE request_id=?",[$state,$state,$reservation]);qAssert(!$fa($date)['facts']['available'],$state.' failed to block');qAssert($fa($date,'10:00:00','11:00:00')['facts']['available'],'Same AM nonoverlap blocked for '.$state);}
+    foreach(['Pending','Under Review','Rejected','Cancelled','Returned','Completed'] as $state){qExec("UPDATE resource_requests SET status=?,claim_slip_code=IF(? IN('Pending','Under Review'),NULL,claim_slip_code) WHERE request_id=?",[$state,$state,$reservation]);qAssert($fa($date)['facts']['available'],$state.' falsely blocked');}
+    qExec("UPDATE resource_requests SET status='Approved',claim_slip_code=COALESCE(claim_slip_code,'".gsoGenerateClaimSlipCode()."') WHERE request_id=?",[$reservation]);
     gsoTestVerifiedLetter($pdo,$reservation,$users['admin']);
     $proposal=gsoCreateReschedule($pdo,$users['a'],$reservation,['date_needed'=>$proposed,'start_time'=>'09:00','end_time'=>'10:00','facility_slot'=>'AM','reason'=>'PRIVATE-RESCHEDULE-REASON']);
     $attempt=(int)qVal('SELECT reschedule_id FROM request_reschedule_history WHERE request_id=?',[$reservation]);
@@ -90,7 +90,7 @@ try {
     qExec('UPDATE resources SET available_stock=17,under_repair_stock=3,condition_status=? WHERE resource_id=?',['Damaged',$chairs]);
     $r=$eq($chairs,$date,10);qAssert($r['facts']['available_quantity']===17&&$r['facts']['available'],'Partial corrective stock unavailable');qAssert(!str_contains($r['message'],'Lost'),'Damaged described as Lost');
     $job($chairs,'Preventive',$maintDate,2);$r=$eq($chairs,$maintDate,10);qAssert($r['facts']['available_quantity']===15&&$r['facts']['available'],'Partial aggregate preventive incorrect');qAssert(!$eq($chairs,$maintDate,16)['facts']['available'],'Excess quantity allowed');
-    $stockRequest=$make($chairs,qty:4);qAssert($eq($chairs,$date,10)['facts']['available_quantity']===13,'Confirmed equipment quantity not subtracted');qExec("UPDATE resource_requests SET status='Pending' WHERE request_id=?",[$stockRequest]);qAssert($eq($chairs,$date)['facts']['available_quantity']===13,'Existing equipment scheduling priority diverged from shared helper');
+    $stockRequest=$make($chairs,qty:4);qAssert($eq($chairs,$date,10)['facts']['available_quantity']===13,'Confirmed equipment quantity not subtracted');qExec("UPDATE resource_requests SET status='Pending',claim_slip_code=NULL WHERE request_id=?",[$stockRequest]);qAssert($eq($chairs,$date)['facts']['available_quantity']===13,'Existing equipment scheduling priority diverged from shared helper');
     $units=[];for($i=0;$i<5;$i++){qExec('INSERT INTO equipment_units(resource_id,asset_tag,serial_number,status,condition_status)VALUES(?,?,?,?,?)',[$serial,$mark.'-PRIVATE-TAG-'.$i,$mark.'-PRIVATE-SERIAL-'.$i,$i===4?'Lost':($i===3?'Under Repair':'Available'),$i===4?'Lost':($i===3?'Damaged':'Good')]);$units[]=(int)$pdo->lastInsertId();}
     qExec('UPDATE resources SET total_stock=4,available_stock=3,under_repair_stock=1 WHERE resource_id=?',[$serial]);
     $job($serial,'Preventive',$maintDate,1,$units[0]);$r=$eq($serial,$maintDate,2);qAssert($r['facts']['available_quantity']===2&&$r['facts']['available'],'Serialized partial preventive count incorrect');

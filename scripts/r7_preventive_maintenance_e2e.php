@@ -8,7 +8,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__).'/config/bootstrap.php';
 if(!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R7 requires an isolated gso_r7_test_* database.');
 $base=(string)gsoEnv('GSO_R7_BASE_URL','http://127.0.0.1:8098/GSO_WebSystem');if(!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true))throw new RuntimeException('Loopback only.');
-require_once dirname(__DIR__).'/config/db.php';
+require_once dirname(__DIR__).'/config/db.php';require_once __DIR__.'/claim_slip_test_helper.php';
 require_once dirname(__DIR__).'/includes/request_helper.php';
 require_once dirname(__DIR__).'/includes/request_line_helper.php';
 require_once dirname(__DIR__).'/includes/reschedule_helper.php';
@@ -68,11 +68,11 @@ try{
     $planCount=fn()=>(int)qVal('SELECT COUNT(*) FROM preventive_maintenance_plans WHERE created_by IN(?,?,?,?,?,?)',array_values($users));
     $planPost=function(string $who,array $data,string $query='')use(&$csrf){return qHttp($who,'admin/preventive_plans.php'.$query,array_replace(['csrf_token'=>$csrf[$who]??''],$data));};
     $make=function(string $who,array $lines,int $offset,string $status='Approved',?string $period='AM',string $start='09:00:00',string $end='11:00:00',bool $verified=true)use($pdo,$users,$facilities,$paper,$date):int{
-        qExec('INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status,approved_by,approved_at)VALUES(?,?,?,?,?,?,NOW())',[$users[$who],$date($offset),$start,$end,$status,$users['admin']]);$rid=(int)$pdo->lastInsertId();
+        qExec('INSERT INTO resource_requests(borrower_id,date_needed,start_time,end_time,status,claim_slip_code,approved_by,approved_at)VALUES(?,?,?,?,?,?,?,NOW())',[$users[$who],$date($offset),$start,$end,$status,gsoTestClaimSlipFor($status),$users['admin']]);$rid=(int)$pdo->lastInsertId();
         foreach($lines as [$id,$qty]){$kind=in_array($id,$facilities,true)?'Facility':($id===$paper?'Consumable':'Equipment');qExec('INSERT INTO request_items(request_id,resource_id,line_kind,requested_quantity,facility_slot)VALUES(?,?,?,?,?)',[$rid,$id,$kind,$qty,$kind==='Facility'?$period:null]);}
         if($verified)gsoTestVerifiedLetter($pdo,$rid,$users['admin']);return $rid;
     };
-    $process=function(string $who,int $id,string $action,array $extra=[])use(&$csrf){return qHttp($who,'admin/requests.php',array_replace(['csrf_token'=>$csrf[$who],'request_id'=>$id,'action'=>$action],$extra));};
+    $process=function(string $who,int $id,string $action,array $extra=[])use(&$csrf){return qHttp($who,'admin/requests.php',array_replace(['csrf_token'=>$csrf[$who],'request_id'=>$id,'action'=>$action]+($action==='release'?['claim_slip_code'=>gsoTestPresentedClaimSlip($id)]:[]),$extra));};
     $state=fn(int $id)=>qVal('SELECT status FROM resource_requests WHERE request_id=?',[$id]);
     $schedule=fn(int $id)=>qRows('SELECT date_needed,start_time,end_time FROM resource_requests WHERE request_id=?',[$id])[0];
     $touch=fn()=>qHttp('admin','admin/maintenance.php'); // any page load runs the maintenance sync
@@ -183,7 +183,7 @@ try{
     $review('admin',$reservation,$first);qAssert($schedule($reservation)===$original,'Registered reschedule bypassed preventive maintenance');
     $review('admin',$reservation,$first,'reject');$propose(33);$second=$attempt($reservation);qAssert($second>$first,'Follow-up proposal not recorded');
     $review('admin',$reservation,$second);qAssert($schedule($reservation)['date_needed']===$date(33),'R4 valid reschedule approval failed');
-    qExec("UPDATE resource_requests SET status='Approved',approved_by=?,approved_at=NOW() WHERE request_id=?",[$users['admin'],$walkHall]);$walkOriginal=$schedule($walkHall);
+    qExec("UPDATE resource_requests SET status='Approved',claim_slip_code=COALESCE(claim_slip_code,'".gsoGenerateClaimSlipCode()."'),approved_by=?,approved_at=NOW() WHERE request_id=?",[$users['admin'],$walkHall]);$walkOriginal=$schedule($walkHall);
     qHttp('staff','admin/walkin_actions.php?request_id='.$walkHall,['csrf_token'=>$csrf['staff'],'action'=>'reschedule','date_needed'=>$date(40),'start_time'=>'09:00','end_time'=>'11:00','facility_slot'=>'AM','reason'=>'Client asked to move the event']);$walkAttempt=$attempt($walkHall);qAssert($walkAttempt>0,'Walk-in reschedule proposal was not recorded');
     $review('admin',$walkHall,$walkAttempt);qAssert($schedule($walkHall)===$walkOriginal,'Walk-in reschedule bypassed preventive maintenance');
     $unverified=$make('a',[[$hall2,1]],35,'Pending','AM','09:00:00','11:00:00',false);$process('admin',$unverified,'approve');qAssert($state($unverified)!=='Approved','R2B approval no longer requires a verified letter');

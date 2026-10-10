@@ -4,7 +4,7 @@ require_once dirname(__DIR__).'/config/bootstrap.php';
 if(!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')))throw new RuntimeException('R2B tests require an isolated gso_r2b_test_* database.');
 $base=(string)gsoEnv('GSO_R2B_BASE_URL','http://127.0.0.1:8094/GSO_WebSystem');
 if(!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true))throw new RuntimeException('Loopback only.');
-require_once dirname(__DIR__).'/config/db.php';
+require_once dirname(__DIR__).'/config/db.php';require_once __DIR__.'/claim_slip_test_helper.php';
 require_once __DIR__.'/request_letter_test_helper.php';
 $checks=0;$users=[];$cookies=[];$csrf=[];$resources=[];$requests=[];$files=[];$failure=null;
 function bAssert(bool $ok,string $message):void{global $checks;$checks++;if(!$ok)throw new RuntimeException($message);}
@@ -96,7 +96,7 @@ try{
     bAssert(bHttp('mis','admin/admin_accounts.php')['status']===200&&bHttp('admin','admin/admin_accounts.php')['status']===302,'R2A Account Management separation broke');
     bAssert(bHttp('director','director/dashboard.php')['status']===200&&!str_contains(bHttp('director','director/dashboard.php')['body'],'request_document.php'),'Director read-only schedule exposed documents');
     // Real R1 equipment release -> Return -> Returned remains operational.
-    $approve('admin',$eq);bHttp('staff','admin/requests.php',['csrf_token'=>$csrf['staff'],'request_id'=>$eq,'action'=>'release']);bAssert($status($eq)==='Released','R1 release failed');
+    $approve('admin',$eq);bHttp('staff','admin/requests.php',['csrf_token'=>$csrf['staff'],'request_id'=>$eq,'action'=>'release','claim_slip_code'=>gsoTestPresentedClaimSlip((int)$eq)]);bAssert($status($eq)==='Released','R1 release failed');
     $line=(int)bVal('SELECT request_item_id FROM request_items WHERE request_id=?',[$eq]);
     bHttp('owner','borrower/return_submit.php?request_id='.$eq,['csrf_token'=>$csrf['owner'],'lines'=>[$line=>['condition'=>'Good','returned_quantity'=>1,'lost_quantity'=>0]]]);bAssert($status($eq)==='Return','R1 return submission failed');
     $detail=(int)bVal('SELECT d.return_item_id FROM return_submission_items d JOIN return_submissions r ON r.return_id=d.return_id WHERE r.request_id=?',[$eq]);

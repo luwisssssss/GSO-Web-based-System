@@ -4228,3 +4228,71 @@ textarea:focus {
     font-weight: 600;
     cursor: pointer;
 }
+
+/* Claim Slip Code: shown to the request owner and to GSO, verified at release. */
+.claim-slip-code {
+    display: inline-block;
+    margin: 6px 0;
+    padding: 6px 12px;
+    border: 1px dashed #1d4ed8;
+    border-radius: 10px;
+    background: #eef4ff;
+    color: #0f172a;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    white-space: nowrap;
+}
+
+.claim-slip-card .claim-slip-code {
+    font-size: 1.7rem;
+    padding: 10px 18px;
+}
+
+.claim-slip-box {
+    margin-top: 10px;
+    max-width: 260px;
+}
+
+.claim-slip-box > span,
+.claim-slip-box > small,
+.claim-slip-used {
+    display: block;
+    color: #475569;
+    font-size: 0.8rem;
+}
+
+.claim-slip-entry {
+    display: block;
+    margin: 6px 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: left;
+}
+
+.claim-slip-entry input {
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+    padding: 7px 9px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-family: "Consolas", "Courier New", monospace;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+@media print {
+    body:has(.claim-slip-card) .sidebar,
+    body:has(.claim-slip-card) .topbar,
+    body:has(.claim-slip-card) .chat-widget,
+    body:has(.claim-slip-card) .page-content > *:not(.claim-slip-card),
+    .claim-slip-print {
+        display: none !important;
+    }
+
+    body:has(.claim-slip-card) .main-content {
+        margin: 0 !important;
+    }
+}

@@ -8,7 +8,7 @@ if (!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/', (string) gsoEnv('GSO_
 }
 $base = (string) gsoEnv('GSO_R2A_BASE_URL', 'http://127.0.0.1:8093/GSO_WebSystem');
 if (!in_array(parse_url($base, PHP_URL_HOST), ['127.0.0.1','localhost','::1'], true)) throw new RuntimeException('Loopback only.');
-require_once $root . '/config/db.php';
+require_once $root . '/config/db.php';require_once __DIR__.'/claim_slip_test_helper.php';
 require_once $root . '/includes/role_helper.php';
 require_once __DIR__ . '/request_letter_test_helper.php';
 require_once $root . '/includes/facility_calendar_helper.php';
@@ -138,7 +138,7 @@ try {
     r2aAssert(r2aRows('SELECT * FROM resource_requests WHERE request_id IN (?,?) ORDER BY request_id',[$mixed,$equipment])===$requestSnapshot&&r2aRows('SELECT * FROM notifications WHERE user_id=? ORDER BY notification_id',[$users['director']])===$notifications,'Retired routing action changed a request or notified the Director');
     r2aHttp('admin','admin/requests.php',['csrf_token'=>$csrf['admin'],'request_id'=>$mixed,'action'=>'approve']);
     r2aAssert(r2aValue('SELECT status FROM resource_requests WHERE request_id=?',[$mixed])==='Approved','Historical Pending Director blocked GSO approval');
-    r2aHttp('admin','admin/requests.php',['csrf_token'=>$csrf['admin'],'request_id'=>$mixed,'action'=>'release']);
+    r2aHttp('admin','admin/requests.php',['csrf_token'=>$csrf['admin'],'request_id'=>$mixed,'action'=>'release','claim_slip_code'=>gsoTestPresentedClaimSlip((int)$mixed)]);
     r2aAssert(r2aValue('SELECT status FROM resource_requests WHERE request_id=?',[$mixed])==='Released','Historical Pending Director blocked release');
     r2aHttp('admin','admin/requests.php',['csrf_token'=>$csrf['admin'],'request_id'=>$equipment,'action'=>'approve']);
     r2aAssert(r2aValue('SELECT status FROM resource_requests WHERE request_id=?',[$equipment])==='Approved','Historical rejected Director state blocked GSO');

@@ -10,7 +10,7 @@ if(!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_
 $base=(string)gsoEnv('GSO_R10_BASE_URL','http://127.0.0.1:8100/GSO_WebSystem');
 if(!in_array(parse_url($base,PHP_URL_HOST),['127.0.0.1','localhost','::1'],true))throw new RuntimeException('Loopback only.');
 $root=dirname(__DIR__);
-require_once $root.'/config/db.php';
+require_once $root.'/config/db.php';require_once __DIR__.'/claim_slip_test_helper.php';
 require_once $root.'/includes/request_helper.php';
 require_once $root.'/includes/request_line_helper.php';
 require_once $root.'/includes/request_attachment_helper.php';
@@ -82,7 +82,7 @@ try{
         $before=$newest($who);$post=['csrf_token'=>$csrf[$who],'contact_number'=>'09123456789']+$data;if($letter)$post['request_letter']=new CURLFile($png,'image/png','signed-letter.png');
         qHttp($who,'borrower/request_resource.php?resource_id='.$primary,$post);$id=$newest($who);if($id>$before){$requests[]=$id;return $id;}return 0;
     };
-    $process=fn(string $who,int $id,string $action,array $extra=[])=>qHttp($who,'admin/requests.php',array_replace(['csrf_token'=>$csrf[$who]??'','request_id'=>$id,'action'=>$action],$extra));
+    $process=fn(string $who,int $id,string $action,array $extra=[])=>qHttp($who,'admin/requests.php',array_replace(['csrf_token'=>$csrf[$who]??'','request_id'=>$id,'action'=>$action]+($action==='release'?['claim_slip_code'=>gsoTestPresentedClaimSlip($id)]:[]),$extra));
     $verify=function(int $id,string $who='staff',string $action='verify_letter',string $remarks='')use(&$csrf,$pdo){$letter=gsoRequestLetters($pdo,$id)[0]??null;return qHttp($who,'admin/view_request.php?request_id='.$id,['csrf_token'=>$csrf[$who]??'','action'=>$action,'attachment_id'=>(int)($letter['attachment_id']??0),'verification_remarks'=>$remarks]);};
     $returnPost=function(string $who,int $id,array $lines,bool $photo=false,bool $walkin=false)use(&$csrf,$png){$data=['csrf_token'=>$csrf[$who]??'','condition_notes'=>'R10 return','lines'=>$lines];if($photo)$data['proof_photos']=[new CURLFile($png,'image/png','post-use.png')];return qHttp($who,($walkin?'admin/walkin_return.php':'borrower/return_submit.php').'?request_id='.$id,$data);};
     $returnId=fn(int $id)=>(int)qVal('SELECT return_id FROM return_submissions WHERE request_id=?',[$id]);

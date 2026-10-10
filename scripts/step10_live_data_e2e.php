@@ -19,7 +19,7 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 require_once $root . "/config/bootstrap.php";
-require_once $root . "/config/db.php";
+require_once $root . "/config/db.php";require_once __DIR__.'/claim_slip_test_helper.php';
 require_once $root . "/includes/ai_chat_helper.php";
 
 final class Step10Failure extends RuntimeException
@@ -189,10 +189,10 @@ try {
     $conflictDate = date("Y-m-d", strtotime("+3 days"));
     $pdo->prepare("
         INSERT INTO resource_requests (borrower_id, contact_number, date_needed,
-                                       start_time, end_time, status, approved_by, approved_at, notes)
-        VALUES (:b, '+63 900 000 0000', :d, '13:00:00', '15:00:00', 'Approved', :admin, NOW(), :notes)
+                                       start_time, end_time, status, claim_slip_code, approved_by, approved_at, notes)
+        VALUES (:b, '+63 900 000 0000', :d, '13:00:00', '15:00:00', 'Approved', :slip, :admin, NOW(), :notes)
     ")->execute([
-        ":b" => $borrowerB, ":d" => $conflictDate,
+        ":b" => $borrowerB, ":d" => $conflictDate, ":slip" => gsoGenerateClaimSlipCode(),
         ":admin" => $adminId, ":notes" => "Conflict fixture {$marker}",
     ]);
     $conflictRequestId=(int)$pdo->lastInsertId();
