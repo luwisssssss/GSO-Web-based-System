@@ -68,6 +68,7 @@ if ($page > $totalPages) {
 $listSql = "
     SELECT
         rr.request_id,
+        " . gsoReturnOutcomeSummarySql() . " AS outcome_summary,
         r.quantity,
         rr.request_date,
         rr.date_needed,
@@ -212,7 +213,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                     <td>BRW-<?php echo str_pad((string) $rid, 3, "0", STR_PAD_LEFT); ?></td>
 
                                     <td>
-                                        <strong><?php echo htmlspecialchars($row["resource_name"]); ?></strong><br>
+                                        <strong><?php echo htmlspecialchars($row["resource_name"]); ?></strong><?php if(!empty($row['outcome_summary'])):?><small>Return outcomes: <?php echo htmlspecialchars($row['outcome_summary']);?></small><?php endif;?><br>
                                         <small>
                                             <?php echo htmlspecialchars($row["resource_type"]); ?>
                                             <?php if (!empty($row["category"])): ?>

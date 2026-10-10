@@ -36,6 +36,7 @@ if (!function_exists("refreshResourceOperationalStatus")) {
                 resource_type,
                 total_stock,
                 available_stock,
+                under_repair_stock,
                 status,
                 condition_status,
                 is_archived
@@ -62,6 +63,7 @@ if (!function_exists("refreshResourceOperationalStatus")) {
             FROM maintenance_schedules
             WHERE resource_id = :resource_id
               AND status = 'In Progress'
+              AND ((SELECT resource_type FROM resources WHERE resource_id=maintenance_schedules.resource_id)='Facility' OR(quantity=0 AND equipment_unit_id IS NULL AND source_return_item_id IS NULL))
         ");
         $activeMaintenanceStmt->execute([
             ":resource_id" => $resourceId
@@ -74,7 +76,7 @@ if (!function_exists("refreshResourceOperationalStatus")) {
 
         if ($hasActiveMaintenance) {
             $nextStatus = "Maintenance";
-        } elseif (in_array($conditionStatus, ["Damaged", "Missing Parts", "Needs Repair", "Lost"], true)) {
+        } elseif (in_array($conditionStatus, ["Damaged", "Missing Parts", "Needs Repair", "Lost"], true) && !($resourceType==='Item' && $conditionStatus!=='Lost' && (int)$resource['under_repair_stock']>0 && $availableStock>0)) {
             $nextStatus = "Unavailable";
         } elseif ($resourceType === "Item") {
             $nextStatus = $availableStock > 0 ? "Available" : "Unavailable";
@@ -253,7 +255,8 @@ if (!function_exists("getMaintenanceConflict")) {
         PDO $pdo,
         int $resourceId,
         ?string $rangeStart,
-        ?string $rangeEnd
+        ?string $rangeEnd,
+        bool $wholeResourceOnly=false
     ): ?array {
         if ($resourceId <= 0) {
             return null;
@@ -275,6 +278,7 @@ if (!function_exists("getMaintenanceConflict")) {
                 status
             FROM maintenance_schedules
             WHERE resource_id = :resource_id
+              " . ($wholeResourceOnly ? "AND quantity=0 AND equipment_unit_id IS NULL AND source_return_item_id IS NULL" : "") . "
               AND status IN ('Scheduled', 'In Progress')
               AND NOT (
                     :range_end < CONCAT(start_date, ' 00:00:00')

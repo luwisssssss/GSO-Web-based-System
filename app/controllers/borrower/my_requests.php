@@ -178,6 +178,7 @@ $listSql = "
         rr.return_date,
         rr.notes,
         rs.inspection_condition,
+        " . gsoReturnOutcomeSummarySql() . " AS outcome_summary,
         (SELECT GROUP_CONCAT(CONCAT(lr.resource_name, CASE WHEN li.line_kind = 'Facility' THEN '' ELSE CONCAT(' x', li.requested_quantity) END) ORDER BY FIELD(li.line_kind,'Facility','Equipment','Consumable'), lr.resource_name SEPARATOR ', ') FROM request_items li INNER JOIN resources lr ON lr.resource_id = li.resource_id WHERE li.request_id = rr.request_id) AS line_summary,
         (SELECT COUNT(*) FROM request_items lc WHERE lc.request_id = rr.request_id) AS line_count,
         r.resource_name,
@@ -296,7 +297,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                     <td>REQ-<?php echo str_pad($request["request_id"], 3, "0", STR_PAD_LEFT); ?></td>
 
                                     <td>
-                                        <strong><?php echo htmlspecialchars((string) ($request["line_summary"] ?? $request["resource_name"])); ?></strong><?php if ((int) ($request["line_count"] ?? 1) > 1): ?> <span class="status-badge underreview"><?php echo (int) $request["line_count"]; ?> resources</span><?php endif; ?><br>
+                                        <strong><?php echo htmlspecialchars((string) ($request["line_summary"] ?? $request["resource_name"])); ?></strong><?php if(!empty($request['outcome_summary'])):?><small>Return outcomes: <?php echo htmlspecialchars($request['outcome_summary']);?></small><?php endif;?><?php if ((int) ($request["line_count"] ?? 1) > 1): ?> <span class="status-badge underreview"><?php echo (int) $request["line_count"]; ?> resources</span><?php endif; ?><br>
                                         <small>
                                             <?php echo htmlspecialchars($request["resource_type"]); ?>
                                             <?php if (!empty($request["category"])): ?>
@@ -347,6 +348,7 @@ require_once dirname(__DIR__, 3) . "/includes/borrower_sidebar.php";
                                             </button>
 
                                             <div class="row-actions-menu" role="menu">
+                                                <?php if(in_array($request['status'],['Return','Returned'],true)):?><a class="row-action-item" role="menuitem" href="return_history.php?request_id=<?php echo (int)$request['request_id'];?>">Return History</a><?php endif;?>
                                                 <?php if(gsoRescheduleEligible($pdo,$request)):?><a class="row-action-item" role="menuitem" href="reschedule.php?request_id=<?php echo (int)$request["request_id"];?>">Request Reschedule</a><?php elseif(gsoRescheduleHistory($pdo,(int)$request["request_id"])):?><a class="row-action-item" role="menuitem" href="reschedule.php?request_id=<?php echo (int)$request["request_id"];?>">Reschedule History</a><?php endif;?>
                                                 <?php if(gsoRequestHasFacility($pdo,(int)$request["request_id"])): ?><a class="row-action-item" role="menuitem" href="request_letter.php?request_id=<?php echo (int)$request["request_id"]; ?>">Facility request letter</a><?php endif; ?>
                                                 <?php if ($canCancelRequest): ?>

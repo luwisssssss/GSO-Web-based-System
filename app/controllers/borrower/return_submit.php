@@ -436,23 +436,11 @@ require_once dirname(__DIR__,3).($walkinReturn?"/includes/admin_sidebar.php":"/i
                                     </select>
                                 </div>
                             <?php endforeach; ?>
+                        <?php elseif($returnLine['line_kind']!=='Facility'): ?>
+                            <p>Account for all <?php echo $lineReleased;?> units. Good and repairable quantities are physically returned; Lost quantities are not.</p>
+                            <div class="return-unit-row"><?php foreach(getConditionStatusOptions() as $outcome):?><label><?php echo htmlspecialchars($outcome);?><input type="number" name="lines[<?php echo $lineId;?>][outcomes][<?php echo htmlspecialchars($outcome);?>]" min="0" max="<?php echo $lineReleased;?>" value="0" required></label><?php endforeach;?></div>
                         <?php else: ?>
-                            <div class="return-unit-row">
-                                <?php if ((string) $returnLine["line_kind"] !== "Facility"): ?>
-                                    <label>Returned
-                                        <input type="number" name="lines[<?php echo $lineId; ?>][returned_quantity]" min="0" max="<?php echo $lineReleased; ?>" value="<?php echo $lineReleased; ?>" required>
-                                    </label>
-                                    <label>Lost
-                                        <input type="number" name="lines[<?php echo $lineId; ?>][lost_quantity]" min="0" max="<?php echo $lineReleased; ?>" value="0" required>
-                                    </label>
-                                <?php endif; ?>
-                                <select name="lines[<?php echo $lineId; ?>][condition]" required>
-                                    <option value="">Select condition</option>
-                                    <?php foreach (getConditionStatusOptions() as $conditionOption): ?>
-                                        <option value="<?php echo htmlspecialchars($conditionOption); ?>"><?php echo htmlspecialchars($conditionOption); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
+                            <label>Facility post-use condition<select name="lines[<?php echo $lineId;?>][condition]" required><option value="">Select condition</option><?php foreach(array_diff(getConditionStatusOptions(),['Lost']) as $outcome):?><option><?php echo htmlspecialchars($outcome);?></option><?php endforeach;?></select></label>
                         <?php endif; ?>
                     </section>
                 <?php endforeach; ?>

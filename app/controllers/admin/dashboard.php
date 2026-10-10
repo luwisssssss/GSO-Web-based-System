@@ -46,7 +46,9 @@ $inventoryState = $pdo->query("
         SUM(CASE WHEN status = 'Available' THEN 1 ELSE 0 END) AS available_count,
         SUM(CASE WHEN status = 'Unavailable' THEN 1 ELSE 0 END) AS unavailable_count,
         SUM(CASE WHEN status = 'Maintenance' THEN 1 ELSE 0 END) AS maintenance_count,
-        SUM(CASE WHEN condition_status IN ('Damaged', 'Missing Parts', 'Needs Repair', 'Lost') THEN 1 ELSE 0 END) AS issue_count
+        SUM(CASE WHEN condition_status IN ('Damaged','Missing Parts','Needs Repair') OR under_repair_stock>0 THEN 1 ELSE 0 END) AS damage_count,
+        SUM(CASE WHEN condition_status='Lost' THEN 1 ELSE 0 END) AS loss_count,
+        SUM(CASE WHEN condition_status IN ('Damaged','Missing Parts','Needs Repair','Lost') OR under_repair_stock>0 THEN 1 ELSE 0 END) AS issue_count
     FROM resources
     WHERE is_archived = 0
 ")->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -186,6 +188,7 @@ $recentLogs = $recentLogsStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 $inventoryTotal = (int) ($inventoryState["total_count"] ?? 0);
 $availablePct = pct((int) ($inventoryState["available_count"] ?? 0), $inventoryTotal);
 $maintenancePct = pct((int) ($inventoryState["maintenance_count"] ?? 0), $inventoryTotal);
+$returnOutcomes=$pdo->query("SELECT inspection_condition,SUM(returned_quantity+lost_quantity) quantity FROM return_submission_items WHERE stock_applied=1 GROUP BY inspection_condition")->fetchAll(PDO::FETCH_KEY_PAIR);
 $issuePct = pct((int) ($inventoryState["issue_count"] ?? 0), $inventoryTotal);
 $unavailablePct = max(0, 100 - $availablePct - $maintenancePct - $issuePct);
 
@@ -256,7 +259,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                     <div class="chart-legend">
                         <span><i class="legend-color-available"></i> Available: <?php echo (int) ($inventoryState["available_count"] ?? 0); ?></span>
                         <span><i class="legend-color-maintenance"></i> Maintenance: <?php echo (int) ($inventoryState["maintenance_count"] ?? 0); ?></span>
-                        <span><i class="legend-color-danger"></i> Damaged/Lost: <?php echo (int) ($inventoryState["issue_count"] ?? 0); ?></span>
+                        <span><i class="legend-color-danger"></i> Repair-related resources: <?php echo (int) ($inventoryState["damage_count"] ?? 0); ?>; Lost resources: <?php echo (int) ($inventoryState["loss_count"] ?? 0); ?></span>
                         <span><i class="legend-color-muted"></i> Other Unavailable: <?php echo (int) ($inventoryState["unavailable_count"] ?? 0); ?></span>
                     </div>
                 </div>
@@ -310,6 +313,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                     <a href="requests.php?status=Approved"><strong><?php echo $urgent["approved"]; ?></strong><span>Ready to release</span></a>
                     <a href="on_loan.php?loan_state=Overdue"><strong><?php echo $urgent["overdue"]; ?></strong><span>Overdue</span></a>
                     <a href="on_loan.php"><strong><?php echo $urgent["return_proofs"]; ?></strong><span>Return proofs</span></a>
+                    <p>Inspected return outcomes - Good: <?php echo (int)($returnOutcomes['Good']??0);?>; Repairable damage: <?php echo (int)($returnOutcomes['Damaged']??0)+(int)($returnOutcomes['Missing Parts']??0)+(int)($returnOutcomes['Needs Repair']??0);?>; Lost: <?php echo (int)($returnOutcomes['Lost']??0);?></p>
                     <a href="maintenance.php?status=In+Progress"><strong><?php echo $urgent["maintenance"]; ?></strong><span>Maintenance</span></a>
                     <a href="inventory.php"><strong><?php echo $urgent["low_stock"]; ?></strong><span>Low stock</span></a>
                     <a href="incidents.php?status=Submitted"><strong><?php echo $urgent["submitted_incidents"]; ?></strong><span>New incidents</span></a>

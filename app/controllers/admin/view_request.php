@@ -2,6 +2,7 @@
 define("GSO_REQUIRED_PERMISSION", "request.view_queue");
 require_once dirname(__DIR__, 3) . "/includes/admin_check.php";
 require_once dirname(__DIR__, 3) . "/config/db.php";
+require_once dirname(__DIR__,3)."/includes/return_detail_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/request_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/adviser_endorsement_helper.php";
 require_once dirname(__DIR__, 3) . "/includes/director_approval_helper.php";
@@ -74,6 +75,7 @@ $stmt = $pdo->prepare("
         rr.return_date,
         rr.notes,
         rs.inspection_condition,
+        " . gsoReturnOutcomeSummarySql() . " AS outcome_summary,
         rs.inspection_remarks,
 
         " . gsoRequesterSql("full_name","rr","borrower") . " AS borrower_name,
@@ -454,6 +456,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
         ?></td><td><?php echo nl2br(htmlspecialchars((string)($event["remarks"]??"—"))); ?></td></tr><?php endforeach;?></tbody></table></div><?php endif; ?></div>
         <?php endif; ?>
 
+        <?php $returnHeader=$pdo->prepare('SELECT return_id FROM return_submissions WHERE request_id=?');$returnHeader->execute([$requestId]);$rid=$returnHeader->fetchColumn();if($rid){$returnDetails=gsoReturnDetailRows($pdo,(int)$rid);require dirname(__DIR__,2).'/views/partials/return_outcomes.php';}?>
         <?php $requestLines = gsoRequestLines($pdo, (int) $request["request_id"]); ?>
         <div class="card detail-block">
             <h3 class="section-title">Requested Resources</h3>
@@ -506,7 +509,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
             <div class="note-box mt-12">
                 <?php
                 if (!empty($request["inspection_condition"])) {
-                    echo "Inspection Condition: " . htmlspecialchars((string) $request["inspection_condition"]);
+                    echo "Inspection Condition: " . htmlspecialchars((string)($request["outcome_summary"]??$request["inspection_condition"]));
 
                     if (!empty($request["inspection_remarks"])) {
                         echo "\n\nRemarks: " . htmlspecialchars((string) $request["inspection_remarks"]);

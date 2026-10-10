@@ -35,6 +35,7 @@ return [
     "borrower" => [
         "/borrower/browse.php" => "app/controllers/borrower/browse.php",
         "/borrower/my_requests.php" => "app/controllers/borrower/my_requests.php",
+        "/borrower/return_history.php" => "app/controllers/borrower/return_history.php",
         "/borrower/reschedule.php" => "app/controllers/borrower/reschedule.php",
         "/borrower/request_letter.php" => "app/controllers/borrower/request_letter.php",
         "/borrower/request_document.php" => "app/controllers/borrower/request_document.php",

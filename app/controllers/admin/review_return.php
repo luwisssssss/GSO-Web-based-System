@@ -174,7 +174,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             }
 
             // The header keeps the worst outcome so existing displays, reports
-            // and the lifecycle helper continue to work unchanged.
+            // while lifecycle status remains separate from inspection outcomes.
             $detailConditions = $pdo->prepare("
                 SELECT inspection_condition FROM return_submission_items
                 WHERE return_id = :return_id AND inspection_condition IS NOT NULL
@@ -397,6 +397,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                 <em>(already settled)</em>
                             <?php endif; ?>
                         </span>
+                        <?php if($detail['unit_id']===null&&$detail['line_kind']!=='Facility'&&(int)$detail['stock_applied']===0):?><fieldset><legend>Confirmed quantities for this group (<?php echo (int)$detail['returned_quantity']+(int)$detail['lost_quantity'];?> total)</legend><p>Split Good, repairable damage, and Lost quantities accurately.</p><?php $selected=$detail['reported_condition']??'';foreach(getConditionStatusOptions() as $outcome):?><label><?php echo htmlspecialchars($outcome);?><input type="number" name="inspection[<?php echo (int)$detail['return_item_id'];?>][outcomes][<?php echo htmlspecialchars($outcome);?>]" min="0" value="<?php echo $selected===$outcome?((int)$detail['returned_quantity']+(int)$detail['lost_quantity']):0;?>" required></label><?php endforeach;?></fieldset><?php else:?>
                         <select
                             name="inspection[<?php echo (int) $detail["return_item_id"]; ?>][condition]"
                             <?php echo (int) $detail["stock_applied"] === 1 ? "disabled" : "required"; ?>
@@ -404,7 +405,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                             <?php
                             $detailSelected = (string) ($detail["inspection_condition"]
                                 ?? ($detail["lost_quantity"] > 0 ? "Lost" : ($detail["reported_condition"] ?? "Good")));
-                            foreach (getConditionStatusOptions() as $conditionOption):
+                            foreach (($detail['line_kind']==='Facility'?array_diff(getConditionStatusOptions(),['Lost']):getConditionStatusOptions()) as $conditionOption):
                             ?>
                                 <option
                                     value="<?php echo htmlspecialchars($conditionOption); ?>"
@@ -413,7 +414,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                     <?php echo htmlspecialchars($conditionOption); ?>
                                 </option>
                             <?php endforeach; ?>
-                        </select>
+                        </select><?php endif;?>
                         <input
                             type="text"
                             name="inspection[<?php echo (int) $detail["return_item_id"]; ?>][remarks]"

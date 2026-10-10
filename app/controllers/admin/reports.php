@@ -18,7 +18,7 @@ if (!isApprovedAdminAccount($pdo, $adminUserId)) {
 $statusFilter = trim((string) ($_GET["status"] ?? "All"));
 $typeFilter = trim((string) ($_GET["resource_type"] ?? "All"));
 $export = trim((string) ($_GET["export"] ?? ""));
-$requestStatusOptions = ["Pending", "Under Review", "Approved", "Released", "Return", "Overdue", "Returned", "Completed", "Damaged", "Rejected", "Cancelled"];
+$requestStatusOptions = ["Pending", "Under Review", "Approved", "Released", "Return", "Overdue", "Returned", "Completed", "Rejected", "Cancelled"];
 $resourceTypeOptions = ["Item", "Facility"];
 $filterValidation = validateIncidentAnalyticsFilters($_GET);
 $incidentFilters = $filterValidation["filters"];
@@ -71,7 +71,10 @@ $requestStmt = $pdo->query("
         r.resource_type,
         r.category,
         r.location,
-        rs.inspection_condition
+        rs.inspection_condition,
+        " . gsoReturnOutcomeSummarySql() . " AS outcome_summary,
+        (SELECT COALESCE(SUM(d.returned_quantity),0) FROM return_submission_items d JOIN return_submissions h ON h.return_id=d.return_id WHERE h.request_id=rr.request_id AND d.stock_applied=1 AND d.inspection_condition IN('Damaged','Missing Parts','Needs Repair')) AS damage_quantity,
+        (SELECT COALESCE(SUM(d.lost_quantity),0) FROM return_submission_items d JOIN return_submissions h ON h.return_id=d.return_id WHERE h.request_id=rr.request_id AND d.stock_applied=1 AND d.inspection_condition='Lost') AS loss_quantity
     FROM resource_requests rr
     LEFT JOIN users borrower ON rr.borrower_id = borrower.user_id
     INNER JOIN " . gsoRequestResourceRollupSql() . " r ON r.request_id = rr.request_id
@@ -120,9 +123,12 @@ $reservationRows = array_values(array_filter($borrowingRows, function (array $ro
 }));
 
 $damagedRows = array_values(array_filter($borrowingRows, function (array $row): bool {
-    return in_array((string) ($row["inspection_condition"] ?? ""), ["Damaged", "Missing Parts", "Needs Repair", "Lost"], true);
+    return (int)$row["damage_quantity"]>0;
 }));
 
+$lostRows=array_values(array_filter($borrowingRows,fn($row)=>(int)$row['loss_quantity']>0));
+foreach($damagedRows as &$row)$row['inspection_condition']=$row['outcome_summary']??$row['inspection_condition'];unset($row);
+foreach($lostRows as &$row)$row['inspection_condition']=$row['outcome_summary']??$row['inspection_condition'];unset($row);
 $maintenanceSql = "
     SELECT
         ms.maintenance_id,
@@ -196,7 +202,8 @@ $summary = [
     "reservation_records" => count($reservationRows),
     "maintenance_records" => count($maintenanceRows),
     "inventory_status" => count($inventoryRows),
-    "damaged_lost_items" => count($damagedRows),
+    "damaged_items" => count($damagedRows),
+    "lost_items" => count($lostRows),
     "incident_reports" => $incidentAnalytics["total"]
 ];
 
@@ -310,7 +317,8 @@ if ($export === "excel") {
         "Borrowing Transactions" => $borrowingRows,
         "Overdue Items" => $overdueRows,
         "Reservation Records" => $reservationRows,
-        "Damaged or Lost Items" => $damagedRows
+        "Damaged / Repairable Items" => $damagedRows,
+        "Lost Items" => $lostRows
     ];
 
     foreach ($sections as $title => $rows) {
@@ -632,7 +640,7 @@ if ($export === "pdf") {
             </tbody>
         </table>
 
-        <h2>Damaged / Lost Items</h2>
+        <h2>Damaged / Repairable Items</h2>
         <table>
             <thead>
                 <tr>
@@ -654,7 +662,34 @@ if ($export === "pdf") {
                     </tr>
                 <?php endforeach; ?>
                 <?php if (count($damagedRows) === 0): ?>
-                    <tr><td colspan="5">No damaged or lost items found.</td></tr>
+                    <tr><td colspan="5">No repairable damage found.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+
+        <h2>Lost Items</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Reference</th>
+                    <th>Borrower</th>
+                    <th>Resource</th>
+                    <th>Condition</th>
+                    <th>Return Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($lostRows as $row): ?>
+                    <tr>
+                        <td>REQ-<?php echo str_pad((string) $row["request_id"], 3, "0", STR_PAD_LEFT); ?></td>
+                        <td><?php echo h($row["borrower_name"] ?? "N/A"); ?></td>
+                        <td><?php echo h($row["resource_name"] ?? "N/A"); ?></td>
+                        <td><?php echo h($row["inspection_condition"] ?? "N/A"); ?></td>
+                        <td><?php echo h(formatDateTimeDisplay($row["return_date"] ?? "")); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (count($lostRows) === 0): ?>
+                    <tr><td colspan="5">No lost items found.</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
@@ -1101,7 +1136,7 @@ $exportBase = [
         </div>
 
         <div class="card">
-            <h3>Damaged / Lost Items</h3>
+            <h3>Damaged / Repairable Items</h3>
             <div class="table-wrapper">
                 <table class="request-table">
                     <thead>
@@ -1126,7 +1161,39 @@ $exportBase = [
                                 </tr>
                             <?php endforeach; ?>
                         <?php else: ?>
-                            <tr><td colspan="5" class="empty-note">No damaged or lost items found.</td></tr>
+                            <tr><td colspan="5" class="empty-note">No repairable damage found.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card">
+            <h3>Lost Items</h3>
+            <div class="table-wrapper">
+                <table class="request-table">
+                    <thead>
+                        <tr>
+                            <th>Reference</th>
+                            <th>Borrower</th>
+                            <th>Resource</th>
+                            <th>Condition</th>
+                            <th>Return Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (count($lostRows) > 0): ?>
+                            <?php foreach ($lostRows as $row): ?>
+                                <?php $condition = (string) ($row["inspection_condition"] ?? "N/A"); ?>
+                                <tr>
+                                    <td>REQ-<?php echo str_pad((string) $row["request_id"], 3, "0", STR_PAD_LEFT); ?></td>
+                                    <td><?php echo h($row["borrower_name"] ?? "N/A"); ?></td>
+                                    <td><?php echo h($row["resource_name"] ?? "N/A"); ?></td>
+                                    <td><span class="status-badge <?php echo h(getStatusCssClass($condition)); ?>"><?php echo h($condition); ?></span></td>
+                                    <td><?php echo h(formatDateTimeDisplay($row["return_date"] ?? "")); ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <tr><td colspan="5" class="empty-note">No lost items found.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>

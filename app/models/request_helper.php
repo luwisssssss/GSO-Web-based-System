@@ -537,7 +537,8 @@ if (!function_exists("checkResourceAvailability")) {
         $conditionStatus = (string) ($resource["condition_status"] ?? "Good");
         $resourceStatus = (string) ($resource["status"] ?? "Available");
 
-        if ($resourceStatus === "Maintenance") {
+        $partialRepair=$resourceType==='Item' && getUnderRepairQuantity($pdo,(int)($resource['resource_id']??0),$resource)>0;
+        if ($resourceStatus === "Maintenance" && !$partialRepair) {
             return [
                 "ok" => false,
                 "message" => "This resource is currently under maintenance."
@@ -551,7 +552,7 @@ if (!function_exists("checkResourceAvailability")) {
             ];
         }
 
-        if (in_array($conditionStatus, ["Damaged", "Missing Parts", "Needs Repair", "Lost"], true)) {
+        if (in_array($conditionStatus, ["Damaged", "Missing Parts", "Needs Repair", "Lost"], true) && !($partialRepair && $conditionStatus!=="Lost")) {
             return [
                 "ok" => false,
                 "message" => "This resource is currently marked as {$conditionStatus} and cannot be selected."
@@ -570,7 +571,8 @@ if (!function_exists("checkResourceAvailability")) {
             $pdo,
             (int) ($resource["resource_id"] ?? 0),
             $range["start"] ?? null,
-            $range["end"] ?? null
+            $range["end"] ?? null,
+            $resourceType==='Item'
         );
 
         if ($maintenanceConflict) {
@@ -912,14 +914,9 @@ if (!function_exists("getRequestLifecycleStatus")) {
     {
         $status = (string) ($row["status"] ?? "");
         $dueDate = (string) ($row["due_date"] ?? "");
-        $inspectionCondition = (string) ($row["inspection_condition"] ?? "");
 
         if ($status === "Released" && $dueDate !== "" && strtotime($dueDate) < time()) {
             return "Overdue";
-        }
-
-        if ($status === "Returned" && in_array($inspectionCondition, ["Damaged", "Missing Parts", "Needs Repair", "Lost"], true)) {
-            return "Damaged";
         }
 
         return $status;
@@ -931,4 +928,9 @@ if (!function_exists("getStatusCssClass")) {
     {
         return strtolower(str_replace([" ", "/"], "", $label));
     }
+}
+
+function gsoReturnOutcomeSummarySql(string $alias='rr'): string
+{
+    return "(SELECT GROUP_CONCAT(CONCAT(g.condition_name,' x',g.quantity) ORDER BY FIELD(g.condition_name,'Good','Damaged','Missing Parts','Needs Repair','Lost') SEPARATOR '; ') FROM (SELECT rs.request_id,d.inspection_condition AS condition_name,SUM(d.returned_quantity+d.lost_quantity) AS quantity FROM return_submission_items d JOIN return_submissions rs ON rs.return_id=d.return_id WHERE d.stock_applied=1 AND d.inspection_condition IS NOT NULL GROUP BY rs.request_id,d.inspection_condition) g WHERE g.request_id=$alias.request_id)";
 }

@@ -75,6 +75,18 @@ if (!function_exists("gsoRequestHasReturnableLines")) {
     }
 }
 
+/** A quantity must be a whole non-negative number; casts must not hide invalid input. */
+function gsoReturnQuantity(mixed $value): ?int
+{
+    if(!is_int($value)&&!is_string($value))return null;
+    $n=filter_var($value,FILTER_VALIDATE_INT,['options'=>['min_range'=>0]]);return $n===false?null:$n;
+}
+function gsoReturnOutcomeGroups(array $groups,int $expected): array
+{
+    $rows=[];$sum=0;
+    foreach($groups as $condition=>$value){$qty=gsoReturnQuantity($value);if(!in_array($condition,getConditionStatusOptions(),true)||$qty===null)throw new DomainException('Select valid conditions with whole non-negative quantities.');if($qty>0){$rows[$condition]=$qty;$sum+=$qty;}}
+    if($sum!==$expected||!$rows)throw new DomainException('Good, repairable and Lost quantities must account for the exact released quantity.');return $rows;
+}
 if (!function_exists("gsoValidateBorrowerReturnRows")) {
     /**
      * Turn a borrower's submission into detail rows, or explain what is wrong.
@@ -140,22 +152,28 @@ if (!function_exists("gsoValidateBorrowerReturnRows")) {
                 continue;
             }
 
-            // Facility and aggregate equipment are reported by quantity.
+            if($line['line_kind']!=='Facility'&&isset($payload['outcomes'])){
+                try{$groups=gsoReturnOutcomeGroups((array)$payload['outcomes'],$released);foreach($groups as $condition=>$qty)$rows[]=['request_item_id'=>$lineId,'unit_id'=>null,'reported_condition'=>$condition,'returned_quantity'=>$condition==='Lost'?0:$qty,'lost_quantity'=>$condition==='Lost'?$qty:0];}
+                catch(DomainException $e){$errors[]=$name.': '.$e->getMessage();}continue;
+            }
+            // Facility and legacy aggregate payloads remain supported.
             $condition = trim((string) ($payload["condition"] ?? ""));
             $isFacility = (string) $line["line_kind"] === "Facility";
-            $returnedQty = $isFacility ? 1 : (int) ($payload["returned_quantity"] ?? -1);
-            $lostQty = $isFacility ? 0 : (int) ($payload["lost_quantity"] ?? 0);
+            $returnedQty = $isFacility ? 1 : gsoReturnQuantity($payload["returned_quantity"] ?? null);
+            $lostQty = $isFacility ? 0 : gsoReturnQuantity($payload["lost_quantity"] ?? 0);
 
             if (!in_array($condition, $conditions, true)) {
                 $errors[] = "Select a condition for {$name}.";
                 continue;
             }
 
-            if ($returnedQty < 0 || $lostQty < 0) {
+            if ($returnedQty===null || $lostQty===null) {
                 $errors[] = "Quantities for {$name} cannot be negative.";
                 continue;
             }
 
+            if($isFacility&&$condition==='Lost'){$errors[]='A Facility cannot be reported as Lost. Select its actual post-use condition.';continue;}
+            if(!$isFacility&&$condition==='Lost'&&$returnedQty>0){$errors[]='Lost quantities cannot be reported as physically returned. Use separate outcome quantities.';continue;}
             if (($returnedQty + $lostQty) !== $released) {
                 $errors[] = "Account for all {$released} of {$name}: "
                     . "returned plus lost must equal the quantity released.";
@@ -166,7 +184,7 @@ if (!function_exists("gsoValidateBorrowerReturnRows")) {
                 $rows[] = [
                     "request_item_id" => $lineId,
                     "unit_id" => null,
-                    "reported_condition" => $condition === "Lost" ? "Good" : $condition,
+                    "reported_condition" => $condition,
                     "returned_quantity" => $returnedQty,
                     "lost_quantity" => 0,
                 ];
@@ -246,6 +264,21 @@ if (!function_exists("gsoApplyReturnInspection")) {
             return ["ok" => false, "message" => "This return has no resource details to inspect."];
         }
 
+        if(!$pdo->inTransaction())return ['ok'=>false,'message'=>'Return inspection requires its authoritative transaction.'];
+        $known=array_column($details,'return_item_id');if(array_diff(array_keys($inspection),$known))return ['ok'=>false,'message'=>'Inspection contains a detail outside this return.'];
+        $planned=[];$virtual=-1;
+        foreach($details as $detail){
+            $id=(int)$detail['return_item_id'];$input=(array)($inspection[$id]??[]);
+            if((int)$detail['stock_applied']!==0)return ['ok'=>false,'message'=>'This return detail is already processed.'];
+            if($detail['line_kind']==='Facility'&&($input['condition']??'')==='Lost')return ['ok'=>false,'message'=>'A Facility cannot be inspected as Lost.'];
+            if(isset($input['outcomes'])){
+                if($detail['unit_id']!==null||$detail['line_kind']==='Facility')return ['ok'=>false,'message'=>'Quantity groups apply only to aggregate equipment.'];
+                try{$groups=gsoReturnOutcomeGroups((array)$input['outcomes'],(int)$detail['returned_quantity']+(int)$detail['lost_quantity']);}catch(DomainException $e){return ['ok'=>false,'message'=>$e->getMessage()];}
+                if((int)$detail['lost_quantity']>0&&array_keys($groups)!==['Lost'])return ['ok'=>false,'message'=>'Reported Lost quantity must remain a separate Lost group.'];
+                $first=true;foreach($groups as $chosen=>$qty){$part=$detail;$part['return_item_id']=$first?$id:$virtual--;$part['returned_quantity']=(int)$detail['lost_quantity']>0?0:$qty;$part['lost_quantity']=(int)$detail['lost_quantity']>0?$qty:0;$inspection[$part['return_item_id']]=['condition'=>$chosen,'remarks'=>$input['remarks']??''];$planned[]=$part;$first=false;}
+            }else{$planned[]=$detail;}
+        }
+        $details=$planned;
         // Validate the complete submission before touching any stock. The
         // caller holds the request lock and the inspection transaction.
         $requestStmt = $pdo->prepare("SELECT request_id FROM return_submissions WHERE return_id = ?");
@@ -254,6 +287,9 @@ if (!function_exists("gsoApplyReturnInspection")) {
         $byLine = [];
         foreach ($details as $detail) {
             $byLine[(int) $detail["request_item_id"]][] = $detail;
+            $chosen=(string)($inspection[(int)$detail['return_item_id']]['condition']??'');
+            if($detail['line_kind']==='Facility'&&$chosen==='Lost')return ['ok'=>false,'message'=>'A Facility cannot be inspected as Lost.'];
+            if((int)$detail['returned_quantity']<0||(int)$detail['lost_quantity']<0||((int)$detail['lost_quantity']>0&&$chosen!=='Lost'))return ['ok'=>false,'message'=>'Invalid returned/Lost quantity reconciliation.'];
             if ((int) $detail["stock_applied"] !== 0 || !in_array((string) ($inspection[(int) $detail["return_item_id"]]["condition"] ?? ""), $conditions, true)) {
                 return ["ok" => false, "message" => "Every return detail must be unprocessed and have an inspection condition."];
             }
@@ -279,6 +315,12 @@ if (!function_exists("gsoApplyReturnInspection")) {
             }
         }
 
+        foreach($details as $detail)if($detail['unit_id']!==null){$s=$pdo->prepare('SELECT status,condition_status,resource_id FROM equipment_units WHERE unit_id=? FOR UPDATE');$s->execute([$detail['unit_id']]);$unit=$s->fetch(PDO::FETCH_ASSOC);if(!$unit||$unit['status']!=='Released'||$unit['condition_status']==='Lost'||(int)$unit['resource_id']!==(int)$detail['resource_id'])return ['ok'=>false,'message'=>'The exact allocated unit is no longer in an issued returnable state. Lost units cannot be restored by inspection.'];}
+        $aggregateTotals=[];foreach($details as $detail)if($detail['line_kind']!=='Facility'&&$detail['tracking_mode']!=='Serialized')$aggregateTotals[(int)$detail['resource_id']]=($aggregateTotals[(int)$detail['resource_id']]??0)+(int)$detail['returned_quantity']+(int)$detail['lost_quantity'];
+        ksort($aggregateTotals);foreach($aggregateTotals as $resourceId=>$accounted){$s=$pdo->prepare('SELECT total_stock,available_stock,under_repair_stock FROM resources WHERE resource_id=? FOR UPDATE');$s->execute([$resourceId]);$stock=$s->fetch(PDO::FETCH_ASSOC);if(!$stock||(int)$stock['total_stock']-(int)$stock['available_stock']-(int)$stock['under_repair_stock']<$accounted)return ['ok'=>false,'message'=>'The released aggregate quantity no longer matches inventory.'];}
+        foreach($details as &$detail){
+            if((int)$detail['return_item_id']<0){$virtualId=$detail['return_item_id'];$s=$pdo->prepare('INSERT INTO return_submission_items(return_id,request_item_id,unit_id,reported_condition,returned_quantity,lost_quantity) VALUES(?,?,NULL,?,?,?)');$s->execute([$returnId,$detail['request_item_id'],$detail['reported_condition'],$detail['returned_quantity'],$detail['lost_quantity']]);$detail['return_item_id']=(int)$pdo->lastInsertId();$inspection[$detail['return_item_id']]=$inspection[$virtualId];}
+        }unset($detail);
         foreach ($details as $detail) {
             $detailId = (int) $detail["return_item_id"];
             $resourceId = (int) $detail["resource_id"];
@@ -310,7 +352,7 @@ if (!function_exists("gsoApplyReturnInspection")) {
 
             if ($lineKind === "Facility") {
                 // A room has no stock to move; the inspection is the record.
-                $chosen = $chosen === "Lost" ? "Good" : $chosen;
+                // Facility Lost was rejected before any mutation.
             } elseif ($serialized) {
                 $unitId = (int) $detail["unit_id"];
 
@@ -341,8 +383,8 @@ if (!function_exists("gsoApplyReturnInspection")) {
                 $pdo->prepare("
                     UPDATE request_item_units
                     SET returned_at = NOW()
-                    WHERE unit_id = :unit_id AND returned_at IS NULL
-                ")->execute([":unit_id" => $unitId]);
+                    WHERE unit_id = :unit_id AND request_item_id = :line_id AND returned_at IS NULL
+                ")->execute([":unit_id" => $unitId, ":line_id" => (int)$detail["request_item_id"]]);
             } else {
                 // Aggregate equipment: only the quantities in THIS group move.
                 if ($chosen === "Lost" || $lostQty > 0) {

@@ -188,7 +188,7 @@ if (!function_exists("gsoUpdateEquipmentUnitStatus")) {
         try {
             $pdo->beginTransaction();
 
-            $lock = $pdo->prepare("SELECT unit_id, resource_id, status FROM equipment_units WHERE unit_id = :id FOR UPDATE");
+            $lock = $pdo->prepare("SELECT unit_id, resource_id, status, condition_status FROM equipment_units WHERE unit_id = :id FOR UPDATE");
             $lock->execute([":id" => $unitId]);
             $unit = $lock->fetch(PDO::FETCH_ASSOC);
 
@@ -200,6 +200,9 @@ if (!function_exists("gsoUpdateEquipmentUnitStatus")) {
                 throw new DomainException("This unit is issued to a borrower. Record its return first.");
             }
 
+            if($unit['status']==='Under Repair'&&$status==='Available')throw new DomainException('Complete the authorized repair work order to restore this unit.');
+            if(($unit['status']==='Lost'||$unit['condition_status']==='Lost')&&$status!=='Lost'&&$status!=='Retired')throw new DomainException('A Lost unit cannot be restored or moved into repair through a status edit.');
+            if(($status==='Lost')!==($condition==='Lost')||($status==='Available'&&$condition!=='Good')||($status==='Under Repair'&&!in_array($condition,['Damaged','Missing Parts','Needs Repair'],true)))throw new DomainException('Unit status must match its Good, repairable, or Lost condition.');
             $update = $pdo->prepare("
                 UPDATE equipment_units
                 SET status = :status, condition_status = :condition,

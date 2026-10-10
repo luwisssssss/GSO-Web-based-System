@@ -59,7 +59,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $remarks = trim((string) ($_POST["remarks"] ?? ""));
 
         $resourceStmt = $pdo->prepare("
-            SELECT resource_id, resource_name, resource_type, is_archived
+            SELECT resource_id, resource_name, resource_type, condition_status, is_archived
             FROM resources
             WHERE resource_id = :resource_id
             LIMIT 1
@@ -70,6 +70,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $resource = $resourceStmt->fetch(PDO::FETCH_ASSOC);
 
         $errors = [];
+        foreach(['source_return_item_id','return_item_id','equipment_unit_id'] as $target)if(!empty($_POST[$target]))$errors[]='Use the GSO Head-confirmed repair candidate action for an exact return or unit target.';
+        if(($resource['condition_status']??'')==='Lost')$errors[]='Lost resources cannot enter repair maintenance.';
 
         if (!$resource) {
             $errors[] = "Selected resource was not found.";
@@ -171,7 +173,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             $resourceLockStmt = $pdo->prepare("
                 SELECT resource_id, resource_name, resource_type, tracking_mode,
-                       under_repair_stock, is_archived
+                       under_repair_stock, condition_status, is_archived
                 FROM resources
                 WHERE resource_id = :resource_id
                 FOR UPDATE
@@ -185,6 +187,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 throw new DomainException("Archived resources cannot receive maintenance schedules.");
             }
 
+            if(($resource['condition_status']??'')==='Lost')throw new DomainException('Lost resources cannot enter maintenance.');
             $maintenanceLockStmt = $pdo->prepare("
                 SELECT maintenance_id
                 FROM maintenance_schedules
@@ -572,7 +575,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
         <?php if($repairCandidates):?><div class="card"><h3>Inspected Return Follow-up</h3><p>Repair orders require GSO Head confirmation. Accountability is a separate, non-financial review and does not presume borrower fault.</p><div class="table-wrapper"><table class="request-table"><thead><tr><th>Return Detail</th><th>Borrower / Resource</th><th>Condition</th><th>Actions</th></tr></thead><tbody><?php foreach($repairCandidates as $candidate):?><tr><td>#<?php echo (int)$candidate['return_item_id'];?></td><td><?php echo htmlspecialchars((string)$candidate['borrower_name']);?> · <?php echo htmlspecialchars((string)$candidate['resource_name']);?><?php echo $candidate['asset_tag']?' · '.htmlspecialchars((string)$candidate['asset_tag']):'';?></td><td><?php echo htmlspecialchars((string)$candidate['inspection_condition']);?></td><td>
         <?php if((string)($_SESSION['role']??'')==='Admin'&&(string)$candidate['inspection_condition']!=='Lost'&&!(int)$candidate['has_active_work_order']):?><form method="post" class="inline-form"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']);?>"><input type="hidden" name="action" value="create_return_work_order"><input type="hidden" name="return_item_id" value="<?php echo (int)$candidate['return_item_id'];?>"><input type="number" name="duration_days" min="1" max="365" value="1"><select name="assigned_to"><option value="">Unassigned</option><?php foreach($assignees as $person):?><option value="<?php echo (int)$person['user_id'];?>"><?php echo htmlspecialchars((string)$person['full_name']);?></option><?php endforeach;?></select><button class="admin-btn primary-btn">Create Repair Work Order</button></form><?php elseif((string)$candidate['inspection_condition']!=='Lost'):?><small><?php echo (int)$candidate['has_active_work_order']?'Active work order exists':'GSO Head confirmation required';?></small><?php endif;?>
-        <?php if(in_array((string)$candidate['inspection_condition'],['Damaged','Missing Parts','Lost'],true)):?><form method="post" class="inline-form"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']);?>"><input type="hidden" name="action" value="record_accountability"><input type="hidden" name="return_item_id" value="<?php echo (int)$candidate['return_item_id'];?>"><select name="accountability_status"><option>Pending Review</option><option>Confirmed</option><option>Waived</option><option>Resolved</option></select><input name="resolution_notes" maxlength="1000" placeholder="Non-financial review notes"><button class="admin-btn info-btn">Record Accountability</button></form><?php endif;?>
+        <?php if(in_array((string)$candidate['inspection_condition'],['Damaged','Needs Repair','Missing Parts','Lost'],true)):?><form method="post" class="inline-form"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']);?>"><input type="hidden" name="action" value="record_accountability"><input type="hidden" name="return_item_id" value="<?php echo (int)$candidate['return_item_id'];?>"><select name="accountability_status"><option>Pending Review</option><option>Confirmed</option><option>Waived</option><option>Resolved</option></select><input name="resolution_notes" maxlength="1000" placeholder="Non-financial review notes"><button class="admin-btn info-btn">Record Accountability</button></form><?php endif;?>
         </td></tr><?php endforeach;?></tbody></table></div></div><?php endif;?>
 
         <div class="card">
