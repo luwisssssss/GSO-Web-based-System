@@ -40,6 +40,8 @@ $chatPrompts = (array) ($chatPreset["prompts"] ?? []);
     id="gsoChatLauncher"
     aria-expanded="false"
     aria-controls="gsoChatPanel"
+    aria-label="Ask GSO"
+    title="Ask GSO"
 >
     <i class="fa-solid fa-robot" aria-hidden="true"></i>
     <span>Ask GSO</span>

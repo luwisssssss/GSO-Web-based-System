@@ -189,6 +189,29 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
 
+    function updateRowActionClearance(menu) {
+        const wrapper = menu.closest(".table-wrapper, .inventory-table-wrapper, .request-table-wrapper");
+        if (!wrapper) {
+            return;
+        }
+        wrapper.classList.remove("row-actions-clearance");
+        wrapper.style.removeProperty("--row-actions-clearance");
+        const panel = menu.querySelector(".row-actions-menu");
+        if (!panel || !menu.classList.contains("show")) {
+            return;
+        }
+        const padding = parseFloat(getComputedStyle(wrapper).paddingBottom) || 0;
+        const extra = Math.max(0, panel.getBoundingClientRect().bottom - wrapper.getBoundingClientRect().bottom + 12);
+        if (extra > 0) {
+            wrapper.style.setProperty("--row-actions-clearance", (padding + extra) + "px");
+            wrapper.classList.add("row-actions-clearance");
+        }
+    }
+
+    window.addEventListener("resize", function () {
+        document.querySelectorAll(".row-actions.show").forEach(updateRowActionClearance);
+    });
+
     document.addEventListener("click", function (event) {
         const quickButton = event.target.closest("[data-toggle-quick-actions]");
         const quickMenu = document.getElementById("quickActionsDropdown");
@@ -208,6 +231,7 @@ document.addEventListener("DOMContentLoaded", function () {
             document.querySelectorAll(".row-actions.show").forEach(function (menu) {
                 if (menu !== currentMenu) {
                     menu.classList.remove("show");
+                    updateRowActionClearance(menu);
                     const row = menu.closest("tr");
                     if (row) {
                         row.classList.remove("row-action-open");
@@ -221,6 +245,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
             if (currentMenu) {
                 currentMenu.classList.toggle("show", !isOpen);
+                updateRowActionClearance(currentMenu);
                 const row = currentMenu.closest("tr");
                 if (row) {
                     row.classList.toggle("row-action-open", !isOpen);
@@ -238,6 +263,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!event.target.closest(".row-actions")) {
             document.querySelectorAll(".row-actions.show").forEach(function (menu) {
                 menu.classList.remove("show");
+                updateRowActionClearance(menu);
                 const row = menu.closest("tr");
                 if (row) {
                     row.classList.remove("row-action-open");
@@ -257,6 +283,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
         document.querySelectorAll(".row-actions.show").forEach(function (menu) {
             menu.classList.remove("show");
+            updateRowActionClearance(menu);
             const row = menu.closest("tr");
             if (row) {
                 row.classList.remove("row-action-open");

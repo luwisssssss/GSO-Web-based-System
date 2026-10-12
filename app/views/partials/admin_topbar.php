@@ -184,6 +184,11 @@ function toggleUserMenu() {
     }
 }
 </script>
+<?php if (!empty($workspaceBackButton) && !empty($showGlobalBackButton) && !empty($_SESSION['user_id'])): ?>
+<div class="workspace-back-row">
+    <?php require __DIR__ . "/back_button.php"; ?>
+</div>
+<?php endif; ?>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const notifWrapper = document.querySelector(".notification-wrapper");

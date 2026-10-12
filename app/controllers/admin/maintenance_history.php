@@ -91,8 +91,10 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
     <main class="page-content">
         <div class="card">
+            <div class="workspace-heading">
             <h2>Maintenance History</h2>
             <p>Completed and cancelled work orders. Records created before maintenance types existed stay Unclassified unless a return or incident link proves they were corrective.</p>
+            </div>
             <div class="profile-actions">
                 <a href="maintenance.php" class="admin-btn neutral-btn">Active / Upcoming</a>
                 <a href="preventive_plans.php" class="admin-btn neutral-btn">Preventive Plans</a>

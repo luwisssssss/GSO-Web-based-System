@@ -185,11 +185,13 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
     <main class="page-content">
         <div class="card">
+            <div>
             <h2>AI Knowledge Base</h2>
             <p>
                 These entries are the only source the GSO Assistant may use to answer procedure questions.
                 Anything not covered here, the assistant will say it does not know rather than guess.
             </p>
+            </div>
         </div>
 
         <?php if ($flashMessage !== ""): ?>
@@ -205,17 +207,20 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
         <?php endif; ?>
 
         <div class="card">
-            <h3><?php echo $editingEntry !== null ? "Edit entry" : "Add entry"; ?></h3>
+            <h3 class="section-title"><?php echo $editingEntry !== null ? "Edit entry" : "Add entry"; ?></h3>
 
-            <form method="POST" class="ui-form">
+            <form method="POST" class="settings-form-grid">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION["csrf_token"], ENT_QUOTES, "UTF-8"); ?>">
                 <input type="hidden" name="action" value="save">
                 <input type="hidden" name="entry_id" value="<?php echo $editingEntry !== null ? (int) $editingEntry["entry_id"] : 0; ?>">
 
+                <div class="form-row">
                 <label for="title">Title</label>
                 <input type="text" id="title" name="title" maxlength="160" required
                        value="<?php echo htmlspecialchars($formValues["title"], ENT_QUOTES, "UTF-8"); ?>">
+                </div>
 
+                <div class="form-row">
                 <label for="category">Category</label>
                 <select id="category" name="category" required>
                     <?php foreach (gsoAiKnowledgeCategories() as $category): ?>
@@ -225,20 +230,28 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                         </option>
                     <?php endforeach; ?>
                 </select>
+                </div>
 
+                <div class="form-row form-row--full">
                 <label for="question">Sample question</label>
                 <input type="text" id="question" name="question" maxlength="255" required
                        placeholder="How do I borrow equipment?"
                        value="<?php echo htmlspecialchars($formValues["question"], ENT_QUOTES, "UTF-8"); ?>">
+                </div>
 
+                <div class="form-row form-row--full">
                 <label for="content">Answer content</label>
                 <textarea id="content" name="content" rows="6" maxlength="5000" required><?php echo htmlspecialchars($formValues["content"], ENT_QUOTES, "UTF-8"); ?></textarea>
+                </div>
 
+                <div class="form-row">
                 <label for="keywords">Keywords (comma separated)</label>
                 <input type="text" id="keywords" name="keywords" maxlength="500"
                        placeholder="borrow, equipment, request"
                        value="<?php echo htmlspecialchars($formValues["keywords"], ENT_QUOTES, "UTF-8"); ?>">
+                </div>
 
+                <div class="form-row">
                 <label for="status">Status</label>
                 <select id="status" name="status" required>
                     <?php foreach (gsoAiKnowledgeStatuses() as $status): ?>
@@ -248,26 +261,27 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                         </option>
                     <?php endforeach; ?>
                 </select>
+                </div>
 
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">
+                <div class="form-actions-bar">
+                    <button type="submit" class="admin-btn primary-btn">
                         <?php echo $editingEntry !== null ? "Save changes" : "Add entry"; ?>
                     </button>
                     <?php if ($editingEntry !== null): ?>
-                        <a class="btn" href="ai_knowledge.php">Cancel</a>
+                        <a class="admin-btn neutral-btn" href="ai_knowledge.php">Cancel</a>
                     <?php endif; ?>
                 </div>
             </form>
         </div>
 
         <div class="card">
-            <h3>Entries (<?php echo count($entries); ?> total, <?php echo $activeCount; ?> active)</h3>
+            <h3 class="section-title">Entries (<?php echo count($entries); ?> total, <?php echo $activeCount; ?> active)</h3>
 
-            <form method="GET" class="ui-filter-bar">
-                <input type="text" name="search" placeholder="Search title, question, keywords"
+            <form method="GET" class="table-toolbar">
+                <input type="text" name="search" aria-label="Search knowledge entries" placeholder="Search title, question, keywords"
                        value="<?php echo htmlspecialchars($filters["search"], ENT_QUOTES, "UTF-8"); ?>">
 
-                <select name="category">
+                <select name="category" aria-label="Filter category">
                     <option value="All">All categories</option>
                     <?php foreach (gsoAiKnowledgeCategories() as $category): ?>
                         <option value="<?php echo htmlspecialchars($category, ENT_QUOTES, "UTF-8"); ?>"
@@ -277,7 +291,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                     <?php endforeach; ?>
                 </select>
 
-                <select name="status">
+                <select name="status" aria-label="Filter status">
                     <option value="All">All statuses</option>
                     <?php foreach (gsoAiKnowledgeStatuses() as $status): ?>
                         <option value="<?php echo htmlspecialchars($status, ENT_QUOTES, "UTF-8"); ?>"
@@ -287,14 +301,14 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                     <?php endforeach; ?>
                 </select>
 
-                <button type="submit" class="btn">Filter</button>
+                <button type="submit" class="admin-btn neutral-btn">Filter</button>
             </form>
 
             <?php if ($entries === []): ?>
                 <p>No knowledge entries match this filter.</p>
             <?php else: ?>
                 <div class="table-wrapper">
-                    <table class="ui-table">
+                    <table class="request-table">
                         <thead>
                             <tr>
                                 <th>Title</th>
@@ -312,19 +326,19 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                 <td><?php echo htmlspecialchars((string) $row["category"]); ?></td>
                                 <td><?php echo htmlspecialchars((string) $row["question"]); ?></td>
                                 <td>
-                                    <span class="status-badge">
+                                    <span class="status-badge <?php echo $row["status"] === "Active" ? "approved" : "disabled"; ?>">
                                         <?php echo htmlspecialchars((string) $row["status"]); ?>
                                     </span>
                                 </td>
                                 <td><?php echo htmlspecialchars((string) $row["updated_at"]); ?></td>
-                                <td class="table-actions">
-                                    <a class="btn btn-sm" href="ai_knowledge.php?edit=<?php echo (int) $row["entry_id"]; ?>">Edit</a>
+                                <td><div class="action-group">
+                                    <a class="admin-btn" href="ai_knowledge.php?edit=<?php echo (int) $row["entry_id"]; ?>">Edit</a>
 
                                     <form method="POST" class="inline-form">
                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION["csrf_token"], ENT_QUOTES, "UTF-8"); ?>">
                                         <input type="hidden" name="action" value="toggle_status">
                                         <input type="hidden" name="entry_id" value="<?php echo (int) $row["entry_id"]; ?>">
-                                        <button type="submit" class="btn btn-sm">
+                                        <button type="submit" class="admin-btn">
                                             <?php echo ((string) $row["status"]) === "Active" ? "Deactivate" : "Activate"; ?>
                                         </button>
                                     </form>
@@ -334,9 +348,9 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION["csrf_token"], ENT_QUOTES, "UTF-8"); ?>">
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="entry_id" value="<?php echo (int) $row["entry_id"]; ?>">
-                                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                                        <button type="submit" class="admin-btn danger-btn">Delete</button>
                                     </form>
-                                </td>
+                                </div></td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>
@@ -346,3 +360,4 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
         </div>
     </main>
 </div>
+<?php require_once dirname(__DIR__, 3) . "/includes/footer.php"; ?>

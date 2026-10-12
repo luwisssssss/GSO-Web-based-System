@@ -27,7 +27,9 @@ $cssFiles = array_values(array_unique(array_filter($cssFiles)));
 $showGlobalBackButton = $showGlobalBackButton ?? true;
 $backButtonLabel = $backButtonLabel ?? "Back";
 $backButtonFallback = $backButtonFallback ?? getRoleHomePath($_SESSION["role"] ?? null, "../");
-$roleClass = strtolower((string) ($_SESSION["role"] ?? "guest"));
+$workspaceBackButton = str_contains((string) ($_SERVER['PHP_SELF'] ?? ''), '/admin/')
+    || str_contains((string) ($_SERVER['PHP_SELF'] ?? ''), '/gso_staff/');
+$roleClass = strtolower(preg_replace('/[^a-z0-9]+/i', '-', (string) ($_SESSION["role"] ?? "guest")));
 $pageClass = strtolower(preg_replace('/[^a-z0-9]+/i', '-', (string) ($activePage ?? $pageTitle)));
 ?>
 <!DOCTYPE html>
@@ -48,15 +50,7 @@ $pageClass = strtolower(preg_replace('/[^a-z0-9]+/i', '-', (string) ($activePage
 <body class="app-body role-<?php echo htmlspecialchars($roleClass); ?> page-<?php echo htmlspecialchars($pageClass); ?>">
 <div class="app-wrapper">
 <?php if ($showGlobalBackButton && !empty($_SESSION["user_id"])): ?>
-    <button
-        type="button"
-        class="global-back-btn"
-        data-fallback="<?php echo htmlspecialchars($backButtonFallback); ?>"
-        aria-label="<?php echo htmlspecialchars($backButtonLabel); ?>"
-    >
-        <i class="fa-solid fa-arrow-left"></i>
-        <span><?php echo htmlspecialchars($backButtonLabel); ?></span>
-    </button>
+    <?php if (!$workspaceBackButton) require dirname(__DIR__, 2) . "/views/partials/back_button.php"; ?>
 
     <script>
     document.addEventListener("DOMContentLoaded", function () {

@@ -153,8 +153,10 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
     <main class="page-content">
         <div class="card">
+            <div class="workspace-heading">
             <h2>Preventive Maintenance Plans</h2>
             <p>A plan describes future work and its next due date. Generate the due occurrence to create a real work order, then Start and Complete it separately. Passing a date never proves that work was performed.</p>
+            </div>
             <div class="profile-actions">
                 <a href="maintenance.php" class="admin-btn neutral-btn">Active / Upcoming</a>
                 <a href="preventive_plans.php" class="admin-btn primary-btn" aria-current="page">Preventive Plans</a>
@@ -320,7 +322,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                             <input type="hidden" name="csrf_token" value="<?php echo $token; ?>">
                                             <input type="hidden" name="plan_id" value="<?php echo $planId; ?>">
                                             <input type="hidden" name="maintenance_id" value="<?php echo (int) $job["maintenance_id"]; ?>">
-                                            <input name="completion_notes" maxlength="1000" placeholder="Completion or cancellation notes" aria-label="Notes for MTN-<?php echo (int) $job["maintenance_id"]; ?>">
+                                            <input class="form-control-block" name="completion_notes" maxlength="1000" placeholder="Completion or cancellation notes" aria-label="Notes for MTN-<?php echo (int) $job["maintenance_id"]; ?>">
                                             <?php if ((string) $job["status"] === "Scheduled"): ?>
                                                 <button type="submit" name="action" value="start_job" class="admin-btn primary-btn">Start</button>
                                             <?php else: ?>
@@ -331,7 +333,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                             <?php endif; ?>
                                         </form>
                                     <?php elseif (!$jobActive): ?>
-                                        <a href="maintenance_history.php?plan_id=<?php echo $planId; ?>">View in history</a>
+                                        <a class="admin-btn" href="maintenance_history.php?plan_id=<?php echo $planId; ?>">View in history</a>
                                     <?php else: ?>
                                         <span class="row-action-note">Assigned personnel only</span>
                                     <?php endif; ?>

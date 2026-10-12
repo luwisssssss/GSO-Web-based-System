@@ -3965,6 +3965,7 @@ textarea:focus {
 
 .form-control-block {
     width: 100%;
+    min-height: 42px;
     padding: 10px;
     border: 1px solid #cbd5e1;
     border-radius: 10px;
@@ -4227,6 +4228,132 @@ textarea:focus {
     font: inherit;
     font-weight: 600;
     cursor: pointer;
+}
+
+/* Operational forms reuse the existing form grid, controls and buttons. */
+.row-actions-menu .inline-form button,
+.row-actions-menu .row-action-item {
+    color: var(--color-heading) !important;
+    box-shadow: none;
+}
+
+.table-wrapper.row-actions-clearance,
+.inventory-table-wrapper.row-actions-clearance,
+.request-table-wrapper.row-actions-clearance {
+    padding-bottom: var(--row-actions-clearance);
+}
+
+.workspace-heading {
+    flex: 1;
+    min-width: 0;
+}
+
+.table-toolbar .form-row {
+    flex: 0 1 240px;
+}
+
+.table-toolbar .form-row input,
+.table-toolbar .form-row select {
+    flex: none;
+    width: 100%;
+}
+
+.workspace-back-row {
+    max-width: 1540px;
+    margin: 0 auto;
+    padding: 24px 30px 0;
+}
+
+.global-back-btn.workspace-back-btn {
+    position: static;
+    box-shadow: none;
+}
+
+/* Reuse the compact chat launcher in the workspace's outside content gutter. */
+.role-admin .gso-chat-launcher,
+.role-gso-staff .gso-chat-launcher {
+    right: 6px;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+}
+
+.role-admin .gso-chat-launcher span,
+.role-gso-staff .gso-chat-launcher span {
+    display: none;
+}
+
+.settings-form-grid > *,
+.walkin-line > * {
+    min-width: 0;
+}
+
+.settings-form-grid .form-row input,
+.settings-form-grid .form-row select,
+.settings-form-grid .form-row textarea {
+    width: 100%;
+}
+
+.stack-form .checkbox-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.stack-form .checkbox-row input[type="checkbox"] {
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    min-height: 18px;
+    margin-top: 2px;
+    accent-color: var(--color-primary);
+}
+
+.walkin-line {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(90px, 140px) auto;
+    align-items: end;
+    gap: 12px;
+}
+
+.walkin-line .form-row {
+    margin-bottom: 0;
+}
+
+.walkin-line + .walkin-line {
+    margin-top: 14px;
+}
+
+.form-row input[type="file"]::file-selector-button {
+    padding: 8px 12px;
+    margin-right: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-soft);
+    color: var(--color-heading);
+    font: inherit;
+    cursor: pointer;
+}
+
+/* Leave space to reach the final controls above the shared chat action. */
+.app-body .page-content {
+    padding-bottom: 110px;
+}
+
+@media (max-width: 720px) {
+    .role-admin .page-content,
+    .role-gso-staff .page-content {
+        padding-right: 44px;
+    }
+
+    .walkin-line {
+        grid-template-columns: 1fr;
+    }
+
+    .walkin-line .admin-btn {
+        justify-self: start;
+    }
 }
 
 /* Claim Slip Code: shown to the request owner and to GSO, verified at release. */

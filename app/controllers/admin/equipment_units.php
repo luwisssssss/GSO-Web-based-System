@@ -160,7 +160,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                 <td><?php echo (int) $row["total_stock"]; ?></td>
                                 <td><?php echo (int) $row["available_stock"]; ?></td>
                                 <td><?php echo (int) $row["under_repair_stock"]; ?></td>
-                                <td><a href="equipment_units.php?resource_id=<?php echo (int) $row["resource_id"]; ?>">Manage units</a></td>
+                                <td><a class="admin-btn" href="equipment_units.php?resource_id=<?php echo (int) $row["resource_id"]; ?>">Manage units</a></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -196,15 +196,23 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                 <?php endif; ?>
 
                 <h4 class="section-title mt-12">Register a unit</h4>
-                <form method="POST" class="request-line-picker">
+                <form method="POST" class="settings-form-grid">
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
                     <input type="hidden" name="resource_id" value="<?php echo $resourceId; ?>">
                     <input type="hidden" name="action" value="register_unit">
-                    <input type="text" name="asset_tag" placeholder="Institutional asset tag" maxlength="60" required>
-                    <input type="text" name="serial_number" placeholder="Manufacturer serial (optional)" maxlength="120">
-                    <input type="date" name="acquired_at">
-                    <input type="text" name="unit_notes" placeholder="Notes (optional)" maxlength="500">
-                    <button type="submit" class="admin-btn info-btn">Register unit</button>
+                    <label class="form-row">Institutional asset tag
+                    <input aria-label="Institutional asset tag" type="text" name="asset_tag" placeholder="Institutional asset tag" maxlength="60" required>
+                    </label>
+                    <label class="form-row">Manufacturer serial (optional)
+                    <input aria-label="Manufacturer serial number" type="text" name="serial_number" placeholder="Manufacturer serial (optional)" maxlength="120">
+                    </label>
+                    <label class="form-row">Acquisition date
+                    <input aria-label="Acquisition date" type="date" name="acquired_at">
+                    </label>
+                    <label class="form-row">Notes (optional)
+                    <input aria-label="Unit notes" type="text" name="unit_notes" placeholder="Notes (optional)" maxlength="500">
+                    </label>
+                    <div class="form-actions-bar"><button type="submit" class="admin-btn info-btn">Register unit</button></div>
                 </form>
 
                 <h4 class="section-title mt-12">Registered units (<?php echo count($units); ?>)</h4>
@@ -235,12 +243,12 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                         <?php if ((string) $unit["status"] === "Released"): ?>
                                             <em>Issued &mdash; record its return first</em>
                                         <?php else: ?>
-                                            <form method="POST" class="inline-form">
+                                            <form method="POST" class="inline-form request-form">
                                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
                                                 <input type="hidden" name="resource_id" value="<?php echo $resourceId; ?>">
                                                 <input type="hidden" name="unit_id" value="<?php echo (int) $unit["unit_id"]; ?>">
                                                 <input type="hidden" name="action" value="update_unit">
-                                                <select name="status">
+                                                <select aria-label="Unit status" name="status">
                                                     <?php foreach (gsoEquipmentUnitStatuses() as $statusOption): ?>
                                                         <?php if ($statusOption === "Released") { continue; } ?>
                                                         <option value="<?php echo htmlspecialchars($statusOption); ?>" <?php echo (string) $unit["status"] === $statusOption ? "selected" : ""; ?>>
@@ -248,14 +256,14 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                         </option>
                                                     <?php endforeach; ?>
                                                 </select>
-                                                <select name="condition_status">
+                                                <select aria-label="Unit condition" name="condition_status">
                                                     <?php foreach (gsoUnitConditionOptions() as $conditionOption): ?>
                                                         <option value="<?php echo htmlspecialchars($conditionOption); ?>" <?php echo (string) $unit["condition_status"] === $conditionOption ? "selected" : ""; ?>>
                                                             <?php echo htmlspecialchars($conditionOption); ?>
                                                         </option>
                                                     <?php endforeach; ?>
                                                 </select>
-                                                <input type="text" name="unit_notes" maxlength="500" value="<?php echo htmlspecialchars((string) ($unit["unit_notes"] ?? "")); ?>">
+                                                <input aria-label="Unit notes" type="text" name="unit_notes" maxlength="500" value="<?php echo htmlspecialchars((string) ($unit["unit_notes"] ?? "")); ?>">
                                                 <button type="submit" class="admin-btn">Save</button>
                                             </form>
                                         <?php endif; ?>

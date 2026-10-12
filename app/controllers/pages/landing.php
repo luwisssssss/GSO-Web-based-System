@@ -305,7 +305,7 @@ if (isset($_SESSION["user_id"])) {
     </div>
 </section>
 
-<?php include "../includes/footer.php"; ?>
+<?php require dirname(__DIR__, 2) . "/views/layouts/footer.php"; ?>
 
 <script>
 const animatedSelectors = [

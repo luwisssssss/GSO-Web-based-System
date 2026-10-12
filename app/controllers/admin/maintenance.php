@@ -514,8 +514,10 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
     <main class="page-content">
         <div class="card">
+            <div class="workspace-heading">
             <h2>Maintenance</h2>
             <p>Active and upcoming work orders. Corrective work comes from inspected returns, incidents, or a manual schedule. Preventive work is generated from a preventive plan. Completion always requires an explicit action; a passed end date does not complete a work order.</p>
+            </div>
             <div class="profile-actions">
                 <a href="maintenance.php" class="admin-btn primary-btn" aria-current="page">Active / Upcoming</a>
                 <a href="preventive_plans.php" class="admin-btn neutral-btn">Preventive Plans</a>
@@ -686,7 +688,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
 
                                             <div class="row-actions-menu" role="menu">
                                                 <?php if (in_array((string) ($schedule["status"] ?? ""), ["Scheduled", "In Progress"], true)): ?>
-                                                    <form method="POST" class="inline-form"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']);?>"><input type="hidden" name="action" value="assign_work_order"><input type="hidden" name="maintenance_id" value="<?php echo (int)$schedule['maintenance_id'];?>"><select name="assigned_to" required><option value="">Assign personnel</option><?php foreach($assignees as $person):?><option value="<?php echo (int)$person['user_id'];?>" <?php echo (int)$schedule['assigned_to']===(int)$person['user_id']?'selected':'';?>><?php echo htmlspecialchars((string)$person['full_name']);?></option><?php endforeach;?></select><button type="submit">Assign</button></form>
+                                                    <form method="POST" class="inline-form"><input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string)$_SESSION['csrf_token']);?>"><input type="hidden" name="action" value="assign_work_order"><input type="hidden" name="maintenance_id" value="<?php echo (int)$schedule['maintenance_id'];?>"><select class="form-control-block" name="assigned_to" aria-label="Assigned personnel" required><option value="">Assign personnel</option><?php foreach($assignees as $person):?><option value="<?php echo (int)$person['user_id'];?>" <?php echo (int)$schedule['assigned_to']===(int)$person['user_id']?'selected':'';?>><?php echo htmlspecialchars((string)$person['full_name']);?></option><?php endforeach;?></select><button type="submit">Assign</button></form>
                                                     <?php if (($schedule["maintenance_type"] ?? "") === "Preventive" && (string) $schedule["status"] === "Scheduled"): ?>
                                                     <form method="POST" class="inline-form" onsubmit="return confirm('Start this preventive maintenance now? The target will be held out of service.');">
                                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
@@ -702,7 +704,7 @@ require_once dirname(__DIR__, 3) . "/includes/admin_sidebar.php";
                                                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION["csrf_token"]); ?>">
                                                         <input type="hidden" name="action" value="complete_schedule">
                                                         <input type="hidden" name="maintenance_id" value="<?php echo htmlspecialchars((string) $schedule["maintenance_id"]); ?>">
-                                                        <input name="completion_notes" maxlength="1000" placeholder="Completion notes">
+                                                        <input class="form-control-block" name="completion_notes" maxlength="1000" placeholder="Completion notes" aria-label="Completion notes">
                                                         <button type="submit" class="success-action" role="menuitem">
                                                             <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
                                                             <span>Complete</span>
