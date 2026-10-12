@@ -70,7 +70,7 @@ try {
         ]);
     }
 } catch (Throwable $e) {
-    error_log("Chatbot history request failed: " . $e->getMessage());
+    gsoLogApplicationException($e, "app/controllers/chatbot/history.php");
     gsoChatFail(500, "service_error", "Sorry, the assistant is temporarily unavailable. Please try again.");
 }
 

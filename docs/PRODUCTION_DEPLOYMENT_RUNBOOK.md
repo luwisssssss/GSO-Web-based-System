@@ -1,8 +1,8 @@
 # GSO production deployment runbook
 
-Prepared 2026-10-11, Asia/Manila. Audited baseline: `96042c9b8368e63bd9f3b9fd3904055b41ea0083`; frozen schema: **20261010_008**. See [DEPLOYMENT_READINESS_AUDIT.md](DEPLOYMENT_READINESS_AUDIT.md).
+Prepared 2026-10-11; remediation updated 2026-10-12, Asia/Manila. Audit documentation baseline: `d8c8402`; original implementation/ERD checkpoint: `96042c9b8368e63bd9f3b9fd3904055b41ea0083`; frozen schema: **20261010_008**. See [DEPLOYMENT_READINESS_AUDIT.md](DEPLOYMENT_READINESS_AUDIT.md), [DATABASE_HOSTING_COMPATIBILITY.md](DATABASE_HOSTING_COMPATIBILITY.md), and [PRODUCTION_FILE_MANIFEST.md](PRODUCTION_FILE_MANIFEST.md).
 
-**Deployment is blocked until the audit's P1 findings/gates are closed.** The commands below are a future operator procedure, not commands executed by this audit. Substitute actual approved host paths, identities, release commit and database names. Production deployment, real email tests, and any one-time account provisioning require explicit authorization. Do not change the frozen schema to fit a hosting package without a separately reviewed compatibility decision.
+**APPLICATION READINESS: READY. HOST READINESS: UNVERIFIED. Do not deploy yet.** Application-side remediation passed one complete final run: 22 active suites / 3,034 checks and one focused suite / 137 checks (3,171 total). The commands below are a future operator procedure. Substitute actual approved host paths, identities, release commit and database names. Target-engine compatibility, host protection and real production configuration remain mandatory gates. Production deployment, real email tests, and any one-time account provisioning require explicit authorization. Do not change the frozen schema to fit a hosting package without a separately reviewed compatibility decision.
 
 ## 1. Select and rehearse the hosting environment
 
@@ -10,7 +10,7 @@ Prepared 2026-10-11, Asia/Manila. Audited baseline: `96042c9b8368e63bd9f3b9fd390
 2. Require PDO/pdo_mysql, mbstring, fileinfo, OpenSSL and standard JSON/session/ctype/filter/hash/PCRE/date/SPL facilities. Enable curl for external AI; enable EXIF if GPS rejection is required. No current GD/Imagick/Composer dependency exists.
 3. Confirm CLI PHP, database migration privileges, SMTP TLS egress/CA trust, and private storage outside the document root. If SSH is unavailable, require the hosting operator to execute the same checked CLI procedure; do not expose migration PHP as a web installer.
 4. Rehearse fresh import or an upgrade on a copy of the real target database, then restore it. Confirm all 22 tables, 275 columns, 57 FKs, 104 indexes, 11 CHECKs and 3 generated columns. Test on the actual database version; the local restore/import proves MariaDB 10.4 behavior only.
-5. Close D1 with the approved error-message patch and isolated fault tests. Recheck the approved release's hashes, syntax, access rules and smoke results. Do not deploy the currently audited source while D1 remains.
+5. D1's centralized safe error patch and isolated fault tests are complete. Recheck the approved release's hashes, syntax, access rules and smoke results on staging. Prefer maintained MariaDB 11.4; the exact target engine must pass the server-private staging checker and restore/enforcement review. No schema redesign is authorized.
 
 ## 2. Pre-deployment backup and recovery preparation
 
@@ -42,7 +42,7 @@ sha256sum "$BACKUP_DIR/evidence.tar" > "$BACKUP_DIR/evidence.tar.sha256"
 
 Adapt paths to the existing site; check every source exists before proceeding. Secure/encrypt backups according to institutional policy, set retention, and keep an additional recoverable copy outside the hosting account. Preserve the previous app key and session configuration privately.
 
-The local ignored `GSO_WebSystem/docs/db_cleanup_backup_before_cleanup.sql` is physically inside the local web root. Preserve it externally and verify its checksum before any separately approved cleanup. Never include that ignored nested tree in a release. This audit did not move or delete it.
+The local ignored `GSO_WebSystem/docs/db_cleanup_backup_before_cleanup.sql` remains physically inside the local web root. A byte-identical external safety copy was made and SHA-256 verified; the manifest records both paths, size and checksum. Temp storage is not durable retention: preserve it in approved encrypted external storage before separately approved cleanup. Never include that ignored nested tree in a release. No original backup was moved or deleted.
 
 Before changing production, restore the new DB dump into a **new empty isolated database**, not the live database:
 
@@ -58,7 +58,9 @@ The operator must verify the database name is newly created and distinct from pr
 
 ## 3. Provision production configuration
 
-Use the existing bootstrap/environment mechanism. Do not introduce another configuration framework. `.env.example` is verified placeholder-only and is unchanged. Host process variables override `.env`; `config/mail.local.php` overrides mail values after that, so **exclude every local override file** from the release.
+Use the existing bootstrap/environment mechanism. `.env.example` remains placeholder-only and now documents mandatory production keys, Linux private paths and forbidden test transport. Host process variables override `.env`; production/staging ignore `config/mail.local.php`. **Exclude every local override file** from the release anyway. Explicit `local` remains a development alias; never use local/development/test on the target public host. Missing environment defaults to strict production validation, not development.
+
+Production/prod/staging require all critical URL/key/DB/SMTP/private-path settings before DB connection. Missing/invalid settings produce a generic public HTTP 503 and administrator-only field names, never configured values. Debug mode, test DB names/outbox, local mail fallback, implicit migration mode and insecure session cookies are rejected. Private storage must already exist, be readable/writable, nonsymlinked and outside the application/known web roots. Do not point it at a temporary path in production. Generate a persistent 32-byte random key externally; the format/obvious-pattern check cannot prove entropy. Production never generates or uses a local key cache.
 
 Create the real secret configuration privately, then install it with mode 0640 or 0600 so the PHP user can read it. The app loads `.env` from its application root; alternatively supply the values through the hosting PHP process environment. Apache rules must deny `.env`. Never copy the development `.env` or key cache.
 
@@ -83,8 +85,9 @@ GSO_DB_PASSWORD=YOUR_PRIVATE_RUNTIME_PASSWORD
 
 GSO_INCIDENT_PHOTO_DIR=/srv/gso/shared/private/incident_photos
 GSO_REQUEST_LETTER_DIR=/srv/gso/shared/private/request_letters
-GSO_MAIL_OUTBOX_DIR=/srv/gso/shared/private/disabled_mail_outbox
 GSO_ALLOW_LOCAL_MAIL_FALLBACK=0
+GSO_MAIL_TEST_TRANSPORT=
+GSO_RUN_MIGRATIONS=0
 
 GSO_SMTP_HOST=YOUR_SMTP_HOST
 GSO_SMTP_PORT=587
@@ -123,15 +126,21 @@ Build a new release directory, never overwrite the running code in place. These 
 ```sh
 RELEASE=APPROVED_REMEDIATED_RELEASE_COMMIT
 APP=/srv/gso/releases/$RELEASE
+PRIVATE_TOOLS=/srv/gso/tools/$RELEASE
 test ! -e "$APP" || { echo 'Release directory already exists; stop.'; exit 1; }
 mkdir -p "$APP"
 git archive --format=tar "$RELEASE" \
   index.php .htaccess .env.example app config routes includes public pages \
-  auth admin borrower director gso_staff chatbot PHPMailer database \
-  scripts/migrate.php uploads/.htaccess | tar -xf - -C "$APP"
+  auth admin borrower director gso_staff chatbot PHPMailer \
+  uploads/.htaccess | tar -xf - -C "$APP"
+
+# A separate checkout stays outside every public document root and alias.
+test ! -e "$PRIVATE_TOOLS" || { echo 'Private tools directory exists; stop.'; exit 1; }
+mkdir -p "$PRIVATE_TOOLS"
+git archive --format=tar "$RELEASE" | tar -xf - -C "$PRIVATE_TOOLS"
 ```
 
-The allowlist includes reviewed SQL/migrations and the migration CLI but not E2E/cleanup/seed/reset tools, docs, Git metadata, ignored nested copies, uploads, local credentials, logs or audit artifacts. Deployment tools must transfer dotfiles, especially both `.htaccess` files. Preserve file-name case. Verify release checksums and the three required PHPMailer source files after transfer.
+The **runtime allowlist excludes every SQL file**, database/migrations, scripts, docs, tests, ignored nested copies, uploads, local credentials, logs and audit artifacts. Review the actual archive member list before transfer using the manifest's reject list. SQL, migration/rehearsal tools and frozen metadata exist only in the separate operator-owned private checkout; never alias it or run its E2E fixtures against the application database. Deployment tools must transfer dotfiles, especially both `.htaccess` files. Preserve file-name case. Verify release checksums and required PHPMailer source files/license after transfer.
 
 The application uses direct PHP wrappers and assets. Point the host's application mount to the release **application directory**, not `public/` alone. For subfolder hosting map `/GSO_WebSystem/` there; for root hosting map `/` there. Host-provided nginx/Apache aliases must not expose `/srv/gso/shared/private`, `/srv/gso/backups`, or `/srv/gso/secrets`.
 
@@ -172,7 +181,7 @@ run_gso_migration() (
   set -a
   . /srv/gso/secrets/migration.env
   set +a
-  cd "$APP"
+  cd "$PRIVATE_TOOLS"
   php scripts/migrate.php
 )
 ```
@@ -217,7 +226,7 @@ post_max_size = 32M
 max_file_uploads = 20
 ```
 
-The values for multipart POST size/file count must fit the actual deployment's forms and provider limits; 32M is a starting operational example, not an application-enforced aggregate limit. Configure memory and execution/FPM timeouts based on staging load, including synchronous SMTP's 20s timeout and the AI timeout. Configure private log rotation/retention. Apply D1's safe user-facing error patch; server-level error suppression alone does not fix it.
+The values for multipart POST size/file count must fit the actual deployment's forms and provider limits; 32M is a starting operational example, not an application-enforced aggregate limit. Configure memory and execution/FPM timeouts operationally, including synchronous SMTP's 20s timeout and the AI timeout. No new concurrency/load testing is authorized in this remediation. Configure private log rotation/retention. The application now suppresses technical catches and installs production runtime-warning/uncaught handlers; host settings are still needed for startup/entrypoint parse failures occurring before bootstrap can execute.
 
 Use `GSO_APP_URL` as the canonical HTTPS root/subfolder. Configure virtual-host hostname acceptance; test email-link construction with an attacker Host in a no-send harness. Enable `GSO_TRUST_PROXY_HEADERS=1` only behind a controlled proxy that overwrites forwarded headers and prevents direct backend access. It is not an IP allowlist. Prove Secure/HttpOnly/Lax cookies over the deployed HTTPS URL. Add HSTS only after HTTPS and recovery access are confirmed.
 
@@ -273,6 +282,25 @@ Record results, deployment commit, timestamps, host PHP/DB versions and response
 6. Point the previous release's private configuration to the recovery database/storage, preserve its app key, and switch the host mount after operator approval. Reload PHP and invalidate/rotate sessions if required to avoid stale authorization.
 7. Recheck unauthorized routes/private evidence denial, public landing, role views and the zero-pending-corrective-transition gate. Reopen public access only when the institution accepts the recovery state. Reconcile any legitimate transactions after the backup separately; never silently discard them.
 
+## 12. Actual target staging protection gates
+
+Run the read-only probe from the private tools checkout with the approved canonical HTTPS base:
+
+```sh
+cd "$PRIVATE_TOOLS"
+php scripts/staging_host_check.php https://APPROVED_STAGING_HOST/GSO_WebSystem
+```
+
+It verifies TLS certificates without bypass, public responses, Secure/HttpOnly/SameSite session cookie, internal path denials and guest letter denial. It prints statuses only, never response bodies/cookies/documents. An automated PASS is **not HOST VERIFIED**: manual gates remain UNVERIFIED until recorded.
+
+On a disposable, operator-controlled staging upload directory, provision a known-existing harmless `gso_probe.php` containing only `<?php echo 'GSO_STAGING_CANARY_EXECUTED';`. Confirm the file exists out of band, then set `GSO_STAGING_UPLOAD_CANARY_PATH=uploads/resources/gso_probe.php` for the probe. Require HTTP 403 and no execution/source marker. An imaginary-file 404 is not proof. Remove only this owned fixture after the check. Do not put the canary in production or upload documents belonging to real users for tests.
+
+Record separately: related vs unrelated-user private-letter authorization; actual private roots/aliases/permissions; canonical signup/reset/transactional links under hostile Host without sending mail; runtime PHP display/log flags; generic synthetic fault response and private diagnostics with no secrets; HTTP→HTTPS enforcement; proxy header boundary; web-server override/nonexecution rules; actual engine rehearsal, metadata/enforcement and restore checks. nginx/shared-host equivalents must be installed and tested by the operator; do not assume XAMPP settings or unsupported PHP directives.
+
+Use [DATABASE_HOSTING_COMPATIBILITY.md](DATABASE_HOSTING_COMPATIBILITY.md) for the empty `gso_stage_*` rehearsal. It refuses the configured application database and nonempty/ambiguous targets. No cleanup/drop is automatic, because partial DDL must be retained for diagnosis. If MySQL rejects the frozen FK/generated arrangement, stop and report separately; do not modify schema.
+
+PHPMailer remains vendored **7.1.1**, with no root Composer lock. Its exact tag requires PHP ≥5.5 plus ctype/filter/hash; secure SMTP needs OpenSSL and CA trust, and this application independently requires PHP 8.0 language features and mbstring. Select a supported patched PHP branch and verify both CLI/web SAPI. No P1 dependency upgrade was identified in the reviewed upstream notices; no dependency was upgraded. Recheck advisories before the actual release. [Exact tag requirements](https://raw.githubusercontent.com/PHPMailer/PHPMailer/v7.1.1/composer.json), [upstream security notices](https://github.com/PHPMailer/PHPMailer/security).
+
 ## Local audit evidence and restrictions
 
-Local fresh migration, repeat migration, full restore and frozen metadata comparison passed. Test databases and sensitive dump are identified in the audit report and remain local/outside the web root. All 22 source-table schema/data hashes remained unchanged. No production email, DNS change, public deployment or application repair was performed. These results do not replace staging certification of the actual hosting engine, filesystem, web server, PHP SAPI, SMTP path and private-storage layout.
+Local fresh migration, repeat migration, full restore and frozen metadata comparison passed. Remediation's final complete run passed all 23 suites / 3,171 checks; PHP syntax passed 277 tracked/new PHP files. All 22 source-table schema/data hashes remained unchanged (588 rows). Test databases and sensitive dumps remain isolated/outside the web root. No production email, DNS change, deployment, schema change, ERD regeneration or new load-testing program occurred. These results do not replace staging certification of the actual hosting engine, filesystem, web server, PHP SAPI, SMTP path and private-storage layout.

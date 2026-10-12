@@ -144,14 +144,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $locked = $lockStmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$locked) {
-            throw new Exception("Record not found.");
+            throw new DomainException("Record not found.");
         }
 
         if (($locked["return_status"] ?? "") !== "Pending") {
-            throw new Exception("Only pending submissions can be reviewed.");
+            throw new DomainException("Only pending submissions can be reviewed.");
         }
         if (($locked["request_status"] ?? "") !== "Return") {
-            throw new Exception("Request is not awaiting return inspection.");
+            throw new DomainException("Request is not awaiting return inspection.");
         }
 
         $borrowerId = (int) $locked["borrower_id"];
@@ -171,7 +171,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             );
 
             if (!($inspectionResult["ok"] ?? false)) {
-                throw new Exception((string) $inspectionResult["message"]);
+                throw new DomainException((string) $inspectionResult["message"]);
             }
 
             // The header keeps the worst outcome so existing displays, reports
@@ -283,7 +283,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $pdo->rollBack();
         }
 
-        $_SESSION["flash_message"] = $e->getMessage();
+        $_SESSION["flash_message"] = gsoSafeApplicationError($e, "app/controllers/admin/review_return.php");
         $_SESSION["flash_type"] = "error";
         header("Location: review_return.php?request_id=" . $requestId);
         exit();

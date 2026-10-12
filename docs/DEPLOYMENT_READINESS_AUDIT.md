@@ -2,9 +2,57 @@
 
 **DEPLOYMENT READINESS: BLOCKED**
 
-This is the first deployment audit, not authorization to deploy. No application, schema, migration, ERD, tracked landing-controller, or live database changes were made. No email was sent. Only this report and the deployment runbook were added; no commit or push was made.
+The original 2026-10-11 audit was committed as **`d8c8402`** (documentation only). The addendum below records subsequent authorized remediation. Sections after the addendum preserve the original audit evidence and recommendations; their original defect statuses and line numbers are historical. Nothing here authorizes deployment.
 
-## Baseline and environment
+## Remediation addendum — 2026-10-12, Asia/Manila
+
+**APPLICATION READINESS: READY. HOST READINESS: UNVERIFIED. Full deployment remains BLOCKED pending actual target staging.**
+
+| Original finding | Current disposition |
+|---|---|
+| D1 raw exception disclosure | Application fix complete; technical catches use safe messages/private structured diagnostics. Actual controller/model persistence fault tests pass. |
+| D2 engine compatibility | Exact concern documented; explicit empty staging checker passes locally, with all frozen actions/expressions/counts. Maintained MariaDB/MySQL target rehearsal still required; no schema change. |
+| D3 configuration | Strict production/prod/staging policy implemented, including mandatory external key/HTTPS/DB/SMTP/storage and forbidden test switches. Real target configuration remains an operator gate. |
+| D4 packaging/backup | Runtime manifest excludes every SQL/backup/nested development copy; server-private tools are separate. Byte-identical outside-web-root backup copy verified; original preserved. Durable backup retention/host archive review remain required. |
+| D5 host protection | Local denial/canary tests pass; read-only HTTPS script and manual checklist prepared. Actual target protections remain UNVERIFIED. |
+
+### Source behavior and logging
+
+`config/error_handler.php` provides `gsoSafeApplicationError` and `gsoLogApplicationException`. Technical PDO/runtime/filesystem/SMTP failures produce a generic message with a `GSOERR-*` reference. Deliberately authored `DomainException` validations remain useful; known release/inspection validations are explicitly typed accordingly. Suspicious multiline/technical/path/credential-shaped Domain messages are suppressed too. Equipment-unit duplicate-index mapping reads driver text only internally and emits a fixed validation message.
+
+Diagnostics use PHP `error_log` with JSON containing reference, static operation, exception class, file/line, up to 12 **argument-free** stack frames, and whitelisted SQLSTATE/numeric driver codes. **Exception messages and PDO errorInfo[2] are intentionally never logged**, because they can contain bound values or credentials. This preserves technical fault location/type/codes without logging passwords, SMTP secrets, tokens, session IDs, request bodies, documents or stack arguments. Logs belong in private host-managed storage. No logging framework was added. Mail configuration/delivery errors are generic publicly; production ignores local mail overrides and browser Host URL fallback.
+
+Production bootstrap defaults to strict validation when environment is missing; production/prod/staging force display_errors/display_startup_errors Off and log_errors On and install warning/uncaught/shutdown handlers. Debug, root runtime user, missing/placeholder critical values, local/test transport, implicit migration flags, weak-format keys, HTTP/local canonical URLs and public/private-storage violations are rejected before DB connection. Administrators see missing field names in CLI/private logs; browsers receive generic 503 with no settings. Localhost DB hosting is allowed **only when explicitly configured with nonblank credentials**, not as a silent fallback. A separately scoped CLI schema-tool DBA account is permitted. Host startup/entrypoint errors before bootstrap remain a php.ini/server staging gate.
+
+The existing **`GSO_APP_ENV=local`** is preserved as a development alias. Explicit local/development/test keep development behavior; active regressions additionally require CLI and isolated `gso_rN_test_*` names. Test mail capture still requires isolated DB + development/test + loopback. Strict staging/production reject it and the failure-marker route cannot activate there. The real `.env` and local secret files were not edited. Local root and `pages/landing.php` remain HTTP 200 with rendered HTML and no PHP error markers.
+
+### Final complete run and data safety
+
+One uninterrupted final pass, against **`gso_r13_test_20261011_074519`**, ran all 22 active suites followed by the focused suite. Results: **22 active / 3,034 actual checks**, **1 focused / 137 checks**, **23 suites / 3,171 total / zero failures**. The active count was calculated from this run, not assumed from the earlier 3,033 baseline. No partial-run counts were combined.
+
+The focused suite covers real request/return/signup PDO execute faults, real work-order UPDATE fault/rollback, filesystem and SMTP exception privacy, an actual loopback-only SMTP connection failure, safe warning handling even with display_errors enabled, strict bootstrap missing settings/outbox refusal, canonical Host independence, secure cookie policy, private/internal denial, a known-existing PHP canary denied by actual upload rules, secret-free diagnostics and unsafe staging targets. It sends no real email. Authored business validation is also asserted unchanged. Development-only fault wrappers are generated outside the repository, guarded by nonproduction environment, isolated DB, loopback and explicit fixture context; never deploy them.
+
+No unexpected PHP warning, notice, deprecation, fatal, cleanup warning or test failure appeared in suite outputs. Expected diagnostics occurred for simulated mail failure, duplicate-unit rejection and AI fallback; they contain safe metadata/fixed text. Isolated Apache logs also contain expected denied/nonexistent-route probes and a PID-file warning from force-stopping the owned temporary test server. Git emits ordinary LF→CRLF conversion notices. These are not user-visible production PHP faults.
+
+Read-only, primary-key-ordered full-row hashes and SHOW CREATE hashes for **all 22 live tables / 588 rows match the pre-remediation snapshot exactly**, including BLOBs and table auto-increment metadata. Frozen column metadata has zero differences. Counts remain **22 tables / 275 columns / 57 FKs / 104 indexes / 18 UNIQUE / 11 CHECK / 3 generated**, version **20261010_008**. No SQL/migration/R11/R12/ERD file changed. Testing used isolated databases; no live fixture inserts/updates/deletes or real email were performed.
+
+Local staging-tool import/repeat check passed on a newly provisioned `gso_stage_*` empty database with no business rows. Repeat invocation after import was refused (exit 2) because it was no longer empty. Unsafe names/opt-in refusal is tested before connection. Its metadata/expressions/FK actions match the freeze. See [DATABASE_HOSTING_COMPATIBILITY.md](DATABASE_HOSTING_COMPATIBILITY.md) for the exact `request_items.facility_guard` / `fk_request_items_request` / DELETE CASCADE, UPDATE RESTRICT concern and maintained MariaDB vs MySQL paths. Actual MySQL import remains untested.
+
+### Static review, dependencies, packaging and remaining gates
+
+- PHP lint: **277 tracked/new PHP files, zero failures**. `git diff --check` passes with repository line-ending settings.
+- Case review: 633 tokenized production include expressions; 626 statically resolved include paths and 184 public URL references, zero missing literal paths/case mismatches. A further 1,279 filename-token case checks found zero mismatches. Dynamic local-key/mail override/sidebar includes reviewed separately. New config helper paths match case.
+- Raw exception scan: no direct technical getMessage browser/flash/JSON output or raw-message logging remains in application/config/includes. The three occurrences are the guarded Domain formatter and two internal duplicate-index comparisons. Test scripts' detailed CLI failures are excluded from deployment and isolated-DB guarded.
+- Windows runtime-path scan: no absolute Windows/XAMPP runtime constant in production source. Configurable defaults are blocked in strict production; synthetic paths in tests and examples/docs are classified development/reference. Browser Host inference is available only after explicit nonproduction mode; configured production URLs are used directly and missing canonical URL fails.
+- Secret scan: literal candidates were reviewed; production candidates are verification/reset URL construction and CSRF markup, not embedded credentials. Four actual configured-secret sources were compared without printing values; zero tracked/new source/document matches. Focused response/log sentinel checks pass. This is current-source review, not exhaustive historical Git forensics.
+- PHPMailer **7.1.1** remains vendored, no root Composer lock/install. Exact-tag PHP ≥5.5/ctype/filter/hash requirements and secure SMTP OpenSSL were verified; application's supported-PHP staging choice is separate. Reviewed upstream notices did not identify a P1 upgrade requirement for this version; no arbitrary upgrade occurred. [Tag requirements](https://raw.githubusercontent.com/PHPMailer/PHPMailer/v7.1.1/composer.json), [security notices](https://github.com/PHPMailer/PHPMailer/security).
+- [PRODUCTION_FILE_MANIFEST.md](PRODUCTION_FILE_MANIFEST.md) records exact backup size/SHA-256/external copy, runtime allowlist/reject list, private tools, every writable area and permissions. No original backup was moved/deleted. The external Temp safety copy still needs durable encrypted institutional retention.
+
+No application-side P0/P1 remains in the verified scope. **Remaining host-side P1 launch gates:** chosen maintained DB engine import/enforcement/restore; real production configuration/key/SMTP/private storage; approved runtime archive; actual HTTPS/cookies/canonical URLs; internal path denial/upload nonexecution/evidence authorization; actual PHP SAPI settings/private logs/proxy boundary. Host is unspecified, so these cannot be certified locally. No deployment, DNS change, push, ERD regeneration or new load-testing program occurred.
+
+Reports/tools added: database hosting compatibility, production file manifest, staging database checker, staging HTTPS host checker, deployment fault fixture/focused suite and common test-environment guard. The two original audit/runbook documents were updated. Authorized remediation is committed separately from `d8c8402`; do not amend that baseline.
+
+## Original audit baseline and environment
 
 - Initial working tree: clean; `git status --short` produced no output.
 - HEAD: `96042c9b8368e63bd9f3b9fd3904055b41ea0083` (Generate final as-built GSO ERD).
@@ -175,3 +223,78 @@ Current tracked-baseline search covered hardcoded host/path/test-database patter
 Matched lines: 201. Class totals: A=181, B=17, C=1, D=2. These classifications describe the matched reference, not every operation on that line.
 
 The separate literal-credential candidate scan was manually checked: the five production candidates are uth/forgot_password.php:91,122, uth/signup.php:270, pp/views/partials/admin_topbar.php:198, and orrower_topbar.php:188 (D: dynamic URL/CSRF interpolation, not embedded credentials). The other 38 candidates are isolated test fixtures (A). Ignored local secret files are B: provision separately, never transfer their real values into this report or a release archive.
+
+
+## Remediation file inventory
+
+The remediation commit contains these 69 reviewed files (no SQL or frozen ERD/schema metadata):
+
+- `.env.example`
+- `app/controllers/admin/create_walkin.php`
+- `app/controllers/admin/maintenance.php`
+- `app/controllers/admin/preventive_plans.php`
+- `app/controllers/admin/requests.php`
+- `app/controllers/admin/reschedules.php`
+- `app/controllers/admin/review_return.php`
+- `app/controllers/admin/view_incident.php`
+- `app/controllers/admin/view_request.php`
+- `app/controllers/admin/walkin_actions.php`
+- `app/controllers/auth/signup.php`
+- `app/controllers/borrower/report_issue.php`
+- `app/controllers/borrower/request_letter.php`
+- `app/controllers/borrower/request_resource.php`
+- `app/controllers/borrower/reschedule.php`
+- `app/controllers/borrower/return_submit.php`
+- `app/controllers/chatbot/history.php`
+- `app/controllers/chatbot/send.php`
+- `app/models/ai_chat_helper.php`
+- `app/models/ai_knowledge_helper.php`
+- `app/models/ai_live_data_helper.php`
+- `app/models/ai_provider_helper.php`
+- `app/models/client_notification_helper.php`
+- `app/models/equipment_unit_helper.php`
+- `app/models/incident_upload_helper.php`
+- `app/models/legacy_schema_upgrader.php`
+- `app/models/login_throttle_helper.php`
+- `app/models/mail_helper.php`
+- `app/models/maintenance_helper.php`
+- `app/models/preventive_maintenance_helper.php`
+- `app/models/return_detail_helper.php`
+- `app/models/schema_migrator.php`
+- `app/models/work_order_helper.php`
+- `config/bootstrap.php`
+- `config/db.php`
+- `config/error_handler.php`
+- `config/mail.php`
+- `config/production_policy.php`
+- `docs/DATABASE_HOSTING_COMPATIBILITY.md`
+- `docs/DEPLOYMENT_READINESS_AUDIT.md`
+- `docs/PRODUCTION_DEPLOYMENT_RUNBOOK.md`
+- `docs/PRODUCTION_FILE_MANIFEST.md`
+- `scripts/deployment_fault_fixture.php`
+- `scripts/deployment_hardening_e2e.php`
+- `scripts/phase1_roles_e2e.php`
+- `scripts/phase35a_combined_borrowing_e2e.php`
+- `scripts/phase35b_unit_tracking_e2e.php`
+- `scripts/phase35c_workorder_accountability_e2e.php`
+- `scripts/r10_final_integration_e2e.php`
+- `scripts/r10a_claim_slip_e2e.php`
+- `scripts/r1_return_lifecycle_e2e.php`
+- `scripts/r2a_role_director_cutover_e2e.php`
+- `scripts/r2b_manual_letter_adviser_retirement_e2e.php`
+- `scripts/r3_ampm_facility_scheduling_e2e.php`
+- `scripts/r4_rescheduling_e2e.php`
+- `scripts/r5_walkin_e2e.php`
+- `scripts/r6_damage_loss_e2e.php`
+- `scripts/r7_preventive_maintenance_e2e.php`
+- `scripts/r8_chatbot_live_inquiries_e2e.php`
+- `scripts/r9_email_notifications_e2e.php`
+- `scripts/staging_database_check.php`
+- `scripts/staging_host_check.php`
+- `scripts/step10_live_data_e2e.php`
+- `scripts/step6_incident_e2e.php`
+- `scripts/step7_incident_reports_e2e.php`
+- `scripts/step8_core_e2e.php`
+- `scripts/step8_login_throttle_test.php`
+- `scripts/step9_chatbot_e2e.php`
+- `scripts/test_environment_helper.php`

@@ -63,7 +63,7 @@ if (!function_exists("gsoLoginThrottleAvailable")) {
             try {
                 $available = tableExists($pdo, "login_attempts");
             } catch (Throwable $e) {
-                error_log("Login throttle availability check failed: " . $e->getMessage());
+                gsoLogApplicationException($e, "app/models/login_throttle_helper.php");
                 $available = false;
             }
         }
@@ -109,7 +109,7 @@ if (!function_exists("gsoLoginLockRemaining")) {
 
             return max(0, (int) ($row["lock_remaining"] ?? 0));
         } catch (Throwable $e) {
-            error_log("Login throttle lookup failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/login_throttle_helper.php");
             return 0;
         }
     }
@@ -136,7 +136,7 @@ if (!function_exists("gsoRecordLoginFailure")) {
             $pdo->prepare("INSERT INTO login_attempts (attempt_key, attempted_at) VALUES (:attempt_key, NOW())")
                 ->execute([":attempt_key" => $attemptKey]);
         } catch (Throwable $e) {
-            error_log("Login throttle write failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/login_throttle_helper.php");
         }
 
         gsoPruneLoginAttempts($pdo);
@@ -154,7 +154,7 @@ if (!function_exists("gsoClearLoginFailures")) {
             $pdo->prepare("DELETE FROM login_attempts WHERE attempt_key = :attempt_key")
                 ->execute([":attempt_key" => $attemptKey]);
         } catch (Throwable $e) {
-            error_log("Login throttle cleanup failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/login_throttle_helper.php");
         }
     }
 }
@@ -181,7 +181,7 @@ if (!function_exists("gsoPruneLoginAttempts")) {
                 (int) GSO_LOGIN_LOCK_SECONDS
             ));
         } catch (Throwable $e) {
-            error_log("Login throttle prune failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/login_throttle_helper.php");
         }
     }
 }

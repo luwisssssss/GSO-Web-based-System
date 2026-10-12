@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/test_environment_helper.php';
 /**
  * R10 final integration E2E: cross-feature journeys on the cleaned final schema.
  * Run only against an isolated gso_r*_test_* database with the loopback test

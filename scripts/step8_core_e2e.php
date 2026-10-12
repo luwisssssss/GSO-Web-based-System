@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/test_environment_helper.php';
 
 /**
  * Step 8 full-core regression harness.

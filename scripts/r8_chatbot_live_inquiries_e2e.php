@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/test_environment_helper.php';
 /** R8 real HTTP/authentication and authoritative live-query regression; isolated DB only. */
 require_once dirname(__DIR__).'/config/bootstrap.php';
 if (!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/', (string)gsoEnv('GSO_DB_NAME',''))) throw new RuntimeException('R8 requires an isolated database.');

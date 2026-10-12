@@ -61,8 +61,9 @@ function gsoExecuteSqlFile(PDO $pdo, string $path): int
                 $result->closeCursor();
             }
         } catch (Throwable $e) {
+            $reference = gsoLogApplicationException($e, "schema migration statement");
             throw new RuntimeException(
-                basename($path) . " failed at statement " . ($count + 1) . ": " . $e->getMessage(),
+                basename($path) . " failed at statement " . ($count + 1) . ". Reference: " . $reference,
                 0,
                 $e
             );

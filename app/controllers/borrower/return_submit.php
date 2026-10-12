@@ -348,7 +348,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     deleteReturnPhotoFile($filename);
                 }
 
-                $message = $e->getMessage();
+                $message = gsoSafeApplicationError($e, "app/controllers/borrower/return_submit.php");
             }
         }
     }

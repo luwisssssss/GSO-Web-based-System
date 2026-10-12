@@ -10,7 +10,9 @@ if (!function_exists("gsoLoadEnvFile")) {
         }
 
         $loaded[$path] = true;
-        $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        // A read failure must reach the configuration gate without printing
+        // the secret-file location before production handlers are installed.
+        $lines = @file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 
         if (!is_array($lines)) {
             return;
@@ -220,8 +222,8 @@ if (!function_exists("gsoAppSecret")) {
      *
      * The secret deliberately lives outside the database so that a leaked
      * database dump cannot be used to recover the identifiers it protects.
-     * GSO_APP_KEY in .env takes precedence; otherwise a random key is
-     * generated once and cached in a gitignored config file.
+     * GSO_APP_KEY takes precedence. Only explicit nonproduction environments
+     * may generate and cache a development key in a gitignored config file.
      */
     function gsoAppSecret(): string
     {
@@ -235,6 +237,10 @@ if (!function_exists("gsoAppSecret")) {
 
         if ($configured !== "") {
             return $secret = $configured;
+        }
+
+        if (gsoProductionEnvironment()) {
+            throw new RuntimeException("Production application key is unavailable.");
         }
 
         $keyFile = __DIR__ . DIRECTORY_SEPARATOR . "app_key.local.php";
@@ -274,12 +280,20 @@ if (!function_exists("gsoAppSecret")) {
 
 $rootPath = dirname(__DIR__);
 gsoLoadEnvFile($rootPath . DIRECTORY_SEPARATOR . ".env");
-date_default_timezone_set((string) gsoEnv("GSO_APP_TIMEZONE", "Asia/Manila"));
-
-$appEnvironment = strtolower(trim((string) gsoEnv("GSO_APP_ENV", "development")));
+$appEnvironment = strtolower(trim((string) gsoEnv("GSO_APP_ENV", "production")));
 $appDebug = gsoEnvBool("GSO_APP_DEBUG", false);
-if ($appEnvironment === "production" && !$appDebug) {
+require_once __DIR__ . "/error_handler.php";
+require_once __DIR__ . "/production_policy.php";
+if (!in_array($appEnvironment, ["production", "prod", "staging", "development", "local", "test"], true)) {
+    error_log("GSO application environment is invalid.");
+    if (PHP_SAPI !== "cli") http_response_code(503);
+    exit("The system is temporarily unavailable. Please contact the administrator.");
+}
+if (gsoProductionEnvironment()) {
     ini_set("display_errors", "0");
     ini_set("display_startup_errors", "0");
     ini_set("log_errors", "1");
+    gsoInstallSafeErrorHandlers();
+    gsoEnforceProductionConfiguration();
 }
+date_default_timezone_set((string) gsoEnv("GSO_APP_TIMEZONE", "Asia/Manila"));

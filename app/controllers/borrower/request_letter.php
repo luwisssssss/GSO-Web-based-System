@@ -20,7 +20,7 @@ if(($_SERVER['REQUEST_METHOD']??'GET')==='POST'){
         $stored=gsoStoreRequestLetter($validated);gsoInsertRequestLetter($pdo,$requestId,$userId,$stored);
         addActivityLog($pdo,$userId,'Request Letter Uploaded','Uploaded a new facility request-letter version for request #'.$requestId);
         $pdo->commit();redirectWithFlash('request_letter.php?request_id='.$requestId,'Request letter uploaded for GSO verification.','success');
-    }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();if($stored)@unlink($stored['path']);$message=$e instanceof DomainException?$e->getMessage():'The request letter could not be stored. Please try again.';}
+    }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();if($stored)@unlink($stored['path']);$message=gsoSafeApplicationError($e, "app/controllers/borrower/request_letter.php", 'The request letter could not be stored. Please try again.');}
 }
 $letters=gsoRequestLetters($pdo,$requestId);$current=$letters[0]??null;
 $canReplace=in_array($request['status'],['Pending','Under Review'],true)&&(!$current||$current['verification_status']==='Rejected');

@@ -42,7 +42,7 @@ if (($_SERVER["REQUEST_METHOD"]??"GET")==="POST") {
         $pdo->commit();gsoDeliverClientEvent($pdo,$event);redirectWithFlash("view_request.php?request_id=".$requestId,"Request letter ".strtolower($next).".","success");
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        redirectWithFlash("view_request.php?request_id=".$requestId,$e instanceof DomainException?$e->getMessage():"Document verification could not be saved.");
+        redirectWithFlash("view_request.php?request_id=".$requestId,gsoSafeApplicationError($e, "app/controllers/admin/view_request.php", "Document verification could not be saved."));
     }
 }
 

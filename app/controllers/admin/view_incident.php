@@ -442,12 +442,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        $redirectToIncident($exception->getMessage());
+        $redirectToIncident(gsoSafeApplicationError($exception, "app/controllers/admin/view_incident.php"));
     } catch (Throwable $exception) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        error_log("Admin incident action failed [{$correlationId}]: " . $exception->getMessage());
+        gsoLogApplicationException($exception, "app/controllers/admin/view_incident.php");
         $redirectToIncident("The incident action could not be completed. Reference: {$correlationId}.");
     }
 }

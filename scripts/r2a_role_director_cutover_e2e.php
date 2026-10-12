@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/test_environment_helper.php';
 /** R2A regression: isolated database and matching loopback Apache only. */
 $root = dirname(__DIR__);
 require_once $root . '/config/bootstrap.php';

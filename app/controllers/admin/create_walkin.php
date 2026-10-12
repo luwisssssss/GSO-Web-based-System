@@ -6,7 +6,7 @@ require_once dirname(__DIR__,3).'/includes/walkin_helper.php';
 if(empty($_SESSION['csrf_token']))$_SESSION['csrf_token']=bin2hex(random_bytes(32));$error='';
 if(($_SERVER['REQUEST_METHOD']??'GET')==='POST'){
     try{if(!hash_equals((string)$_SESSION['csrf_token'],(string)($_POST['csrf_token']??'')))throw new DomainException('Invalid request token.');$id=gsoCreateWalkin($pdo,(int)$_SESSION['user_id'],$_POST,$_FILES['request_letter']??[]);redirectWithFlash('view_request.php?request_id='.$id,'Walk-in request created. Approval and release remain separate actions.','success');}
-    catch(Throwable $e){$error=$e instanceof DomainException?$e->getMessage():'The walk-in request could not be saved. Refresh and retry.';}
+    catch(Throwable $e){$error=gsoSafeApplicationError($e, "app/controllers/admin/create_walkin.php", 'The walk-in request could not be saved. Refresh and retry.');}
 }
 $resources=$pdo->query("SELECT resource_id,resource_name,resource_type,tracking_mode FROM resources WHERE is_archived=0 ORDER BY resource_type,resource_name")->fetchAll(PDO::FETCH_ASSOC);
 $pageTitle='Create Walk-in';$cssFile='../public/assets/css/pages/admin.css';require dirname(__DIR__,3).'/includes/header.php';require dirname(__DIR__,3).'/includes/admin_sidebar.php';

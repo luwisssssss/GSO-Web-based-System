@@ -108,5 +108,5 @@ function gsoPreventiveJobAction(PDO $pdo,int $id,int $actor,string $action,strin
             }
         }
         if($unit){require_once __DIR__.'/equipment_unit_helper.php';gsoRecalculateSerializedStock($pdo,(int)$job['resource_id']);}refreshResourceOperationalStatus($pdo,(int)$job['resource_id']);gsoPreventiveAudit($pdo,$actor,'Preventive Maintenance '.ucfirst($action),'MTN-'.$id.'; plan #'.$planId.'; '.$action.'; restored '.$restored.' unit(s).');$pdo->commit();return ['ok'=>true,'message'=>'Preventive maintenance '.$action.' recorded.','restored'=>$restored];
-    }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();return ['ok'=>false,'message'=>$e->getMessage()];}
+    }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();return ['ok'=>false,'message'=>gsoSafeApplicationError($e, "app/models/preventive_maintenance_helper.php")];}
 }

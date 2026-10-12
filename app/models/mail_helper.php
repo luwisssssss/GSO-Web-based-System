@@ -17,6 +17,10 @@ if (!function_exists("gsoBuildAppUrl")) {
             return rtrim($configuredBaseUrl, "/") . "/" . ltrim($path, "/");
         }
 
+        if (gsoProductionEnvironment()) {
+            throw new RuntimeException("Canonical application URL is unavailable.");
+        }
+
         $scheme = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") ? "https" : "http";
         $hostName = $_SERVER["HTTP_HOST"] ?? "localhost";
         $scriptDir = rtrim(str_replace("\\", "/", dirname($_SERVER["SCRIPT_NAME"] ?? "/GSO_WebSystem/index.php")), "/");
@@ -35,8 +39,8 @@ if (!function_exists("gsoIsSmtpConfigured")) {
     }
 }
 
-if (!function_exists("gsoGetMailConfigurationIssue")) {
-    function gsoGetMailConfigurationIssue(array $mailConfig): string
+if (!function_exists("gsoMailConfigurationIssueDetails")) {
+    function gsoMailConfigurationIssueDetails(array $mailConfig): string
     {
         $host = strtolower(trim((string) ($mailConfig["host"] ?? "")));
         $username = trim((string) ($mailConfig["username"] ?? ""));
@@ -66,6 +70,17 @@ if (!function_exists("gsoGetMailConfigurationIssue")) {
         }
 
         return "";
+    }
+}
+
+if (!function_exists("gsoGetMailConfigurationIssue")) {
+    function gsoGetMailConfigurationIssue(array $mailConfig): string
+    {
+        $issue = gsoMailConfigurationIssueDetails($mailConfig);
+        if ($issue !== "" && gsoProductionEnvironment()) {
+            return gsoSafeApplicationError(new RuntimeException('Mail configuration rejected'), 'SMTP configuration', 'Email delivery is temporarily unavailable. Please contact the administrator.');
+        }
+        return $issue;
     }
 }
 
@@ -250,6 +265,7 @@ if (!function_exists("gsoWriteLocalMailOutbox")) {
                 "path" => $path
             ];
         } catch (Throwable $e) {
+            gsoLogApplicationException($e, 'local mail capture');
             return [
                 "success" => false,
                 "message" => "Local email outbox failed."
@@ -279,6 +295,7 @@ if (!function_exists("gsoSendEmail")) {
                 }
                 return gsoWriteLocalMailOutbox($toEmail, $subject, $htmlBody, $altBody) + ['channel'=>'test_outbox'];
             } catch (Throwable $e) {
+                gsoLogApplicationException($e, 'isolated test mail transport');
                 return ['success'=>false, 'channel'=>'test_transport', 'message'=>'Email delivery could not be confirmed.'];
             }
         }
@@ -342,20 +359,7 @@ if (!function_exists("gsoSendEmail")) {
                 "message" => "Email sent."
             ];
         } catch (Throwable $e) {
-            $errorInfo = $mail instanceof PHPMailer ? (string) $mail->ErrorInfo : "";
-            $message = "Email could not be sent.";
-
-            if (stripos($errorInfo, "authenticate") !== false) {
-                $message = "SMTP authentication failed. Confirm the Gmail address and 16-character Gmail App Password in the .env file.";
-            } elseif (stripos($errorInfo, "connect") !== false) {
-                $message = "SMTP connection failed. Check the SMTP host, port, secure setting, or internet access.";
-            } elseif (stripos($errorInfo, "from") !== false) {
-                $message = "SMTP sender details are invalid. Check GSO_SMTP_FROM and GSO_SMTP_FROM_NAME in the .env file.";
-            }
-
-            if (gsoEnvBool("GSO_APP_DEBUG", false) && $errorInfo !== "") {
-                $message .= " Details: " . $errorInfo;
-            }
+            $message = gsoSafeApplicationError($e, "SMTP delivery", "Email delivery is temporarily unavailable. Please try again.");
 
             return [
                 "success" => false,

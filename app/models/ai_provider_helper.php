@@ -164,7 +164,7 @@ if (!class_exists("GsoDeepSeekProvider")) {
 
             if (!is_string($raw) || $raw === "") {
                 // Never surface the transport string to the user; it can carry host details.
-                error_log("AI provider transport failure: " . $transportError);
+                error_log("AI provider transport failed; no transport payload is logged.");
                 return gsoAiProviderResult(false, "", "provider_timeout", "The AI provider did not respond.");
             }
 
@@ -228,7 +228,7 @@ if (!function_exists("gsoResolveAiProvider")) {
             case "disabled":
                 return new GsoDisabledAiProvider();
             default:
-                error_log("Unknown AI_PROVIDER configured: " . $provider);
+                error_log("Unknown AI provider configuration; provider value is not logged.");
                 return new GsoDisabledAiProvider();
         }
     }

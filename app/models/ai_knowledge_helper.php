@@ -123,7 +123,7 @@ if (!function_exists("gsoFindKnowledgeEntries")) {
             ");
             $entries = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $e) {
-            error_log("Knowledge base retrieval failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/ai_knowledge_helper.php");
             return [];
         }
 

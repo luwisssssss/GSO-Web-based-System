@@ -306,12 +306,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                                 $pdo->rollBack();
                             }
 
-                            $detail = trim($e->getMessage());
-                            $message = "Signup could not be completed because the verification email was not sent.";
-
-                            if ($detail !== "") {
-                                $message .= " " . $detail;
-                            }
+                            $message = gsoSafeApplicationError($e, "signup persistence or verification delivery", "Signup could not be completed right now. Please try again.");
                         }
                     }
                 }

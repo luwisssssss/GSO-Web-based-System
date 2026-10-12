@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/test_environment_helper.php';
 /** R9: real HTTP business transitions, isolated DB and private test mail capture. */
 require_once dirname(__DIR__).'/config/bootstrap.php';
 if (!preg_match('/^gso_r[0-9]+[ab]?_test_[a-zA-Z0-9_]+$/',(string)gsoEnv('GSO_DB_NAME','')) || gsoEnv('GSO_MAIL_TEST_TRANSPORT','')!=='outbox') throw new RuntimeException('Isolated R9 database and outbox transport required.');

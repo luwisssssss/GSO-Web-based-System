@@ -146,6 +146,7 @@ if (!function_exists("gsoRegisterEquipmentUnit")) {
 
             // The unique indexes are the authority; the message stays generic
             // enough not to leak which other resource already holds the value.
+            gsoLogApplicationException($e, "equipment unit registration");
             if (str_contains($e->getMessage(), "uq_equipment_units_asset_tag")) {
                 return ["ok" => false, "message" => "That asset tag is already registered."];
             }
@@ -153,7 +154,6 @@ if (!function_exists("gsoRegisterEquipmentUnit")) {
                 return ["ok" => false, "message" => "That serial number is already registered."];
             }
 
-            error_log("Equipment unit registration failed: " . $e->getMessage());
             return ["ok" => false, "message" => "The unit could not be registered."];
         }
     }
@@ -231,7 +231,7 @@ if (!function_exists("gsoUpdateEquipmentUnitStatus")) {
 
             return [
                 "ok" => false,
-                "message" => $e instanceof DomainException ? $e->getMessage() : "The unit could not be updated.",
+                "message" => gsoSafeApplicationError($e, "app/models/equipment_unit_helper.php", "The unit could not be updated."),
             ];
         }
     }
@@ -444,7 +444,7 @@ if (!function_exists("gsoActivateSerializedTracking")) {
 
             return [
                 "ok" => false,
-                "message" => $e instanceof DomainException ? $e->getMessage() : "Tracking could not be activated.",
+                "message" => gsoSafeApplicationError($e, "app/models/equipment_unit_helper.php", "Tracking could not be activated."),
             ];
         }
     }

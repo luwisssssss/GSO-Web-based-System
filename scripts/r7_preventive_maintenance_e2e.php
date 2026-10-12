@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/test_environment_helper.php';
 /**
  * R7 preventive maintenance and maintenance history E2E.
  * Run only with GSO_DB_NAME=gso_r7_test_* and GSO_R7_BASE_URL pointing at a

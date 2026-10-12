@@ -905,7 +905,8 @@ if (!function_exists("gsoLegacyBaselineUpgrade")) {
             }
         } catch (Throwable $e) {
             $hasRun = false;
-            throw new RuntimeException("Schema initialization failed: " . $e->getMessage(), 0, $e);
+            $reference = gsoLogApplicationException($e, "legacy schema initialization");
+            throw new RuntimeException("Schema initialization failed. Reference: " . $reference, 0, $e);
         }
     }
 }

@@ -197,7 +197,7 @@ if (!function_exists("gsoChatRateLimitRemaining")) {
             $stmt->execute([":user_id" => $userId]);
             $used = (int) $stmt->fetchColumn();
         } catch (Throwable $e) {
-            error_log("Chat rate limit lookup failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/ai_chat_helper.php");
             return GSO_CHAT_RATE_LIMIT_PER_MINUTE;
         }
 
@@ -385,7 +385,7 @@ if (!function_exists("gsoHandleChatMessage")) {
                 $pdo->rollBack();
             }
 
-            error_log("Chat message persistence failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/ai_chat_helper.php");
 
             return [
                 "ok" => false,
@@ -425,7 +425,7 @@ if (!function_exists("gsoHandleChatMessage")) {
                 );
             } catch (Throwable $e) {
                 // Never surface the exception: it can carry SQL and paths.
-                error_log("Live data lookup failed for {$liveIntent}: " . $e->getMessage());
+                gsoLogApplicationException($e, "app/models/ai_chat_helper.php");
             }
 
             if ($liveResult === null) {
@@ -503,7 +503,7 @@ if (!function_exists("gsoHandleChatMessage")) {
         try {
             gsoAddChatMessage($pdo, $activeConversationId, "assistant", $answer, $intent);
         } catch (Throwable $e) {
-            error_log("Assistant reply persistence failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/ai_chat_helper.php");
         }
 
         return [

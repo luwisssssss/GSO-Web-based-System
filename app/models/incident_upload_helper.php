@@ -210,7 +210,7 @@ if (!function_exists("storeIncidentPhoto")) {
                 "height" => $height,
             ];
         } catch (Throwable $e) {
-            error_log("Incident photo storage failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/incident_upload_helper.php");
             return ["success" => false, "message" => "The incident photo could not be stored securely."];
         }
     }
@@ -226,7 +226,7 @@ if (!function_exists("resolveIncidentPhotoPath")) {
         try {
             $directory = incidentPhotoStorageRoot(false);
         } catch (Throwable $e) {
-            error_log("Incident photo lookup failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/incident_upload_helper.php");
             return null;
         }
 

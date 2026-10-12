@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/test_environment_helper.php';
 /**
  * R10A Claim Slip Code E2E: issuance on approval, owner/GSO display, and
  * server-side verification before release. Isolated test database, loopback

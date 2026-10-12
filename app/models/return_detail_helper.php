@@ -154,7 +154,7 @@ if (!function_exists("gsoValidateBorrowerReturnRows")) {
 
             if($line['line_kind']!=='Facility'&&isset($payload['outcomes'])){
                 try{$groups=gsoReturnOutcomeGroups((array)$payload['outcomes'],$released);foreach($groups as $condition=>$qty)$rows[]=['request_item_id'=>$lineId,'unit_id'=>null,'reported_condition'=>$condition,'returned_quantity'=>$condition==='Lost'?0:$qty,'lost_quantity'=>$condition==='Lost'?$qty:0];}
-                catch(DomainException $e){$errors[]=$name.': '.$e->getMessage();}continue;
+                catch(DomainException $e){$errors[]=$name.': '.gsoSafeApplicationError($e, "app/models/return_detail_helper.php");}continue;
             }
             // Facility and legacy aggregate payloads remain supported.
             $condition = trim((string) ($payload["condition"] ?? ""));
@@ -273,7 +273,7 @@ if (!function_exists("gsoApplyReturnInspection")) {
             if($detail['line_kind']==='Facility'&&($input['condition']??'')==='Lost')return ['ok'=>false,'message'=>'A Facility cannot be inspected as Lost.'];
             if(isset($input['outcomes'])){
                 if($detail['unit_id']!==null||$detail['line_kind']==='Facility')return ['ok'=>false,'message'=>'Quantity groups apply only to aggregate equipment.'];
-                try{$groups=gsoReturnOutcomeGroups((array)$input['outcomes'],(int)$detail['returned_quantity']+(int)$detail['lost_quantity']);}catch(DomainException $e){return ['ok'=>false,'message'=>$e->getMessage()];}
+                try{$groups=gsoReturnOutcomeGroups((array)$input['outcomes'],(int)$detail['returned_quantity']+(int)$detail['lost_quantity']);}catch(DomainException $e){return ['ok'=>false,'message'=>gsoSafeApplicationError($e, "app/models/return_detail_helper.php")];}
                 if((int)$detail['lost_quantity']>0&&array_keys($groups)!==['Lost'])return ['ok'=>false,'message'=>'Reported Lost quantity must remain a separate Lost group.'];
                 $first=true;foreach($groups as $chosen=>$qty){$part=$detail;$part['return_item_id']=$first?$id:$virtual--;$part['returned_quantity']=(int)$detail['lost_quantity']>0?0:$qty;$part['lost_quantity']=(int)$detail['lost_quantity']>0?$qty:0;$inspection[$part['return_item_id']]=['condition'=>$chosen,'remarks'=>$input['remarks']??''];$planned[]=$part;$first=false;}
             }else{$planned[]=$detail;}

@@ -11,7 +11,7 @@ if(($_SERVER['REQUEST_METHOD']??'GET')==='POST')try{
     case 'cancel_reschedule':gsoCancelReschedule($pdo,$actor,$id,(int)($_POST['reschedule_id']??0),true);break;
     default:throw new DomainException('Invalid walk-in action.');}
     redirectWithFlash('view_request.php?request_id='.$id,'Walk-in client action recorded.','success');
-}catch(Throwable $e){$error=$e instanceof DomainException?$e->getMessage():'The action could not be saved. Refresh and retry.';}
+}catch(Throwable $e){$error=gsoSafeApplicationError($e, "app/controllers/admin/walkin_actions.php", 'The action could not be saved. Refresh and retry.');}
 $pageTitle='Manage Walk-in';$cssFile='../public/assets/css/pages/admin.css';require dirname(__DIR__,3).'/includes/header.php';require dirname(__DIR__,3).'/includes/admin_sidebar.php';$pending=gsoPendingReschedule($pdo,$id);$eligible=gsoRescheduleEligible($pdo,$request);?>
 <div class="main-content"><?php require_once dirname(__DIR__,3).'/includes/admin_topbar.php';?><main class="page-content"><section class="card"><h1>Manage Walk-in <?php echo htmlspecialchars(formatRequestCode($id));?></h1></section>
 <section class="card"><p><?php echo htmlspecialchars($request['walkin_full_name']);?> | Walk-in / External Client</p><?php if($error):?><p role="alert"><?php echo htmlspecialchars($error);?></p><?php endif;?>

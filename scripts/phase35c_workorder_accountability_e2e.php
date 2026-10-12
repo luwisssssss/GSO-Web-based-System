@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/test_environment_helper.php';
 $root=dirname(__DIR__);require_once $root."/config/db.php";require_once $root."/includes/work_order_helper.php";require_once $root."/includes/role_helper.php";
 final class P35cFail extends RuntimeException{} function c(bool $v,string $m):void{if(!$v)throw new P35cFail($m);} function v(PDO $p,string $q,array $a=[]):mixed{$s=$p->prepare($q);$s->execute($a);return $s->fetchColumn();}
 $mark="P35C-".strtoupper(bin2hex(random_bytes(6)));$ids=[];$res=[];$req=[];$returns=[];$checks=0;$failed=null;

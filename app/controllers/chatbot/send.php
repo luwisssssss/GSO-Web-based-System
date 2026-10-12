@@ -25,7 +25,7 @@ try {
     $result = gsoHandleChatMessage($pdo, $authUser, $conversationId, $message);
 } catch (Throwable $e) {
     // Never leak the exception text, file paths, or SQL to the browser.
-    error_log("Chatbot request failed: " . $e->getMessage());
+    gsoLogApplicationException($e, "app/controllers/chatbot/send.php");
     gsoChatFail(500, "service_error", "Sorry, the assistant is temporarily unavailable. Please try again.");
 }
 

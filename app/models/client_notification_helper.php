@@ -123,11 +123,11 @@ function gsoDeliverClientEvent(PDO $pdo, ?array $event): array
         $result=gsoSendEmail($mailConfig,$email,$name,'GSO - '.$event['title'].' - '.formatRequestCode((int)$event['request_id']),$html,$plain);
         $ok=!empty($result['success']);
         addActivityLog($pdo,(int)$event['actor'],$ok?'Client Email Sent':'Client Email Failed',$event['key']);
-        if (!$ok) error_log('GSO client email delivery could not be confirmed: '.$event['key']);
+        if (!$ok) error_log('GSO client email delivery could not be confirmed; inspect the private delivery audit.');
         return ['success'=>$ok,'skipped'=>false]; // Never expose SMTP details.
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack(); // Only the delivery claim, never business state.
-        error_log('GSO client email delivery could not be confirmed.');
+        gsoLogApplicationException($e, 'post-commit client email delivery');
         return ['success'=>false,'skipped'=>false];
     }
 }

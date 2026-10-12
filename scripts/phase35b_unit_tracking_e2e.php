@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/test_environment_helper.php';
 /**
  * Phase 3.5B end-to-end suite: mixed equipment tracking, complete release,
  * consumable issuance and per-resource return inspection.

@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/test_environment_helper.php';
 
 /** Run only with GSO_DB_NAME=gso_r1_test_* and GSO_R1_BASE_URL pointing
  * at a loopback PHP server configured for that same isolated database. */

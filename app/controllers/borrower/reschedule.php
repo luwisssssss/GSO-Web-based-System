@@ -15,7 +15,7 @@ if(($_SERVER['REQUEST_METHOD']??'GET')==='POST'){
         elseif($action==='create'){$result=gsoCreateReschedule($pdo,$userId,$requestId,$_POST);$message='Reschedule proposal submitted for GSO review. The original reservation remains active. '.($result['availability_error']!==null?'Current availability: '.$result['availability_error']:'The proposed interval is currently available; this does not guarantee approval.');}
         else throw new DomainException('Invalid reschedule action.');
         redirectWithFlash('reschedule.php?request_id='.$requestId,$message,'success');
-    }catch(Throwable $e){$error=$e instanceof DomainException?$e->getMessage():'The reschedule action could not be saved. Refresh and try again.';}
+    }catch(Throwable $e){$error=gsoSafeApplicationError($e, "app/controllers/borrower/reschedule.php", 'The reschedule action could not be saved. Refresh and try again.');}
 }
 $pending=gsoPendingReschedule($pdo,$requestId);$eligible=gsoRescheduleEligible($pdo,$request);$facility=gsoRequestFacilityLine($pdo,$requestId);$request['facility_slot']=$facility['facility_slot'];$request['resource_type']='Facility';$rescheduleHistory=gsoRescheduleHistory($pdo,$requestId);$hours=gsoFacilityOperatingHours($pdo);
 $pageTitle='Facility Reschedule';$cssFile='../public/assets/css/pages/borrower.css';require dirname(__DIR__,3).'/includes/header.php';require dirname(__DIR__,3).'/includes/borrower_sidebar.php';

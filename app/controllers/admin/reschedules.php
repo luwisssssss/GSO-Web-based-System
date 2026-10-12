@@ -12,7 +12,7 @@ if(($_SERVER['REQUEST_METHOD']??'GET')==='POST'){
         if($requestId&&$postedRequest!==$requestId)throw new DomainException('The review request identifier does not match this page.');
         gsoReviewReschedule($pdo,(int)$_SESSION['user_id'],$postedRequest,(int)($_POST['reschedule_id']??0),(string)($_POST['action']??''),$_POST);
         redirectWithFlash('reschedules.php'.($requestId?'?request_id='.$requestId:''),'Reschedule decision saved.','success');
-    }catch(Throwable $e){redirectWithFlash('reschedules.php'.($requestId?'?request_id='.$requestId:''),$e instanceof DomainException?$e->getMessage():'The reschedule decision could not be saved. Refresh and try again.');}
+    }catch(Throwable $e){redirectWithFlash('reschedules.php'.($requestId?'?request_id='.$requestId:''),gsoSafeApplicationError($e, "app/controllers/admin/reschedules.php", 'The reschedule decision could not be saved. Refresh and try again.'));}
 }
 $status=(string)($_GET['status']??($requestId?'All':'Pending'));if(!in_array($status,['All','Pending','Approved','Rejected','Cancelled'],true))$status='Pending';
 $where=[];$args=[];if($requestId){$where[]='h.request_id=?';$args[]=$requestId;}if($status!=='All'){$where[]='h.status=?';$args[]=$status;}

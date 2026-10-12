@@ -218,7 +218,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 error_log("Incident photo rollback cleanup failed. Correlation: {$correlationId}");
             }
 
-            error_log("Incident submission failed [{$correlationId}]: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/controllers/borrower/report_issue.php");
             $errors[] = "The incident could not be submitted. Reference: {$correlationId}.";
         }
 

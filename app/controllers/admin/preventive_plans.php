@@ -70,12 +70,7 @@ if (($_SERVER["REQUEST_METHOD"] ?? "GET") === "POST") {
             "success"
         );
     } catch (Throwable $e) {
-        if (!($e instanceof DomainException)) {
-            error_log("Preventive maintenance action failed: " . $e->getMessage());
-        }
-        $error = $e instanceof DomainException
-            ? $e->getMessage()
-            : "The maintenance action could not be saved. Refresh and retry.";
+        $error = gsoSafeApplicationError($e, "app/controllers/admin/preventive_plans.php", "The maintenance action could not be saved. Refresh and retry.");
     }
 }
 

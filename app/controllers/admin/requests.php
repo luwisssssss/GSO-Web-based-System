@@ -262,7 +262,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         redirectRequestsPage();
         }catch(Throwable $approvalError){
             if($pdo->inTransaction())$pdo->rollBack();
-            $_SESSION["flash_message"]=$approvalError instanceof DomainException?$approvalError->getMessage():"Approval could not be saved. Refresh and retry.";$_SESSION["flash_type"]="error";redirectRequestsPage();
+            $_SESSION["flash_message"]=gsoSafeApplicationError($approvalError, "app/controllers/admin/requests.php", "Approval could not be saved. Refresh and retry.");$_SESSION["flash_type"]="error";redirectRequestsPage();
         }
     }
 
@@ -321,11 +321,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $lockedRequest = $lockStmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$lockedRequest) {
-            throw new Exception("Request not found.");
+            throw new DomainException("Request not found.");
         }
 
         if (($lockedRequest["status"] ?? "") !== "Approved") {
-            throw new Exception("Only approved requests can be released.");
+            throw new DomainException("Only approved requests can be released.");
         }
 
         // The client presents the Claim Slip Code at the GSO Office. It is
@@ -333,7 +333,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         // any stock, unit, consumable or status change.
         if (!gsoClaimSlipMatches($lockedRequest["claim_slip_code"] ?? null, $_POST["claim_slip_code"] ?? null)) {
             $claimSlipDenied = true;
-            throw new Exception("Release denied. Enter the Claim Slip Code presented by the client; it must match this request.");
+            throw new DomainException("Release denied. Enter the Claim Slip Code presented by the client; it must match this request.");
         }
 
         // Phase 3.5A: serialized allocation, consumable issuance and per-line
@@ -344,7 +344,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $fulfilmentBlocker = gsoRequestFulfilmentBlocker($pdo, $requestId);
 
         if ($fulfilmentBlocker !== null) {
-            throw new Exception($fulfilmentBlocker);
+            throw new DomainException($fulfilmentBlocker);
         }
 
         // Lines are authoritative for what is actually handed over. Past this
@@ -363,7 +363,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $releaseLines = $releaseLinesStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         if ($releaseLines === []) {
-            throw new Exception("This request has no resource lines and cannot be released.");
+            throw new DomainException("This request has no resource lines and cannot be released.");
         }
 
         $releaseQueueBlocker = findEarlierFirstComeFirstServedRequest(
@@ -373,7 +373,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         );
 
         if ($releaseQueueBlocker) {
-            throw new Exception(buildFirstComeFirstServedMessage($releaseQueueBlocker));
+            throw new DomainException(buildFirstComeFirstServedMessage($releaseQueueBlocker));
         }
 
         $requestRow = $lockedRequest;
@@ -407,17 +407,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $lineResource = $resourceStmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$lineResource) {
-                throw new Exception("A requested resource no longer exists.");
+                throw new DomainException("A requested resource no longer exists.");
             }
 
             $lineName = (string) $lineResource["resource_name"];
 
             if ((int) ($lineResource["is_archived"] ?? 0) === 1) {
-                throw new Exception("{$lineName} is archived and cannot be released.");
+                throw new DomainException("{$lineName} is archived and cannot be released.");
             }
 
             if ((string) $lineResource["status"] !== "Available") {
-                throw new Exception("{$lineName} is not available for release.");
+                throw new DomainException("{$lineName} is not available for release.");
             }
 
             // Schedule and stock availability are revalidated per line through
@@ -434,7 +434,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             );
 
             if (!($availability["ok"] ?? false)) {
-                throw new Exception($lineName . ": " . (string) ($availability["message"] ?? "no longer available."));
+                throw new DomainException($lineName . ": " . (string) ($availability["message"] ?? "no longer available."));
             }
 
             if ($lineKind === "Facility") {
@@ -447,7 +447,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             }
 
             if ((string) $lineResource["condition_status"] !== "Good") {
-                throw new Exception("{$lineName} cannot be released because its condition is not good.");
+                throw new DomainException("{$lineName} cannot be released because its condition is not good.");
             }
 
             if ($lineKind === "Consumable") {
@@ -457,7 +457,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $availableStock = (int) ($lineResource["available_stock"] ?? 0);
 
                 if ($availableStock < $lineQuantity) {
-                    throw new Exception("Not enough {$lineName} in stock to issue.");
+                    throw new DomainException("Not enough {$lineName} in stock to issue.");
                 }
 
                 $pdo->prepare("
@@ -492,7 +492,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 )));
 
                 if (count($chosen) !== $lineQuantity) {
-                    throw new Exception(
+                    throw new DomainException(
                         "Select exactly {$lineQuantity} unit(s) of {$lineName} to issue."
                     );
                 }
@@ -506,13 +506,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     $unit = $unitStmt->fetch(PDO::FETCH_ASSOC);
 
                     if (!$unit || (int) $unit["resource_id"] !== $lineResourceId) {
-                        throw new Exception("A selected unit does not belong to {$lineName}.");
+                        throw new DomainException("A selected unit does not belong to {$lineName}.");
                     }
 
                     if ((string) $unit["status"] !== "Available"
                         || (string) $unit["condition_status"] !== "Good"
                     ) {
-                        throw new Exception("Unit {$unit['asset_tag']} is not available for release.");
+                        throw new DomainException("Unit {$unit['asset_tag']} is not available for release.");
                     }
 
                     $unitRange=buildRequestDateRange('Item',$dateNeeded,$startTime,$endTime,$requestRow['due_date']??null);
@@ -525,7 +525,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     $claim->execute([":unit_id" => $unitId]);
 
                     if ($claim->rowCount() !== 1) {
-                        throw new Exception("Unit {$unit['asset_tag']} was taken by another release.");
+                        throw new DomainException("Unit {$unit['asset_tag']} was taken by another release.");
                     }
 
                     $pdo->prepare("
@@ -552,7 +552,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $availableStock = (int) ($lineResource["available_stock"] ?? 0);
 
             if ($availableStock < $lineQuantity) {
-                throw new Exception("Not enough {$lineName} in stock for release.");
+                throw new DomainException("Not enough {$lineName} in stock for release.");
             }
 
             $deduct = $pdo->prepare("
@@ -567,7 +567,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             ]);
 
             if ($deduct->rowCount() !== 1) {
-                throw new Exception("{$lineName} stock changed during release.");
+                throw new DomainException("{$lineName} stock changed during release.");
             }
 
             $pdo->prepare("UPDATE request_items SET released_quantity = :qty WHERE request_item_id = :id")
@@ -625,7 +625,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         // concurrent release affects zero rows and the whole transaction is
         // rolled back - no duplicate issuance, no second unit allocation.
         if ($updateRequestStmt->rowCount() !== 1) {
-            throw new Exception("This request was already updated. Please refresh the page.");
+            throw new DomainException("This request was already updated. Please refresh the page.");
         }
 
         foreach ($releaseLines as $releaseLine) {
@@ -690,7 +690,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             addActivityLog($pdo, $adminUserId, "Claim Slip Verification Failed", "Release of request #{$requestId} was denied: the presented Claim Slip Code did not match.");
         }
 
-        $_SESSION["flash_message"] = $e->getMessage();
+        $_SESSION["flash_message"] = gsoSafeApplicationError($e, "app/controllers/admin/requests.php");
         $_SESSION["flash_type"] = "error";
     }
 

@@ -120,7 +120,7 @@ if (!function_exists("getUnderRepairQuantity")) {
 
             return max(0, (int) $stmt->fetchColumn());
         } catch (Throwable $e) {
-            error_log("Under-repair lookup failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/maintenance_helper.php");
             return 0;
         }
     }

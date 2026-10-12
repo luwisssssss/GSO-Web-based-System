@@ -12,7 +12,7 @@ $mailConfig = [
 ];
 
 $localMailConfig = __DIR__ . "/mail.local.php";
-if (is_file($localMailConfig)) {
+if (!gsoProductionEnvironment() && is_file($localMailConfig)) {
     $localOverrides = require $localMailConfig;
 
     if (is_array($localOverrides)) {

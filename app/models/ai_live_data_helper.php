@@ -726,7 +726,7 @@ if (!function_exists("gsoChatSavePendingIntent")) {
                 ":message" => $payload,
             ]);
         } catch (Throwable $e) {
-            error_log("Pending intent save failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/ai_live_data_helper.php");
         }
     }
 }
@@ -740,7 +740,7 @@ if (!function_exists("gsoChatClearPendingIntent")) {
                 VALUES (:conversation_id, 'system', '{}', 'pending_cleared')
             ")->execute([":conversation_id" => $conversationId]);
         } catch (Throwable $e) {
-            error_log("Pending intent clear failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/ai_live_data_helper.php");
         }
     }
 }
@@ -770,7 +770,7 @@ if (!function_exists("gsoChatLoadPendingIntent")) {
             $stmt->execute([":conversation_id" => $conversationId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
         } catch (Throwable $e) {
-            error_log("Pending intent lookup failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/models/ai_live_data_helper.php");
             return null;
         }
 

@@ -157,7 +157,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $validatedLetter = null;
         if ($scheduleType === "Facility") {
             try { $validatedLetter=gsoValidateRequestLetter($_FILES["request_letter"]??[]); }
-            catch (DomainException $e) { $errors[]=$e->getMessage(); }
+            catch (DomainException $e) { $errors[]=gsoSafeApplicationError($e, "app/controllers/borrower/request_resource.php"); }
         }
 
         // Per-line duplicate and availability checks. Availability runs through
@@ -350,8 +350,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 }
 
                 if ($storedLetter) @unlink($storedLetter["path"]);
-                error_log("Combined request submission failed: " . $submissionError->getMessage());
-                $message = "The request could not be submitted. Please review your selected resources and try again.";
+                $message = gsoSafeApplicationError($submissionError, "request creation", "The request could not be submitted. Please review your selected resources and try again.");
                 $messageType = "error";
             }
         }

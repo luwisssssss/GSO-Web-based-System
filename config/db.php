@@ -19,13 +19,9 @@ try {
         PDO::ATTR_EMULATE_PREPARES => false,
     ]);
 } catch (PDOException $e) {
-    error_log("GSO database connection failed: " . $e->getMessage());
-
-    if (gsoEnvBool("GSO_APP_DEBUG", false)) {
-        die("Database connection failed: " . $e->getMessage());
-    }
-
-    die("Database connection failed. Check your environment configuration.");
+    $message = gsoSafeApplicationError($e, "database connection", "Database connection failed. Please contact the administrator.");
+    if (PHP_SAPI !== "cli") http_response_code(503);
+    exit($message);
 }
 
 require_once __DIR__ . "/../includes/schema_helper.php";
@@ -43,17 +39,13 @@ if (!defined("GSO_SCHEMA_TOOL")) {
             syncMaintenanceSchedules($pdo);
         }
     } catch (Throwable $e) {
-        error_log("GSO database initialization failed: " . $e->getMessage());
+        $message = gsoSafeApplicationError($e, "database initialization", "The system is temporarily unavailable while its database is being updated. Please contact the administrator.");
 
         if (PHP_SAPI !== "cli") {
             http_response_code(503);
         }
 
-        if (PHP_SAPI === "cli" || gsoEnvBool("GSO_APP_DEBUG", false)) {
-            die("Database initialization failed: " . $e->getMessage() . PHP_EOL);
-        }
-
-        die("The system is temporarily unavailable while its database is being updated. Please contact the administrator.");
+        exit($message . (PHP_SAPI === "cli" ? PHP_EOL : ""));
     }
 }
 ?>

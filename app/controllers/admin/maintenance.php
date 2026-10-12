@@ -304,14 +304,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
-            $_SESSION["flash_message"] = $exception->getMessage();
+            $_SESSION["flash_message"] = gsoSafeApplicationError($exception, "app/controllers/admin/maintenance.php");
             $_SESSION["flash_type"] = "error";
         } catch (Throwable $exception) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
-            error_log("Maintenance scheduling failed [{$correlationId}]: " . $exception->getMessage());
-            $_SESSION["flash_message"] = "The maintenance schedule could not be saved. Reference: {$correlationId}.";
+            $_SESSION["flash_message"] = gsoSafeApplicationError($exception, "maintenance scheduling", "The maintenance schedule could not be saved. Please try again.");
             $_SESSION["flash_type"] = "error";
         }
         redirectMaintenancePage();
@@ -387,7 +386,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $pdo->rollBack();
             }
 
-            error_log("Maintenance schedule update failed: " . $e->getMessage());
+            gsoLogApplicationException($e, "app/controllers/admin/maintenance.php");
             $success = false;
         }
 
