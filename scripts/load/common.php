@@ -1,12 +1,12 @@
 <?php
-/** Phase A tools only. No application request may execute these scripts. */
+/** Phase A/B test tools only. No application request may execute these scripts. */
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 $loadRoot = dirname(__DIR__, 2);
 require_once $loadRoot . '/config/bootstrap.php';
 if (gsoEnv('GSO_APP_ENV') !== 'test') throw new RuntimeException('Explicit test environment required.');
 function loadDatabaseName(): string {
     $name = (string) gsoEnv('GSO_DB_NAME', '');
-    if (!preg_match('/\Agso_load_test_[0-9]{8}_[0-9]{6}\z/', $name)) throw new RuntimeException('Isolated gso_load_test timestamp required.');
+    if (!preg_match('/\Agso_load_test_(?:phase_b_)?[0-9]{8}_[0-9]{6}\z/', $name)) throw new RuntimeException('Isolated gso_load_test timestamp required.');
     return $name;
 }
 function loadConnection(bool $selectDatabase = true): PDO {
@@ -44,6 +44,8 @@ function loadSnapshot(PDO $pdo): array {
         $order=implode(',',array_map(fn($r)=>'`'.$r['Column_name'].'`',$indexes));
         $rows=$pdo->query("SELECT * FROM `$table`".($order?' ORDER BY '.$order:''))->fetchAll();
         $create=$pdo->query("SHOW CREATE TABLE `$table`")->fetch(PDO::FETCH_NUM)[1];
+        // AUTO_INCREMENT position is data state, not schema structure.
+        $create=preg_replace('/ AUTO_INCREMENT=\d+/', '', $create);
         $result[$table]=['rows'=>count($rows),'data_hash'=>hash('sha256',serialize($rows)),'schema_hash'=>hash('sha256',$create)];
     }
     return $result;

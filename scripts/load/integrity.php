@@ -31,8 +31,19 @@ $orphanDetails=[];foreach($groups as $key=>$columns){$first=$columns[0];$nonnull
     $count=(int)$pdo->query('SELECT COUNT(*) FROM `'.$first['TABLE_NAME'].'` c WHERE '.implode(' AND ',$nonnull).' AND NOT EXISTS(SELECT 1 FROM `'.$first['REFERENCED_TABLE_NAME'].'` p WHERE '.implode(' AND ',$join).')')->fetchColumn();$orphanDetails[$key]=$count;}
 $results['foreign_keys_checked']=count($groups);$results['orphan_rows_by_fk']=$orphanDetails;$results['violations']['orphan_rows']=array_sum($orphanDetails);
 foreach($manifest['resources']['Consumable'] as $id){$issued=(int)$pdo->query('SELECT COALESCE(SUM(issued_quantity),0) FROM request_items WHERE resource_id='.(int)$id)->fetchColumn();$total=(int)$pdo->query('SELECT total_stock FROM resources WHERE resource_id='.(int)$id)->fetchColumn();$results['violations']['consumable_issuance_'.$id]=(int)($manifest['base_stock'][$id]-$issued!==$total);}
-$snapshot=loadSnapshot($pdo);$seed=json_decode(file_get_contents($dir.'/seed_snapshot.json'),true);$changed=[];
-foreach($snapshot as $table=>$meta)if(!in_array($table,['activity_logs','login_attempts'],true)&&$meta!==$seed[$table])$changed[]=$table;
+$snapshot=loadSnapshot($pdo);$seed=json_decode(file_get_contents($dir.'/seed_snapshot.json'),true);$changed=[];$schemaChanged=[];
+$phaseB=str_starts_with(loadDatabaseName(),'gso_load_test_phase_b_');
+$allowedChanges=$phaseB?['activity_logs','login_attempts','ai_conversations','ai_messages']:['activity_logs','login_attempts'];
+foreach($snapshot as $table=>$meta){
+    if(!in_array($table,$allowedChanges,true)&&$meta!==$seed[$table])$changed[]=$table;
+    if($meta['schema_hash']!==$seed[$table]['schema_hash'])$schemaChanged[]=$table;
+}
+$results['schema_changed_tables']=$schemaChanged;$results['violations']['schema_fingerprint_changes']=count($schemaChanged);
+if($phaseB){
+    $results['violations']['chat_conversation_owner']=(int)$pdo->query("SELECT COUNT(*) FROM ai_conversations c JOIN users u ON u.user_id=c.user_id WHERE u.role<>'Borrower'")->fetchColumn();
+    $results['violations']['chat_message_pairs']=(int)$pdo->query("SELECT COUNT(*) FROM (SELECT conversation_id FROM ai_messages GROUP BY conversation_id HAVING SUM(sender_type='user')<>SUM(sender_type='assistant') OR SUM(sender_type='system')<>0) x")->fetchColumn();
+    $results['chat_counts']=$pdo->query('SELECT sender_type,COUNT(*) AS count FROM ai_messages GROUP BY sender_type')->fetchAll();
+}
 $results['violations']['unexpected_business_table_changes']=count($changed);$results['changed_business_tables']=$changed;
 $results['status_counts']=$pdo->query('SELECT status,COUNT(*) AS count FROM resource_requests GROUP BY status')->fetchAll();
 $results['activity_logs']=(int)$pdo->query('SELECT COUNT(*) FROM activity_logs')->fetchColumn();
@@ -40,7 +51,7 @@ $results['failed_login_attempts']=(int)$pdo->query('SELECT COUNT(*) FROM login_a
 $results['unexpected_application_events']=$pdo->query("SELECT action,COUNT(*) AS count FROM activity_logs WHERE action<>'Login Success' GROUP BY action")->fetchAll();
 $results['violations']['failed_logins']=$results['failed_login_attempts'];$results['violations']['unexpected_application_events']=count($results['unexpected_application_events']);
 $pdo->rollBack();$results['passed']=array_sum($results['violations'])===0;
-$stage=getenv('GSO_LOAD_STAGE')?:'after';if(!in_array($stage,['before','baseline','five'],true))throw new RuntimeException('Unknown integrity stage.');
+$stage=getenv('GSO_LOAD_STAGE')?:'after';if(!in_array($stage,['before','baseline','five','ten','fifteen'],true))throw new RuntimeException('Unknown integrity stage.');
 file_put_contents($dir.'/integrity_'.$stage.'.json',json_encode($results,JSON_PRETTY_PRINT));
 echo json_encode(['stage'=>$stage,'passed'=>$results['passed'],'foreign_keys_checked'=>count($groups),'violations'=>$results['violations']]),PHP_EOL;
 exit($results['passed']?0:1);
