@@ -1,12 +1,12 @@
 <?php
-/** Phase A/B test tools only. No application request may execute these scripts. */
+/** Isolated load/race-test CLI tools. No application request may execute these scripts. */
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 $loadRoot = dirname(__DIR__, 2);
 require_once $loadRoot . '/config/bootstrap.php';
 if (gsoEnv('GSO_APP_ENV') !== 'test') throw new RuntimeException('Explicit test environment required.');
 function loadDatabaseName(): string {
     $name = (string) gsoEnv('GSO_DB_NAME', '');
-    if (!preg_match('/\Agso_load_test_(?:phase_b_|phase_c1_)?[0-9]{8}_[0-9]{6}\z/', $name)) throw new RuntimeException('Isolated gso_load_test timestamp required.');
+    if (!preg_match('/\Agso_load_test_(?:phase_b_|phase_c1_|phase_c2a_)?[0-9]{8}_[0-9]{6}\z/', $name)) throw new RuntimeException('Isolated gso_load_test timestamp required.');
     return $name;
 }
 function loadConnection(bool $selectDatabase = true): PDO {

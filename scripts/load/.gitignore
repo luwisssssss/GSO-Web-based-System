@@ -4,3 +4,5 @@ latest-phase-b-evidence.txt
 latest-phase-c1-evidence.txt
 # Reviewed synthetic timing evidence only; other CSV exports remain ignored.
 !phase_c1_timings.csv
+latest-phase-c2a-evidence.txt
+!phase_c2a_timings.csv
