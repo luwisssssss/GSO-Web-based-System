@@ -6,7 +6,7 @@ require_once $loadRoot . '/config/bootstrap.php';
 if (gsoEnv('GSO_APP_ENV') !== 'test') throw new RuntimeException('Explicit test environment required.');
 function loadDatabaseName(): string {
     $name = (string) gsoEnv('GSO_DB_NAME', '');
-    if (!preg_match('/\Agso_load_test_(?:phase_b_)?[0-9]{8}_[0-9]{6}\z/', $name)) throw new RuntimeException('Isolated gso_load_test timestamp required.');
+    if (!preg_match('/\Agso_load_test_(?:phase_b_|phase_c1_)?[0-9]{8}_[0-9]{6}\z/', $name)) throw new RuntimeException('Isolated gso_load_test timestamp required.');
     return $name;
 }
 function loadConnection(bool $selectDatabase = true): PDO {

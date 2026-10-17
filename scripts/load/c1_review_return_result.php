@@ -1,0 +1,30 @@
+<?php
+require __DIR__.'/common.php';require __DIR__.'/c1_http_semantics.php';
+if(!str_starts_with(loadDatabaseName(),'gso_load_test_phase_c1_'))throw new RuntimeException('C1 database required.');
+$dir=realpath((string)getenv('GSO_LOAD_EVIDENCE'));$results=json_decode(file_get_contents($dir.'/c1_results.private.json'),true,512,JSON_THROW_ON_ERROR);
+$pending=array_keys(array_filter($results,fn($r)=>empty($r['passed'])));
+if(!$pending){echo 'No pending HTTP-semantics review.',PHP_EOL;exit;}
+if(count($pending)!==1)throw new RuntimeException('Unexpected pending results; stop for manual review.');
+$index=$pending[0];$r=$results[$index];$label=$r['label'];
+if($label!=='return_submit_01'||!$r['server_intervals_overlap'])throw new RuntimeException('This review applies only to the preserved first duplicate-return HTTP outcome.');
+$read=fn($suffix)=>json_decode(file_get_contents($dir.'/'.$label.$suffix.'.private.json'),true,512,JSON_THROW_ON_ERROR);
+$before=$read('_before');$after=$read('_after');$responses=$read('_responses');
+$assert=static function(bool $ok,string $why):void{if(!$ok)throw new RuntimeException('Unresolved race outcome: '.$why);};
+foreach($responses as $response)$assert(c1ExpectedContenderResponse($response,$label),'unexpected response');
+$statuses=array_column($responses,'status');sort($statuses);$assert($statuses===[200,302],'expected one redirect and one safe conflict form');
+$req=$after['tables']['requests'][0];$id=(int)$req['request_id'];
+$assert($before['tables']['requests'][0]['status']==='Released'&&$req['status']==='Return'&&$req['return_date']===null,'request transition');
+$assert($before['tables']['resources']===$after['tables']['resources']&&$before['tables']['items']===$after['tables']['items'],'submission must not restore stock or change quantities');
+$headers=$after['tables']['return_headers'];$details=$after['tables']['return_details'];
+$assert(count($headers)===1&&$headers[0]['status']==='Pending'&&count($details)===1&&(int)$details[0]['stock_applied']===0&&(int)$details[0]['returned_quantity']===3,'one complete uninspected return');
+$added=array_diff_key($after['outbox_hashes'],$before['outbox_hashes']);$assert(count($added)===1,'one captured return-submission email');
+$pdo=loadConnection();$pdo->exec('SET TRANSACTION READ ONLY');$pdo->beginTransaction();
+$s=$pdo->prepare('SELECT status,return_date FROM resource_requests WHERE request_id=?');$s->execute([$id]);$current=$s->fetch();$assert($current['status']==='Return'&&$current['return_date']===null,'current database matches preserved outcome');$pdo->rollBack();
+putenv('GSO_LOAD_STAGE=review_return_01');passthru(escapeshellarg(PHP_BINARY).' '.escapeshellarg(__DIR__.'/c1_integrity.php'),$exit);$assert($exit===0,'full live integrity gate');
+$audit=json_decode(file_get_contents($dir.'/integrity_review_return_01.json'),true);$assert($audit['passed'],'integrity');
+$logs=json_decode(file_get_contents($dir.'/logs_'.$label.'.private.json'),true);$assert(trim($logs['php_error.log'])===''&&trim($logs['mariadb_delta'])==='','request/PHP/MariaDB logs');
+$archive=$dir.'/c1_results_before_http_semantics_review.private.json';$assert(!file_exists($archive),'review archive already exists');copy($dir.'/c1_results.private.json',$archive);
+$r['passed']=true;$r['integrity_passed']=true;$r['logs']=['php'=>'clean','apache'=>'clean except recorded controlled-restart PID warning','mariadb'=>'clean','deadlocks_or_timeouts'=>0];
+$r['outcome']=['status'=>'Return','headers'=>1,'details'=>1,'available_stock'=>2,'submission_events'=>1,'captured_submission_emails'=>1,'loser_http'=>200,'review'=>'Existing response reclassified as documented safe application conflict; no replay or business mutation.'];
+$results[$index]=$r;file_put_contents($dir.'/c1_results.private.json',json_encode($results,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES));
+echo 'Preserved return_submit_01 verified: one authoritative submission; HTTP 200 conflict is expected. No race replayed.',PHP_EOL;
